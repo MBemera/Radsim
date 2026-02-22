@@ -162,7 +162,7 @@ if ($pathNeedsUpdate) {
 }
 
 Write-Host "  Run RadSim:" -ForegroundColor White
-Write-Host '     radsim "Create a Python function to validate emails"' -ForegroundColor Cyan
+Write-Host "     radsim" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  On first run, RadSim will guide you through setup" -ForegroundColor Gray
 Write-Host "  (provider selection, API key, preferences)." -ForegroundColor Gray

@@ -191,7 +191,7 @@ if [[ "$PATH_UPDATED" == "yes" ]]; then
 fi
 
 echo "  Run RadSim:"
-echo '     radsim "Create a Python function to validate emails"'
+echo "     radsim"
 echo ""
 echo "  On first run, RadSim will guide you through setup"
 echo "  (provider selection, API key, preferences)."

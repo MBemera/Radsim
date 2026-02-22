@@ -221,7 +221,7 @@ def print_next_steps(os_type, path_updated):
         print()
 
     print("  Run RadSim:")
-    print('     radsim "Create a Python function to validate emails"')
+    print("     radsim")
     print()
     print("  On first run, RadSim will guide you through setup")
     print("  (provider selection, API key, preferences).")
