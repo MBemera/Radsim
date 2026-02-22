@@ -476,4 +476,4 @@ Free to use, modify, and distribute. See [LICENSE](LICENSE), [DISCLAIMER.md](DIS
 ---
 
 <p align="center"><strong>RadSim — Because simplicity scales.</strong><br>
-Maintained by <a href="https://github.com/emera-digital">EMERA DIGITAL TOOLS</a></p>
+Maintained by <a href="https://github.com/MBemera">MBemera</a></p>
