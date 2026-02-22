@@ -1,6 +1,6 @@
 #!/bin/bash
 # RadSim Installer for macOS and Linux
-# Install: curl -fsSL https://raw.githubusercontent.com/emera-digital/radsim/main/install.sh | bash
+# Install: curl -fsSL https://raw.githubusercontent.com/MBemera/Radsim/main/install.sh | bash
 # Usage: ./install.sh [--extras all|openai|browser|memory]
 
 set -e

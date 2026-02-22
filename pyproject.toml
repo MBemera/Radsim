@@ -54,8 +54,8 @@ dev = [
 radsim = "radsim.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/emera-digital/radsim"
-Documentation = "https://github.com/emera-digital/radsim#readme"
+Homepage = "https://github.com/MBemera/Radsim"
+Documentation = "https://github.com/MBemera/Radsim#readme"
 
 [tool.hatch.build.targets.wheel]
 packages = ["radsim"]

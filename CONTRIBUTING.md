@@ -5,7 +5,7 @@ Thank you for your interest in contributing to RadSim.
 ## Getting Started
 
 ```bash
-git clone https://github.com/emera-digital/radsim.git
+git clone https://github.com/MBemera/Radsim.git
 cd radsim
 pip install -e ".[dev]"
 ```

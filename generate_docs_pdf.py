@@ -48,7 +48,7 @@ class RadSimDoc(FPDF):
         self.set_y(-15)
         self.set_font("Helvetica", "I", 7)
         self.set_text_color(160, 160, 160)
-        self.cell(0, 10, "Emera Digital Tools  |  github.com/emera-digital/radsim", align="C")
+        self.cell(0, 10, "Emera Digital Tools  |  github.com/MBemera/Radsim", align="C")
 
     # ── Helper for Page Breaks ──
 

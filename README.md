@@ -8,7 +8,7 @@
   <a href="https://pypi.org/project/radsim/"><img src="https://img.shields.io/pypi/v/radsim?color=blue&label=version" alt="PyPI version"></a>
   <a href="https://pypi.org/project/radsim/"><img src="https://img.shields.io/pypi/pyversions/radsim" alt="Python versions"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
-  <a href="https://github.com/emera-digital/radsim/releases"><img src="https://img.shields.io/badge/version-1.1.0-blue" alt="Version"></a>
+  <a href="https://github.com/MBemera/Radsim/releases"><img src="https://img.shields.io/badge/version-1.1.0-blue" alt="Version"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="Platforms">
 </p>
 
@@ -46,7 +46,7 @@ RadSim is a **standalone CLI coding agent** — like Claude Code or GitHub Copil
 ### macOS / Linux
 
 ```bash
-git clone https://github.com/emera-digital/radsim.git
+git clone https://github.com/MBemera/Radsim.git
 cd radsim
 ./install.sh
 ```
@@ -56,7 +56,7 @@ cd radsim
 ### Windows (PowerShell)
 
 ```powershell
-git clone https://github.com/emera-digital/radsim.git
+git clone https://github.com/MBemera/Radsim.git
 cd radsim
 .\install.ps1
 ```
