@@ -103,6 +103,27 @@ esac
 
 echo "[OK] Platform: $OS_NAME ($(uname -m))"
 
+# Check for existing configuration
+RADSIM_CONFIG_DIR="$HOME/.radsim"
+if [[ -d "$RADSIM_CONFIG_DIR" ]]; then
+    echo ""
+    echo "[!!] Existing RadSim configuration found at ~/.radsim/"
+    echo ""
+    echo "  Options:"
+    echo "    1) Fresh install - remove old config and run setup again"
+    echo "    2) Keep config   - preserve existing settings and API keys"
+    echo ""
+    read -r -p "  Choose [1/2] (default: 1): " CONFIG_CHOICE
+    CONFIG_CHOICE="${CONFIG_CHOICE:-1}"
+
+    if [[ "$CONFIG_CHOICE" == "1" ]]; then
+        rm -rf "$RADSIM_CONFIG_DIR"
+        echo "[OK] Old configuration removed. Setup will run on first launch."
+    else
+        echo "[OK] Keeping existing configuration."
+    fi
+fi
+
 # Determine script directory (where the repo was cloned)
 SCRIPT_DIR=""
 if [[ -n "${BASH_SOURCE[0]}" ]]; then
