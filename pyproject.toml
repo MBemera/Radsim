@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "radsim"
+version = "1.1.0"
+description = "RadSim - Radically Simple Code Generator"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Matthew Bright" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "anthropic>=0.40.0,<1.0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.50.0,<2.0"]
+gemini = ["google-generativeai>=0.8.0,<1.0"]
+browser = [
+    "playwright>=1.40.0,<2.0",
+]
+memory = [
+    "chromadb>=0.4.0,<1.0",
+]
+vector = [
+    "chromadb>=0.4.0,<1.0",
+]
+all = [
+    "openai>=1.50.0,<2.0",
+    "google-generativeai>=0.8.0,<1.0",
+    "playwright>=1.40.0,<2.0",
+    "chromadb>=0.4.0,<1.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.4.0",
+]
+
+[project.scripts]
+radsim = "radsim.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/emera-digital/radsim"
+Documentation = "https://github.com/emera-digital/radsim#readme"
+
+[tool.hatch.build.targets.wheel]
+packages = ["radsim"]
+
+[tool.hatch.build.targets.sdist]
+include = ["radsim/", "LICENSE", "README.md"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "N806",   # Variable in function should be lowercase (intentional CONSTANT pattern)
+    "N818",   # Exception name should end with Error (intentional naming for control flow)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["radsim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"

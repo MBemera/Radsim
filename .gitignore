@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+*.egg
+*.egg-info/
+build/
+dist/
+sdist/
+wheels/
+*.whl
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Secrets & Credentials - NEVER commit these
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+secrets/
+
+# OS Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDEs & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# Claude Code
+.claude/
+
+# Linters & Testing
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Generated files
+*.pdf
+
+# Logs
+*.log
+logs/
+
+# Local config
+.radsim/

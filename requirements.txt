@@ -1,0 +1,14 @@
+# Core dependencies - PINNED for production stability
+anthropic==0.42.0
+
+# Optional providers - PINNED versions
+openai==1.58.0
+google-generativeai==0.8.3
+playwright==1.49.0
+
+# Development - PINNED versions
+pytest==8.3.4
+ruff==0.8.4
+
+# Note: Run `pip freeze > requirements.txt` before deployment
+# to capture exact versions from your environment

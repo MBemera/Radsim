@@ -1,0 +1,24 @@
+RadSim - Radical Simplicity CLI Agent
+Copyright (c) 2024-2026 Matthew Bright
+
+Licensed under the MIT License. See LICENSE file for details.
+
+Project: https://github.com/emera-digital/radsim
+Author: Matthew Bright
+Organization: Emera Digital Tools
+
+Third-Party Dependencies
+========================
+
+This project uses the following third-party libraries:
+
+- anthropic (MIT License) - Anthropic Python SDK
+- openai (MIT License) - OpenAI Python SDK
+- google-generativeai (Apache 2.0) - Google Generative AI SDK
+- playwright (Apache 2.0) - Browser automation
+- chromadb (Apache 2.0) - Vector database
+- pytest (MIT License) - Testing framework
+- ruff (MIT License) - Python linter and formatter
+- hatchling (MIT License) - Build system
+
+Each dependency is subject to its own license terms.

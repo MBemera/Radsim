@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RadSim Terminal Screenshots</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; font-family: 'Menlo', 'Monaco', 'Courier New', monospace; padding: 40px; }
+
+  .terminal-window {
+    background: #0d0d0d;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.08);
+    margin-bottom: 40px;
+    width: 780px;
+  }
+
+  .terminal-titlebar {
+    background: #2d2d2d;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid #1a1a1a;
+  }
+
+  .dot { width: 13px; height: 13px; border-radius: 50%; }
+  .dot-red   { background: #ff5f57; }
+  .dot-yellow{ background: #ffbd2e; }
+  .dot-green { background: #28c941; }
+
+  .terminal-title {
+    flex: 1;
+    text-align: center;
+    color: #888;
+    font-size: 13px;
+    margin-left: -39px;
+  }
+
+  .terminal-body {
+    padding: 24px 28px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #e0e0e0;
+    min-height: 80px;
+  }
+
+  .prompt { color: #7aa2f7; }
+  .cmd    { color: #c0caf5; }
+  .ok     { color: #9ece6a; }
+  .err    { color: #f7768e; }
+  .info   { color: #e0af68; }
+  .dim    { color: #565f89; }
+  .white  { color: #ffffff; }
+  .cyan   { color: #7dcfff; }
+  .magenta{ color: #bb9af7; }
+  .green  { color: #9ece6a; }
+  .blue   { color: #7aa2f7; }
+  .yellow { color: #e0af68; }
+  .gray   { color: #9aa5ce; }
+  .bold   { font-weight: bold; }
+
+  .line { display: block; }
+  .indent { margin-left: 20px; }
+  .indent2 { margin-left: 40px; }
+  .spacer { display: block; height: 4px; }
+
+  /* Screenshot containers */
+  #screenshot-1, #screenshot-2, #screenshot-3, #screenshot-4 {
+    display: inline-block;
+  }
+</style>
+</head>
+<body>
+
+<!-- Screenshot 1: Install & Version -->
+<div class="terminal-window" id="screenshot-1">
+  <div class="terminal-titlebar">
+    <span class="dot dot-red"></span>
+    <span class="dot dot-yellow"></span>
+    <span class="dot dot-green"></span>
+    <span class="terminal-title">bash — radsim install</span>
+  </div>
+  <div class="terminal-body">
+    <span class="line"><span class="prompt">$</span> <span class="cmd">git clone https://github.com/emera-digital/radsim.git</span></span>
+    <span class="line dim">Cloning into 'radsim'...</span>
+    <span class="line dim">remote: Enumerating objects: 142, done.</span>
+    <span class="line dim">Resolving deltas: 100% (98/98), done.</span>
+    <span class="spacer"></span>
+    <span class="line"><span class="prompt">$</span> <span class="cmd">cd radsim &amp;&amp; ./install.sh</span></span>
+    <span class="spacer"></span>
+    <span class="line dim">  +-------------------------------------+</span>
+    <span class="line dim">  |         RadSim Installer            |</span>
+    <span class="line dim">  |   Radically Simple Code Generator   |</span>
+    <span class="line dim">  +-------------------------------------+</span>
+    <span class="spacer"></span>
+    <span class="line"><span class="ok">[OK]</span> Python 3.12.3 detected</span>
+    <span class="line"><span class="ok">[OK]</span> pip available</span>
+    <span class="line"><span class="ok">[OK]</span> Platform: Linux (x86_64)</span>
+    <span class="line"><span class="info">[..]</span> Installing RadSim...</span>
+    <span class="line"><span class="ok">[OK]</span> RadSim installed</span>
+    <span class="line"><span class="ok">[OK]</span> 'radsim' command is available</span>
+    <span class="spacer"></span>
+    <span class="line dim">================================================</span>
+    <span class="line green bold">  RadSim installed successfully!</span>
+    <span class="line dim">================================================</span>
+    <span class="spacer"></span>
+    <span class="line"><span class="prompt">$</span> <span class="cmd">radsim --version</span></span>
+    <span class="line cyan">RadSim 1.1.0</span>
+  </div>
+</div>
+
+<!-- Screenshot 2: First run / Onboarding -->
+<div class="terminal-window" id="screenshot-2">
+  <div class="terminal-titlebar">
+    <span class="dot dot-red"></span>
+    <span class="dot dot-yellow"></span>
+    <span class="dot dot-green"></span>
+    <span class="terminal-title">bash — radsim setup</span>
+  </div>
+  <div class="terminal-body">
+    <span class="line"><span class="prompt">$</span> <span class="cmd">radsim</span></span>
+    <span class="spacer"></span>
+    <span class="line cyan bold">  ____           _ ____  _</span>
+    <span class="line cyan bold"> |  _ \ __ _  __| / ___|(_)_ __ ___</span>
+    <span class="line cyan bold"> | |_) / _` |/ _` \___ \| | '_ ` _ \</span>
+    <span class="line cyan bold"> |  _ < (_| | (_| |___) | | | | | | |</span>
+    <span class="line cyan bold"> |_| \_\__,_|\__,_|____/|_|_| |_| |_|</span>
+    <span class="spacer"></span>
+    <span class="line yellow bold">  Welcome to RadSim v1.1.0 — Radically Simple Code</span>
+    <span class="spacer"></span>
+    <span class="line white">Choose a provider:</span>
+    <span class="spacer"></span>
+    <span class="line"><span class="cyan">  1.</span> Claude (Anthropic)   <span class="dim">— Recommended for coding</span></span>
+    <span class="line"><span class="cyan">  2.</span> OpenAI (GPT-5)       <span class="dim">— Versatile, multimodal</span></span>
+    <span class="line"><span class="cyan">  3.</span> Gemini (Google)      <span class="dim">— Huge context window</span></span>
+    <span class="line"><span class="cyan">  4.</span> Vertex AI (GCP)      <span class="dim">— Google Cloud hosted</span></span>
+    <span class="line"><span class="cyan">  5.</span> OpenRouter           <span class="dim">— Cheapest option</span></span>
+    <span class="spacer"></span>
+    <span class="line"><span class="prompt">Select [1-5]:</span> <span class="cmd">1</span></span>
+    <span class="spacer"></span>
+    <span class="line white">Enter your Anthropic API key:</span>
+    <span class="line"><span class="prompt">API Key:</span> <span class="dim">sk-ant-••••••••••••••••</span></span>
+    <span class="spacer"></span>
+    <span class="line"><span class="ok">[OK]</span> API key saved to ~/.radsim/.env (chmod 600)</span>
+    <span class="line"><span class="ok">[OK]</span> Provider: Claude — Model: claude-sonnet-4-5</span>
+    <span class="line green bold">  Setup complete! You're ready to code.</span>
+  </div>
+</div>
+
+<!-- Screenshot 3: Interactive session -->
+<div class="terminal-window" id="screenshot-3">
+  <div class="terminal-titlebar">
+    <span class="dot dot-red"></span>
+    <span class="dot dot-yellow"></span>
+    <span class="dot dot-green"></span>
+    <span class="terminal-title">bash — radsim interactive</span>
+  </div>
+  <div class="terminal-body">
+    <span class="line"><span class="prompt">$</span> <span class="cmd">radsim</span></span>
+    <span class="line dim">RadSim v1.1.0 | Claude claude-sonnet-4-5 | /help for commands</span>
+    <span class="spacer"></span>
+    <span class="line"><span class="cyan bold">RadSim &gt;</span> <span class="cmd">Build a REST API in Flask with user authentication</span></span>
+    <span class="spacer"></span>
+    <span class="line yellow">  Creating project structure...</span>
+    <span class="line ok">  ✓ app.py — Flask application with JWT auth</span>
+    <span class="line ok">  ✓ models/user.py — User model with password hashing</span>
+    <span class="line ok">  ✓ routes/auth.py — Login, register, refresh endpoints</span>
+    <span class="line ok">  ✓ requirements.txt — Flask, flask-jwt-extended, bcrypt</span>
+    <span class="spacer"></span>
+    <span class="line dim">  Write 4 files? [Y/n]</span>
+    <span class="line"><span class="prompt">  &gt;</span> <span class="cmd">y</span></span>
+    <span class="line ok">  ✓ All files written</span>
+    <span class="spacer"></span>
+    <span class="line"><span class="cyan bold">RadSim &gt;</span> <span class="cmd">Run the tests</span></span>
+    <span class="line yellow">  Running: pytest tests/</span>
+    <span class="spacer"></span>
+    <span class="line ok">  ===== 12 passed in 0.43s =====</span>
+    <span class="spacer"></span>
+    <span class="line"><span class="cyan bold">RadSim &gt;</span> <span class="cmd">/switch</span></span>
+    <span class="line dim">  Switching provider... Select [1-5]: </span>
+  </div>
+</div>
+
+<!-- Screenshot 4: Single-shot mode -->
+<div class="terminal-window" id="screenshot-4">
+  <div class="terminal-titlebar">
+    <span class="dot dot-red"></span>
+    <span class="dot dot-yellow"></span>
+    <span class="dot dot-green"></span>
+    <span class="terminal-title">bash — radsim single-shot</span>
+  </div>
+  <div class="terminal-body">
+    <span class="line"><span class="prompt">$</span> <span class="cmd">radsim "Create a Python function to validate email addresses"</span></span>
+    <span class="spacer"></span>
+    <span class="line ok">  Writing: utils/validators.py</span>
+    <span class="spacer"></span>
+    <span class="line dim">  def validate_email_address(email_string):</span>
+    <span class="line dim">      """Check if the email address format is valid.</span></span>
+    <span class="line dim">      Returns True if valid, False if not."""</span>
+    <span class="line dim">      import re</span>
+    <span class="line dim">      if not email_string:</span>
+    <span class="line dim">          return False</span>
+    <span class="line dim">      email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'</span>
+    <span class="line dim">      return bool(re.match(email_pattern, email_string))</span>
+    <span class="spacer"></span>
+    <span class="line dim">  Write utils/validators.py? [Y/n]</span>
+    <span class="line"><span class="prompt">  &gt;</span> <span class="cmd">y</span></span>
+    <span class="line ok">  ✓ utils/validators.py written</span>
+    <span class="spacer"></span>
+    <span class="line"><span class="prompt">$</span> <span class="cmd">radsim "Find all TODO comments in the codebase"</span></span>
+    <span class="spacer"></span>
+    <span class="line dim">  Searching codebase...</span>
+    <span class="line ok">  Found 3 TODOs:</span>
+    <span class="line"><span class="cyan">  src/app.py:42</span>    <span class="dim"># TODO: Add rate limiting</span></span>
+    <span class="line"><span class="cyan">  src/auth.py:88</span>   <span class="dim"># TODO: Refresh token rotation</span></span>
+    <span class="line"><span class="cyan">  tests/test_api.py:15</span> <span class="dim"># TODO: Add edge case tests</span></span>
+  </div>
+</div>
+
+<!-- Screenshot 5: Help command -->
+<div class="terminal-window" id="screenshot-5">
+  <div class="terminal-titlebar">
+    <span class="dot dot-red"></span>
+    <span class="dot dot-yellow"></span>
+    <span class="dot dot-green"></span>
+    <span class="terminal-title">bash — radsim /help</span>
+  </div>
+  <div class="terminal-body">
+    <span class="line"><span class="cyan bold">RadSim &gt;</span> <span class="cmd">/help</span></span>
+    <span class="spacer"></span>
+    <span class="line cyan bold">  RadSim Commands</span>
+    <span class="line dim">  ──────────────────────────────────────────</span>
+    <span class="spacer"></span>
+    <span class="line"><span class="yellow">  Provider &amp; Model</span></span>
+    <span class="line"><span class="cyan">    /switch</span>    <span class="dim">Quick switch provider and model</span></span>
+    <span class="line"><span class="cyan">    /free</span>      <span class="dim">Switch to cheapest OpenRouter model</span></span>
+    <span class="spacer"></span>
+    <span class="line"><span class="yellow">  Conversation</span></span>
+    <span class="line"><span class="cyan">    /clear</span>     <span class="dim">Clear conversation history</span></span>
+    <span class="line"><span class="cyan">    /new</span>       <span class="dim">Fresh conversation + reset rate limits</span></span>
+    <span class="spacer"></span>
+    <span class="line"><span class="yellow">  Learning</span></span>
+    <span class="line"><span class="cyan">    /good</span>      <span class="dim">Mark last response as good</span></span>
+    <span class="line"><span class="cyan">    /improve</span>   <span class="dim">Mark last response for improvement</span></span>
+    <span class="line"><span class="cyan">    /stats</span>     <span class="dim">Show learning statistics</span></span>
+    <span class="spacer"></span>
+    <span class="line"><span class="yellow">  Customization</span></span>
+    <span class="line"><span class="cyan">    /skill add</span> <span class="dim">Add a custom coding instruction</span></span>
+    <span class="line"><span class="cyan">    /teach</span>     <span class="dim">Toggle Teach Me mode</span></span>
+    <span class="line"><span class="cyan">    /settings</span>  <span class="dim">View/change agent settings</span></span>
+    <span class="spacer"></span>
+    <span class="line"><span class="yellow">  Session</span></span>
+    <span class="line"><span class="cyan">    /exit</span>      <span class="dim">Exit RadSim</span></span>
+    <span class="line"><span class="cyan">    /kill</span>      <span class="dim">EMERGENCY: Immediately terminate</span></span>
+  </div>
+</div>
+
+<!-- Screenshot 6: Windows install -->
+<div class="terminal-window" id="screenshot-6">
+  <div class="terminal-titlebar" style="background: #1e1e2e;">
+    <span class="dot dot-red"></span>
+    <span class="dot dot-yellow"></span>
+    <span class="dot dot-green"></span>
+    <span class="terminal-title">Windows PowerShell — radsim install</span>
+  </div>
+  <div class="terminal-body">
+    <span class="line"><span class="blue">PS C:\Users\user&gt;</span> <span class="cmd">git clone https://github.com/emera-digital/radsim.git</span></span>
+    <span class="line dim">Cloning into 'radsim'...</span>
+    <span class="spacer"></span>
+    <span class="line"><span class="blue">PS C:\Users\user&gt;</span> <span class="cmd">cd radsim</span></span>
+    <span class="line"><span class="blue">PS C:\Users\user\radsim&gt;</span> <span class="cmd">.\install.ps1</span></span>
+    <span class="spacer"></span>
+    <span class="line cyan">  +-------------------------------------+</span>
+    <span class="line cyan">  |         RadSim Installer            |</span>
+    <span class="line cyan">  |   Radically Simple Code Generator   |</span>
+    <span class="line cyan">  +-------------------------------------+</span>
+    <span class="spacer"></span>
+    <span class="line"><span class="ok">[OK]</span> Python 3.12.3 detected (using: python)</span>
+    <span class="line"><span class="ok">[OK]</span> pip available</span>
+    <span class="line"><span class="info">[..]</span> Installing RadSim...</span>
+    <span class="line"><span class="ok">[OK]</span> RadSim installed</span>
+    <span class="line"><span class="ok">[OK]</span> 'radsim' command is available</span>
+    <span class="spacer"></span>
+    <span class="line green">================================================</span>
+    <span class="line green bold">  RadSim installed successfully!</span>
+    <span class="line green">================================================</span>
+    <span class="spacer"></span>
+    <span class="line white">  Run RadSim:</span>
+    <span class="line cyan">     radsim "Create a Python function to validate emails"</span>
+  </div>
+</div>
+
+</body>
+</html>
