@@ -387,7 +387,7 @@ def build_pdf():
         ["Extra", "Package", "Version", "Purpose"],
         [
             ["openai", "openai", ">=1.50.0, <2.0", "OpenAI GPT models"],
-            ["gemini", "google-genai", ">=0.8.0, <1.0", "Google Gemini"],
+            ["gemini", "google-genai", ">=0.8.0", "Google Gemini"],
             ["browser", "playwright", ">=1.40.0, <2.0", "Browser automation"],
             ["memory", "chromadb", ">=0.4.0, <1.0", "Vector memory"],
             ["vector", "chromadb", ">=0.4.0, <1.0", "Semantic search"],

@@ -624,7 +624,7 @@ class GeminiClient(BaseAPIClient):
         self.timeout = timeout
         self.client = genai.Client(
             api_key=api_key,
-            http_options={"timeout": timeout},
+            http_options=types.HttpOptions(timeout=timeout),
         )
         self.model = model
         self.history = []
@@ -856,7 +856,7 @@ class VertexAIClient(GeminiClient):
             vertexai=True,
             project=project_id,
             location=location,
-            http_options={"timeout": timeout},
+            http_options=types.HttpOptions(timeout=timeout),
         )
         self.model = model
         self.history = []
