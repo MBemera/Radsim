@@ -22,6 +22,7 @@ class SubAgentTask:
     task_description: str
     model: str
     provider: str = "openrouter"
+    api_key: str = ""
     system_prompt: str = ""
     max_tokens: int = 4096
 
@@ -48,6 +49,10 @@ SUBAGENT_MODELS = {
     "kimi": "moonshotai/kimi-k2.5",
     "glm-4": "z-ai/glm-4.7",
     "minimax": "minimax/minimax-m2.1",
+    # Claude/OpenAI via OpenRouter
+    "claude-opus": "anthropic/claude-opus-4.6",
+    "claude-sonnet": "anthropic/claude-sonnet-4.6",
+    "codex": "openai/gpt-5.2-codex",
 }
 
 # Model aliases for easier selection
@@ -61,6 +66,9 @@ MODEL_ALIASES = {
     "kimi": "moonshotai/kimi-k2.5",
     "qwen": "qwen/qwen3-coder:free",
     "arcee": "arcee-ai/trinity-large-preview:free",
+    "opus": "anthropic/claude-opus-4.6",
+    "sonnet": "anthropic/claude-sonnet-4.6",
+    "codex": "openai/gpt-5.2-codex",
 }
 
 
@@ -130,15 +138,15 @@ def execute_subagent_task(task: SubAgentTask) -> SubAgentResult:
     model_id = resolve_model_name(task.model)
     provider = task.provider
 
-    # Get API key
-    api_key = get_openrouter_api_key()
+    # Use provided API key first, fall back to OpenRouter key
+    api_key = task.api_key or get_openrouter_api_key()
     if not api_key:
         return SubAgentResult(
             success=False,
             content="",
             model_used=model_id,
             provider_used=provider,
-            error="OPENROUTER_API_KEY not found. Set it in .env file.",
+            error="No API key found for sub-agent. Check your provider configuration.",
         )
 
     try:
@@ -202,15 +210,15 @@ def stream_subagent_task(task: SubAgentTask) -> Generator[dict, None, SubAgentRe
     model_id = resolve_model_name(task.model)
     provider = task.provider
 
-    # Get API key
-    api_key = get_openrouter_api_key()
+    # Use provided API key first, fall back to OpenRouter key
+    api_key = task.api_key or get_openrouter_api_key()
     if not api_key:
         return SubAgentResult(
             success=False,
             content="",
             model_used=model_id,
             provider_used=provider,
-            error="OPENROUTER_API_KEY not found",
+            error="No API key found for sub-agent. Check your provider configuration.",
         )
 
     try:
@@ -264,6 +272,8 @@ def stream_subagent_task(task: SubAgentTask) -> Generator[dict, None, SubAgentRe
 def delegate_task(
     task_description: str,
     model: str = "free",
+    provider: str = "openrouter",
+    api_key: str = "",
     system_prompt: str = "",
 ) -> SubAgentResult:
     """Delegate a task to a sub-agent with specified model.
@@ -272,9 +282,14 @@ def delegate_task(
     Context stays in the main conversation - only the task result
     is returned.
 
+    When provider and api_key are supplied, the sub-agent uses the
+    same provider as the main agent instead of defaulting to OpenRouter.
+
     Args:
         task_description: What the sub-agent should do
         model: Model to use (alias like "free", "glm", "minimax" or full ID)
+        provider: Provider to use (defaults to "openrouter")
+        api_key: API key for the provider (falls back to OpenRouter key)
         system_prompt: Optional system prompt for the sub-agent
 
     Returns:
@@ -291,6 +306,8 @@ def delegate_task(
     task = SubAgentTask(
         task_description=task_description,
         model=model,
+        provider=provider,
+        api_key=api_key,
         system_prompt=system_prompt,
     )
     return execute_subagent_task(task)

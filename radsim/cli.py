@@ -5,6 +5,7 @@
 """CLI entry point for RadSim Agent."""
 
 import argparse
+import atexit
 import os
 import signal
 import sys
@@ -18,12 +19,22 @@ from .output import print_agent_response, print_error
 _interrupt_count = 0
 _last_interrupt = 0
 
+# Reference to active agent for soft cancel
+_active_agent = None
+
+
+def set_active_agent(agent):
+    """Set the active agent for soft cancel support."""
+    global _active_agent
+    _active_agent = agent
+
 
 def _emergency_stop_handler(signum, frame):
     """Handle Ctrl+C with escalating response.
 
-    First Ctrl+C: graceful interrupt
-    Second Ctrl+C within 2 seconds: HARD KILL
+    If agent is processing: soft cancel (set interrupt flag, return to prompt)
+    If at prompt: raise KeyboardInterrupt (normal behavior)
+    Double Ctrl+C within 2 seconds: HARD KILL
     """
     global _interrupt_count, _last_interrupt
     import time
@@ -40,13 +51,39 @@ def _emergency_stop_handler(signum, frame):
     if _interrupt_count >= 2:
         print("\n\n  🛑 EMERGENCY STOP - Killing process immediately!")
         os._exit(1)
-    else:
-        print("\n\n  ⚠ Interrupted. Press Ctrl+C again within 2 seconds to FORCE KILL.")
-        raise KeyboardInterrupt
+
+    # Soft cancel: if agent is actively processing, set interrupt flag
+    if _active_agent and _active_agent._is_processing.is_set():
+        _active_agent._interrupted.set()
+        print("\n\n  ⚠ Cancelling... (press Ctrl+C again to force kill)")
+        return
+
+    # At prompt or no agent: raise KeyboardInterrupt
+    print("\n\n  ⚠ Interrupted. Press Ctrl+C again within 2 seconds to FORCE KILL.")
+    raise KeyboardInterrupt
 
 
 # Install signal handler
 signal.signal(signal.SIGINT, _emergency_stop_handler)
+
+
+def _cleanup_on_exit():
+    """Clean up background processes on exit."""
+    try:
+        from .modes import stop_caffeinate
+
+        stop_caffeinate()
+    except Exception:
+        pass
+    try:
+        from .telegram import stop_listening
+
+        stop_listening()
+    except Exception:
+        pass
+
+
+atexit.register(_cleanup_on_exit)
 
 
 def parse_arguments():
@@ -131,6 +168,12 @@ Environment variables:
         help="Re-run the setup wizard",
     )
 
+    parser.add_argument(
+        "--skip-update-check",
+        action="store_true",
+        help="Skip the startup update check",
+    )
+
     return parser.parse_args()
 
 
@@ -210,6 +253,18 @@ def main():
             print_error(f"WARNING: {warning['message']}")
         else:
             print(f"  Note: {warning['message']}")
+
+    # Check for updates (non-blocking, fail-silent)
+    if not args.skip_update_check:
+        from .update_checker import check_for_updates, format_update_notice
+
+        try:
+            current_ver = version("radsim")
+            latest_ver = check_for_updates(current_ver)
+            if latest_ver:
+                print(format_update_notice(latest_ver, current_ver))
+        except Exception:
+            pass  # Never let update check break startup
 
     # Run in appropriate mode
     if args.prompt:

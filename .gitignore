@@ -63,3 +63,8 @@ logs/
 
 # Local config
 .radsim/
+.radsim_cache/
+
+# RadSim feature data
+plans/
+panning_sessions/

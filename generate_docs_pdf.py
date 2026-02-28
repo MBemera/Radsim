@@ -36,7 +36,7 @@ class RadSimDoc(FPDF):
             self.cell(CONTENT_W / 2, 6, "RadSim v1.1.0 - Technical Documentation", align="L")
             self.set_xy(PAGE_W / 2, y_start)
             self.cell((CONTENT_W / 2), 6, f"Page {self.page_no()}", align="R")
-            
+
             # Draw line
             self.set_xy(MARGIN_L, y_start + 7)
             self.set_draw_color(220, 220, 220)
@@ -64,11 +64,11 @@ class RadSimDoc(FPDF):
         self.add_page()  # Always start sections on a new page for cleanliness
         self.set_font("Helvetica", "B", 16)
         self.set_text_color(20, 40, 80)  # Dark Navy
-        
+
         heading = f"{number}. {title}" if number else title
         self.cell(0, 10, heading)
         self.ln(12)
-        
+
         # Underline
         start_y = self.get_y() - 4
         self.set_draw_color(20, 40, 80)
@@ -112,35 +112,33 @@ class RadSimDoc(FPDF):
         self.set_font("Courier", "", 9)
         self.set_text_color(30, 30, 30)
         self.set_fill_color(245, 245, 245)
-        
+
         lines = text.split('\n')
         # Calculate height needed
         line_height = 5
         total_height = len(lines) * line_height + 4
-        
+
         self.check_space(total_height)
-        
+
         # Draw background block? No, simpler to just fill lines for better wrapping support
         # But to make it look like a block, we can iterate
-        
+
         for line in lines:
             # Handle long lines in code by wrapping
-            # We need to preserve indentation
-            indent = len(line) - len(line.lstrip())
             safe_line = line.replace('\t', '    ')
-            
+
             # Check if line fits width
             # Courier 9pt is approx 2.5mm per char?
             # A safer way is using multi_cell even for code
             self.check_space(line_height)
             self.cell(CONTENT_W, line_height, f"  {safe_line}", fill=True, ln=1)
-            
+
         self.ln(5)
 
     def table(self, headers, rows, widths):
         """Robust table rendering."""
         row_height = 7
-        
+
         # Calculate approximate height for header
         self.check_space(row_height * 2)
 
@@ -148,7 +146,7 @@ class RadSimDoc(FPDF):
         self.set_font("Helvetica", "B", 9)
         self.set_text_color(255, 255, 255)
         self.set_fill_color(50, 70, 100) # Slate blue
-        
+
         x_start = MARGIN_L
         for i, h in enumerate(headers):
             self.set_xy(x_start, self.get_y())
@@ -159,19 +157,14 @@ class RadSimDoc(FPDF):
         # Rows
         self.set_font("Helvetica", "", 9)
         self.set_text_color(40, 40, 40)
-        
+
         fill = False
         for row in rows:
-            # Check height for this row (assuming 1 line per cell for check, 
+            # Check height for this row (assuming 1 line per cell for check,
             # but multi_cell might expand it)
             # We'll calculate max height needed for this row
-            max_lines = 1
-            for i, cell_text in enumerate(row):
-                # Simulate multi_cell to get height
-                # FPDF2 has get_string_width, but exact wrapping is tricky to predict without actually doing it
-                # We'll assume approx chars per line
-                pass
-            
+            # (height estimation skipped — multi_cell handles expansion below)
+
             # Simple check for at least 15mm
             self.check_space(15)
 
@@ -179,16 +172,16 @@ class RadSimDoc(FPDF):
                 self.set_fill_color(245, 247, 250)
             else:
                 self.set_fill_color(255, 255, 255)
-                
+
             # We need to find the height of the tallest cell in this row
             y_before = self.get_y()
             max_y = y_before
-            
-            # First pass: render invisibly or just render and backtrack? 
+
+            # First pass: render invisibly or just render and backtrack?
             # FPDF doesn't support easy backtracking.
             # We will render all cells with same Y, allowing them to expand down.
             # Then we set Y to the max Y reached.
-            
+
             x_curr = MARGIN_L
             for i, cell_text in enumerate(row):
                 self.set_xy(x_curr, y_before)
@@ -196,7 +189,7 @@ class RadSimDoc(FPDF):
                 if self.get_y() > max_y:
                     max_y = self.get_y()
                 x_curr += widths[i]
-            
+
             # Draw borders or just spacing?
             # Let's draw a light bottom line for the row
             self.set_draw_color(230, 230, 230)
@@ -205,7 +198,7 @@ class RadSimDoc(FPDF):
             # Advance
             self.set_y(max_y)
             fill = not fill
-            
+
         self.ln(5)
 
 
@@ -219,26 +212,26 @@ def build_pdf():
     # ════════════════════════════════════════
     pdf.add_page()
     pdf.ln(60)
-    
+
     # Title
     pdf.set_font("Helvetica", "B", 36)
     pdf.set_text_color(20, 40, 80)
     pdf.cell(0, 15, "RadSim", align="C")
     pdf.ln(15)
-    
+
     # Subtitle
     pdf.set_font("Helvetica", "", 16)
     pdf.set_text_color(80, 80, 80)
     pdf.cell(0, 10, "Radically Simple Code Generator", align="C")
     pdf.ln(20)
-    
+
     # Divider
     pdf.set_draw_color(20, 40, 80)
     pdf.set_line_width(0.5)
     line_w = 40
     pdf.line((PAGE_W/2) - (line_w/2), pdf.get_y(), (PAGE_W/2) + (line_w/2), pdf.get_y())
     pdf.ln(20)
-    
+
     # Version Info
     pdf.set_font("Helvetica", "", 12)
     pdf.set_text_color(100, 100, 100)
@@ -246,7 +239,7 @@ def build_pdf():
     pdf.ln(6)
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 8, "Version 1.1.0", align="C")
-    
+
     # Footer Area
     pdf.set_y(-60)
     pdf.set_font("Helvetica", "", 10)
@@ -263,7 +256,7 @@ def build_pdf():
     pdf.set_text_color(20, 40, 80)
     pdf.cell(0, 10, "Table of Contents")
     pdf.ln(15)
-    
+
     toc = [
         " 1.  Overview",
         " 2.  Installation and Setup",
@@ -292,7 +285,7 @@ def build_pdf():
         "25.  File Paths Reference",
         "26.  Public API Exports",
     ]
-    
+
     pdf.set_font("Helvetica", "", 11)
     pdf.set_text_color(60, 60, 60)
     for item in toc:
@@ -361,7 +354,7 @@ def build_pdf():
     pdf.code(
         "radsim              # Interactive mode (launches onboarding first time)\n"
         "radsim --setup      # Re-run the setup wizard\n"
-        'radsim "your task"  # Single-shot mode' 
+        'radsim "your task"  # Single-shot mode'
     )
 
     pdf.subsection("Python Version Requirement")
@@ -389,8 +382,8 @@ def build_pdf():
             ["openai", "openai", ">=1.50.0, <2.0", "OpenAI GPT models"],
             ["gemini", "google-genai", ">=0.8.0", "Google Gemini"],
             ["browser", "playwright", ">=1.40.0, <2.0", "Browser automation"],
-            ["memory", "chromadb", ">=0.4.0, <1.0", "Vector memory"],
-            ["vector", "chromadb", ">=0.4.0, <1.0", "Semantic search"],
+            ["memory", "(built-in)", "n/a", "JSON + TF-IDF (no deps)"],
+            ["vector", "(built-in)", "n/a", "JSON + TF-IDF (no deps)"],
         ],
         [25, 40, 45, 60],
     )

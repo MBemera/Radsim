@@ -4,6 +4,8 @@ Modes are toggleable states that modify agent behavior.
 Modes are NOT persistent - they reset on session end.
 """
 
+import platform
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -48,6 +50,17 @@ class ModeManager:
                 description="Show detailed tool execution info",
                 shortcut="/v",
                 prompt_addition="",  # Handled in output, not prompt
+            )
+        )
+
+        self.register(
+            Mode(
+                name="awake",
+                description="Prevent macOS sleep (display, idle, system)",
+                shortcut="/awake",
+                prompt_addition="",
+                on_activate=_start_caffeinate,
+                on_deactivate=_stop_caffeinate,
             )
         )
 
@@ -112,6 +125,56 @@ class ModeManager:
     def clear_all(self):
         """Deactivate all modes."""
         self._active_modes.clear()
+
+
+# =============================================================================
+# Caffeinate (macOS sleep prevention)
+# =============================================================================
+
+_caffeinate_process = None
+
+
+def _start_caffeinate():
+    """Start caffeinate to prevent macOS sleep."""
+    global _caffeinate_process
+    if platform.system() != "Darwin":
+        return
+    # Check if existing process died and needs restart
+    if _caffeinate_process is not None:
+        if _caffeinate_process.poll() is not None:
+            _caffeinate_process = None  # Process died, reset
+        else:
+            return  # Already running
+    try:
+        _caffeinate_process = subprocess.Popen(
+            ["caffeinate", "-dims"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        pass
+
+
+def _stop_caffeinate():
+    """Stop caffeinate process."""
+    global _caffeinate_process
+    if _caffeinate_process is not None:
+        _caffeinate_process.terminate()
+        try:
+            _caffeinate_process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            _caffeinate_process.kill()
+        _caffeinate_process = None
+
+
+def stop_caffeinate():
+    """Public wrapper for cleanup on exit."""
+    _stop_caffeinate()
+
+
+# =============================================================================
+# Singleton access
+# =============================================================================
 
 
 # Teach mode prompt - added to system prompt when active

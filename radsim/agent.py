@@ -6,6 +6,7 @@
 
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 
@@ -65,6 +66,10 @@ CONFIRMATION_TOOLS = {
     # Memory & Scheduling
     "schedule_task",
     "save_memory",
+    # Skills & Notifications
+    "add_skill",
+    "remove_skill",
+    "send_telegram",
 }
 
 # Read-only tools that execute without confirmation
@@ -91,6 +96,8 @@ READ_ONLY_TOOLS = {
     # Memory & Scheduling (read-only)
     "load_memory",
     "list_schedules",
+    # Skills (read-only)
+    "list_skills",
 }
 
 # Tools that need light confirmation (auto-confirm in -y mode)
@@ -185,6 +192,16 @@ class RadSimAgent:
         # Track rejected writes so the AI can't retry after user says "n"
         self._rejected_writes = set()  # File paths rejected this turn
 
+        # Interrupt flags for soft cancel (Ctrl+C)
+        self._interrupted = threading.Event()
+        self._is_processing = threading.Event()
+
+        # Lock for serializing message processing (used by Telegram processor)
+        self._processing_lock = threading.Lock()
+
+        # Flag: True when processing a Telegram-originated message
+        self._telegram_mode = False
+
         # Teach mode: track if we've already asked the model to retry with annotations
         self._teach_retry_attempted = False
 
@@ -207,6 +224,133 @@ class RadSimAgent:
 
         if context_file:
             self.load_initial_context(context_file)
+
+    def start_telegram_processor(self):
+        """Start a background thread that auto-processes incoming Telegram messages."""
+        try:
+            from . import telegram as _tg_check  # noqa: F401 — availability check
+            del _tg_check
+        except ImportError:
+            return
+
+        def _telegram_confirm(prompt_message):
+            """Send confirmation prompt to Telegram and wait for y/n reply."""
+            from .telegram import check_incoming, send_telegram_message
+
+            send_telegram_message(f"Confirm: {prompt_message}\n\nReply 'y' or 'n'")
+
+            deadline = time.time() + 60
+            while time.time() < deadline:
+                reply = check_incoming()
+                if reply:
+                    answer = reply.get("text", "").strip().lower()
+                    if answer in ("y", "yes"):
+                        return True
+                    if answer in ("n", "no"):
+                        return False
+                    send_telegram_message("Please reply 'y' or 'n'")
+                time.sleep(0.5)
+
+            send_telegram_message("Confirmation timed out — action skipped.")
+            return False
+
+        def _telegram_loop():
+            from .commands import CommandRegistry
+            from .output import print_status_bar
+            from .safety import set_telegram_confirm
+            from .telegram import check_incoming, is_listening, send_telegram_message
+
+            registry = CommandRegistry()
+
+            # Commands safe to run via Telegram (no input() calls)
+            telegram_safe_commands = {
+                "/help", "/h", "/?",
+                "/tools",
+                "/clear", "/c",
+                "/new", "/fresh",
+                "/free",
+                "/good", "/+",
+                "/improve", "/-",
+                "/stats",
+                "/report",
+                "/audit",
+                "/preferences", "/prefs",
+                "/commands", "/cmds",
+                "/teach", "/t",
+                "/awake", "/caffeinate",
+                "/modes",
+                "/show",
+            }
+
+            # Commands that should never run from Telegram
+            telegram_blocked_commands = {"/exit", "/quit", "/q", "/kill", "/stop", "/abort"}
+
+            while True:
+                time.sleep(0.5)
+                try:
+                    if not is_listening():
+                        continue
+                    msg = check_incoming()
+                    if not msg:
+                        continue
+
+                    sender = msg.get("sender", "Telegram")
+                    text = msg.get("text", "")
+                    print_info(f"\n[Telegram from {sender}]: {text}")
+
+                    # Route slash commands
+                    if text.startswith("/"):
+                        cmd = text.strip().split()[0].lower()
+
+                        if cmd in telegram_blocked_commands:
+                            send_telegram_message(f"Command '{cmd}' cannot be run via Telegram.")
+                            continue
+
+                        if cmd in telegram_safe_commands:
+                            with self._processing_lock:
+                                if registry.handle_input(text, self):
+                                    send_telegram_message(f"Command executed: {text}")
+                                    self.system_prompt = get_system_prompt()
+                                    continue
+                        else:
+                            # Interactive command — don't run, inform user
+                            send_telegram_message(
+                                f"Command '{cmd}' requires terminal interaction. "
+                                "Run it in the RadSim terminal instead."
+                            )
+                            continue
+
+                    # Process as normal message with Telegram confirmations
+                    set_telegram_confirm(_telegram_confirm)
+                    self._telegram_mode = True
+                    try:
+                        with self._processing_lock:
+                            response = self.process_message(
+                                f"[via Telegram from {sender}]: {text}"
+                            )
+                    finally:
+                        self._telegram_mode = False
+                        set_telegram_confirm(None)
+
+                    if response:
+                        reply = response if len(response) <= 4000 else response[:3997] + "..."
+                        result = send_telegram_message(reply)
+                        if result["success"]:
+                            print_info("[Reply sent to Telegram]")
+                        else:
+                            print_info(f"[Telegram reply failed: {result['error']}]")
+
+                    # Show token usage in terminal
+                    print_status_bar(
+                        self.config.model,
+                        self.usage_stats["input_tokens"],
+                        self.usage_stats["output_tokens"],
+                    )
+                except Exception as err:
+                    logger.debug(f"Telegram processor error: {err}")
+
+        thread = threading.Thread(target=_telegram_loop, daemon=True, name="telegram-processor")
+        thread.start()
 
     def load_initial_context(self, file_path):
         """Load initial context from a file."""
@@ -316,6 +460,23 @@ class RadSimAgent:
 
     def process_message(self, user_input):
         """Process a user message and return the response."""
+        # Clear interrupt flag and mark as actively processing
+        self._interrupted.clear()
+        self._is_processing.set()
+
+        # Start Escape key listener for soft cancel
+        from .escape_listener import start_escape_listener, stop_escape_listener
+
+        start_escape_listener(self)
+
+        try:
+            return self._process_message_inner(user_input)
+        finally:
+            stop_escape_listener()
+            self._is_processing.clear()
+
+    def _process_message_inner(self, user_input):
+        """Inner message processing (wrapped by process_message for interrupt tracking)."""
         # Reset per-turn rate limiting on new user input
         self.protection.on_user_input()
 
@@ -435,6 +596,9 @@ class RadSimAgent:
                 )
 
                 for chunk in stream:
+                    if self._interrupted.is_set():
+                        break
+
                     if first_chunk:
                         spinner.stop()
                         print()  # Start on new line
@@ -482,6 +646,22 @@ class RadSimAgent:
             raise  # Re-raise protection exceptions
         except Exception as e:
             spinner.stop()
+
+            # Detect authentication errors and give clear guidance
+            error_str = str(e)
+            if "401" in error_str or "User not found" in error_str:
+                print_error(
+                    "API key is invalid or expired. "
+                    "Update your key with /config or edit ~/.radsim/.env"
+                )
+                raise
+            if "403" in error_str or "Forbidden" in error_str:
+                print_error(
+                    "Access denied. Your API key may not have access to this model. "
+                    "Try a different model with /config"
+                )
+                raise
+
             # Record error for circuit breaker
             try:
                 self.protection.record_api_error("api_error")
@@ -553,6 +733,10 @@ class RadSimAgent:
             tool_name = tool_use["name"]
             tool_input = tool_use["input"]
             tool_id = tool_use["id"]
+
+            # Check for soft cancel (Ctrl+C)
+            if self._interrupted.is_set():
+                user_rejected = True
 
             # If user already rejected a tool this turn, skip remaining tools
             if user_rejected:
@@ -638,6 +822,16 @@ class RadSimAgent:
             except Exception:
                 logger.debug("Learning tool tracking failed during tool execution")
 
+            # Send tool progress to Telegram if processing a Telegram message
+            if self._telegram_mode:
+                try:
+                    from .telegram import send_telegram_message
+
+                    icon = "+" if tool_success else "x"
+                    send_telegram_message(f"[{icon}] {tool_name}")
+                except Exception:
+                    pass
+
             tool_results.append(
                 {
                     "type": "tool_result",
@@ -653,10 +847,13 @@ class RadSimAgent:
             }
         )
 
-        # If user rejected a tool call, stop the turn entirely
-        # instead of letting the AI model continue
+        # If user rejected a tool call or interrupted, stop the turn
         if user_rejected:
             return text_output or "Understood — action cancelled."
+
+        # Check for soft cancel before making follow-up API call
+        if self._interrupted.is_set():
+            return text_output or "Cancelled."
 
         follow_up = self._call_api()
         return self._handle_response(follow_up)
@@ -794,6 +991,84 @@ class RadSimAgent:
         self._print_tool_result(tool_name, tool_input, result)
         return result
 
+    def _resolve_subagent_model(self, requested_model):
+        """Resolve sub-agent model, using main agent's model for 'current'.
+
+        Args:
+            requested_model: Model alias or ID requested for the sub-agent
+
+        Returns:
+            Tuple of (model, provider, api_key) for the sub-agent
+        """
+        if requested_model == "current":
+            return self.config.model, self.config.provider, self.config.api_key
+        # For named aliases (free, glm, etc.), use OpenRouter
+        return requested_model, "openrouter", ""
+
+    def _should_stream_subagent(self):
+        """Check if sub-agent streaming output is enabled in agent config."""
+        from .agent_config import AgentConfigManager
+
+        config_manager = AgentConfigManager()
+        return config_manager.get("subagents.stream_output", True)
+
+    def _stream_delegate_task(self, task_desc, model, provider, api_key, system_prompt):
+        """Execute a sub-agent task with live streaming output to terminal.
+
+        Shows the sub-agent's response as it generates, so the user
+        can watch the work in real time.
+
+        Args:
+            task_desc: Task description for the sub-agent
+            model: Resolved model ID
+            provider: Provider name
+            api_key: API key for the provider
+            system_prompt: System prompt for the sub-agent
+
+        Returns:
+            SubAgentResult with full execution results
+        """
+        import sys
+
+        from .output import supports_color
+        from .sub_agent import SubAgentTask, stream_subagent_task
+
+        task = SubAgentTask(
+            task_description=task_desc,
+            model=model,
+            provider=provider,
+            api_key=api_key,
+            system_prompt=system_prompt,
+        )
+
+        # Print header for sub-agent output
+        dim = "\033[2m" if supports_color() else ""
+        cyan = "\033[36m" if supports_color() else ""
+        reset = "\033[0m" if supports_color() else ""
+        sys.stdout.write(f"\n{dim}{'─' * 40}{reset}\n")
+        sys.stdout.write(f"{cyan}  Sub-agent output ({model}):{reset}\n")
+        sys.stdout.write(f"{dim}{'─' * 40}{reset}\n")
+        sys.stdout.flush()
+
+        # Stream the response
+        generator = stream_subagent_task(task)
+        result = None
+
+        try:
+            while True:
+                chunk = next(generator)
+                text = chunk.get("text", "")
+                sys.stdout.write(f"{dim}{text}{reset}")
+                sys.stdout.flush()
+        except StopIteration as stop:
+            result = stop.value
+
+        # Print footer
+        sys.stdout.write(f"\n{dim}{'─' * 40}{reset}\n")
+        sys.stdout.flush()
+
+        return result
+
     def _handle_delegate_task(self, tool_input):
         """Handle delegation to a sub-agent with model selection and parallel support."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -802,7 +1077,7 @@ class RadSimAgent:
 
         task_desc = tool_input.get("task_description", "")
         context = tool_input.get("context", "")
-        model = tool_input.get("model", "free")  # Default to free model
+        model = tool_input.get("model", "current")  # Default to current model
         parallel_tasks = tool_input.get("parallel_tasks", [])
         system_prompt = tool_input.get("system_prompt", "")
 
@@ -819,12 +1094,17 @@ class RadSimAgent:
                 futures = {}
                 for i, pt in enumerate(parallel_tasks):
                     pt_task = pt.get("task", "")
-                    pt_model = pt.get("model", "free")
+                    pt_model = pt.get("model", "current")
                     pt_prompt = pt.get("system_prompt", "")
+                    resolved_model, resolved_provider, resolved_key = self._resolve_subagent_model(pt_model)
                     future = executor.submit(
-                        subagent_delegate, pt_task, model=pt_model, system_prompt=pt_prompt
+                        subagent_delegate, pt_task,
+                        model=resolved_model,
+                        provider=resolved_provider,
+                        api_key=resolved_key,
+                        system_prompt=pt_prompt,
                     )
-                    futures[future] = {"index": i, "model": pt_model}
+                    futures[future] = {"index": i, "model": resolved_model}
 
                 for future in as_completed(futures):
                     info = futures[future]
@@ -864,13 +1144,28 @@ class RadSimAgent:
             }
 
         # Single task delegation
-        print_info(f"Delegating task to sub-agent (model: {model})")
+        resolved_model, resolved_provider, resolved_key = self._resolve_subagent_model(model)
+        print_info(f"Delegating task to sub-agent (model: {resolved_model})")
 
-        result = subagent_delegate(
-            task_desc,
-            model=model,
-            system_prompt=system_prompt,
-        )
+        # Check if streaming output is enabled
+        stream_output = self._should_stream_subagent()
+
+        if stream_output:
+            result = self._stream_delegate_task(
+                task_desc,
+                resolved_model,
+                resolved_provider,
+                resolved_key,
+                system_prompt,
+            )
+        else:
+            result = subagent_delegate(
+                task_desc,
+                model=resolved_model,
+                provider=resolved_provider,
+                api_key=resolved_key,
+                system_prompt=system_prompt,
+            )
 
         if result.success:
             print_success(f"Sub-agent completed (model: {result.model_used})")
@@ -1020,6 +1315,19 @@ class RadSimAgent:
             print_error(reason)
             return {"success": False, "error": reason}
 
+        # Self-modification safety check
+        from .safety import is_core_prompt_intact, is_self_modification
+
+        is_selfmod, _ = is_self_modification(file_path)
+        if is_selfmod:
+            print_warning("You are editing RadSim's own source code.")
+            # Block writes that would destroy the core system prompt
+            if Path(file_path).name == "prompts.py":
+                intact, block_reason = is_core_prompt_intact(content)
+                if not intact:
+                    print_error(block_reason)
+                    return {"success": False, "error": block_reason}
+
         # Validate content sanity before writing
         file_ext = Path(file_path).suffix
         valid, validation_error = validate_content_for_write(content, file_ext)
@@ -1133,12 +1441,40 @@ class RadSimAgent:
             print_error(reason)
             return {"success": False, "error": reason}
 
+        # Self-modification safety check for replace_in_file
+        from pathlib import Path as _Path
+
+        from .safety import is_core_prompt_intact, is_self_modification
+
+        is_selfmod, _ = is_self_modification(file_path)
+        if is_selfmod:
+            print_warning("You are editing RadSim's own source code.")
+            # For prompts.py, simulate the final content and verify core prompt
+            if _Path(file_path).name == "prompts.py":
+                try:
+                    current = _Path(file_path).read_text()
+                    simulated = current.replace(old_string, new_string, 1)
+                    intact, block_reason = is_core_prompt_intact(simulated)
+                    if not intact:
+                        print_error(block_reason)
+                        return {"success": False, "error": block_reason}
+                except Exception:
+                    pass
+
         # Strip teaching comments from new_string when teach mode is active
         if is_mode_active("teach"):
             new_string = strip_teach_comments(new_string)
             tool_input = {**tool_input, "new_string": new_string}
 
-        if self.config.auto_confirm:
+        # Self-modification always requires explicit confirmation
+        if is_selfmod:
+            print(f"\nSELF-MODIFICATION: {file_path}")
+            old_preview = old_string[:100] + "..." if len(old_string) > 100 else old_string
+            new_preview = new_string[:100] + "..." if len(new_string) > 100 else new_string
+            print(f"OLD: {old_preview}")
+            print(f"NEW: {new_preview}")
+            confirmed = confirm_action("Apply this self-modification?", config=None)
+        elif self.config.auto_confirm:
             print_info(f"Auto-replacing in: {file_path}")
             confirmed = True
         else:
@@ -1777,6 +2113,11 @@ def run_interactive(config, context_file=None):
     agent = RadSimAgent(config, context_file)
     registry = CommandRegistry()
 
+    # Register agent for soft cancel (Ctrl+C)
+    from .cli import set_active_agent
+
+    set_active_agent(agent)
+
     print_header(config.provider, config.model)
 
     # Load persistent memory (preferences, etc)
@@ -1794,6 +2135,9 @@ def run_interactive(config, context_file=None):
     if os.path.exists("agents.md") and not context_file:
         # Auto-load agents.md if it exists and no explicit context file provided
         agent.load_initial_context("agents.md")
+
+    # Start background Telegram processor (auto-processes messages without Enter)
+    agent.start_telegram_processor()
 
     while True:
         try:
@@ -1850,7 +2194,8 @@ def run_interactive(config, context_file=None):
                 # or just set it in the agent.
                 pass
 
-            response = agent.process_message(user_input)
+            with agent._processing_lock:
+                response = agent.process_message(user_input)
 
             # Only print response if not streaming (streaming already prints during _call_api)
             if not config.stream:

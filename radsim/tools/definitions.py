@@ -696,8 +696,8 @@ TOOL_DEFINITIONS = [
                 },
                 "model": {
                     "type": "string",
-                    "description": "Model to use: 'free', 'glm', 'minimax', 'kimi', 'qwen', 'arcee', or full OpenRouter model ID",
-                    "default": "free",
+                    "description": "Model to use: 'current' (uses the selected model), 'free', 'glm', 'minimax', 'kimi', 'qwen', 'arcee', or full OpenRouter model ID",
+                    "default": "current",
                 },
                 "system_prompt": {
                     "type": "string",
@@ -709,7 +709,7 @@ TOOL_DEFINITIONS = [
                         "type": "object",
                         "properties": {
                             "task": {"type": "string", "description": "Task description"},
-                            "model": {"type": "string", "description": "Model for this task"},
+                            "model": {"type": "string", "description": "Model for this task (defaults to 'current')"},
                             "system_prompt": {"type": "string", "description": "Optional system prompt"},
                         },
                         "required": ["task"],
@@ -734,6 +734,62 @@ TOOL_DEFINITIONS = [
                 },
             },
             "required": ["summary"],
+        },
+    },
+    # Skill Management
+    {
+        "name": "add_skill",
+        "description": "Add a permanent custom skill/instruction that applies to all future conversations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "instruction": {
+                    "type": "string",
+                    "description": "The skill instruction text (e.g., 'Always use type hints in Python')",
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Optional category: code_style, language, framework, testing, naming, general",
+                },
+            },
+            "required": ["instruction"],
+        },
+    },
+    {
+        "name": "remove_skill",
+        "description": "Remove a skill by its index (1-based).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "index": {
+                    "type": "integer",
+                    "description": "1-based index of the skill to remove (use list_skills to see indices)",
+                },
+            },
+            "required": ["index"],
+        },
+    },
+    {
+        "name": "list_skills",
+        "description": "List all active user skills/instructions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    # Notifications
+    {
+        "name": "send_telegram",
+        "description": "Send a message via Telegram bot. Requires prior /telegram setup.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "Message text to send via Telegram",
+                },
+            },
+            "required": ["message"],
         },
     },
     # Advanced Skills

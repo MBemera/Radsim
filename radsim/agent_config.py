@@ -33,6 +33,9 @@ DEFAULT_CONFIG = {
         "few_shot_assembly": True,
         "active_learning": True,
     },
+    "subagents": {
+        "stream_output": True,
+    },
     "self_improvement": {
         "enabled": False,
         "auto_propose": True,

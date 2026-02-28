@@ -6,6 +6,21 @@ from pathlib import Path
 # Commands that trigger immediate process termination from any prompt
 STOP_COMMANDS = {"/stop", "/kill", "/abort"}
 
+# Module-level callback for Telegram confirmation forwarding.
+# When set, confirm_action/confirm_write use this instead of terminal input().
+_telegram_confirm_fn = None
+
+
+def set_telegram_confirm(fn):
+    """Set or clear the Telegram confirmation callback.
+
+    Args:
+        fn: Callable that takes a prompt string and returns True/False,
+            or None to disable Telegram confirmation.
+    """
+    global _telegram_confirm_fn
+    _telegram_confirm_fn = fn
+
 
 def _emergency_stop():
     """Immediately terminate the process."""
@@ -61,6 +76,42 @@ SAFE_EXTENSIONS = [
 ]
 
 
+def is_self_modification(file_path):
+    """Check if a file path is within RadSim's own source directory.
+
+    Returns:
+        (is_self_mod: bool, package_dir: Path or None)
+    """
+    try:
+        from .config import PACKAGE_DIR
+
+        target = Path(file_path).resolve()
+        source_dir = PACKAGE_DIR.resolve()
+        return str(target).startswith(str(source_dir)), source_dir
+    except Exception:
+        return False, None
+
+
+def is_core_prompt_intact(new_content):
+    """Check that the core system prompt is preserved in proposed content.
+
+    The RADSIM_SYSTEM_PROMPT must never be deleted from prompts.py.
+    Checks that the sentinel (first 100 chars) is still present.
+
+    Returns:
+        (intact: bool, reason: str)
+    """
+    try:
+        from .prompts import RADSIM_SYSTEM_PROMPT
+
+        sentinel = RADSIM_SYSTEM_PROMPT[:100]
+        if sentinel in new_content:
+            return True, "Core prompt intact"
+        return False, "BLOCKED: This edit would remove the core system prompt (RADSIM_SYSTEM_PROMPT)"
+    except Exception:
+        return False, "Could not verify core prompt integrity"
+
+
 def is_path_safe(file_path):
     """Check if a file path is safe to write to."""
     path_lower = file_path.lower()
@@ -98,6 +149,12 @@ def confirm_write(file_path, content, config=None):
     if config and config.auto_confirm:
         print(f"  > Auto-writing: {file_path}")
         return True
+
+    # Telegram confirmation mode — send summary instead of terminal prompt
+    if _telegram_confirm_fn:
+        line_count = len(content.splitlines())
+        summary = f"Write file: {file_path} ({line_count} lines)"
+        return _telegram_confirm_fn(summary)
 
     # Check extension
     ext_safe, ext_reason = is_extension_safe(file_path)
@@ -198,6 +255,10 @@ def confirm_action(message, config=None):
     """Ask user to confirm an action."""
     if config and config.auto_confirm:
         return True
+
+    # Telegram confirmation mode
+    if _telegram_confirm_fn:
+        return _telegram_confirm_fn(message)
 
     try:
         response = input(f"\n{message} [y/n/all]: ").strip()

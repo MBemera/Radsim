@@ -8,7 +8,7 @@
   <a href="https://pypi.org/project/radsim/"><img src="https://img.shields.io/pypi/v/radsim?color=blue&label=version" alt="PyPI version"></a>
   <a href="https://pypi.org/project/radsim/"><img src="https://img.shields.io/pypi/pyversions/radsim" alt="Python versions"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
-  <a href="https://github.com/MBemera/Radsim/releases"><img src="https://img.shields.io/badge/version-1.1.0-blue" alt="Version"></a>
+  <a href="https://github.com/MBemera/Radsim/releases"><img src="https://img.shields.io/badge/version-1.2.0-blue" alt="Version"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="Platforms">
 </p>
 
@@ -298,6 +298,17 @@ Full template: [.env.example](.env.example)
 | `/teach` | Toggle Teach Me mode (explains code while writing) |
 | `/settings` | View/change agent settings |
 
+### Planning & Workflows
+
+| Command | Description |
+|---------|-------------|
+| `/plan <desc>` | Generate a structured implementation plan |
+| `/plan approve` | Approve the active plan |
+| `/plan step` | Execute the next plan step |
+| `/plan run` | Execute all remaining steps |
+| `/panning` | Start a brain-dump panning session |
+| `/panning end` | Synthesise brain dump into structured insights |
+
 ### Session
 
 | Command | Description |
@@ -361,6 +372,11 @@ radsim/
 ├── commands.py          # Slash command registry
 ├── onboarding.py        # First-time setup wizard
 ├── model_router.py      # Cost-aware routing with automatic failover
+├── planner.py           # /plan — structured plan-confirm-execute workflows
+├── panning.py           # /panning — brain-dump processing & synthesis
+├── escape_listener.py   # Escape key listener for soft cancel
+├── telegram.py          # Telegram bot integration
+├── update_checker.py    # Startup update checker
 ├── tools/               # Sandboxed tool implementations
 ├── skills/              # Just-in-time skill documentation
 ├── learning/            # Preference learning and self-improvement
@@ -377,7 +393,7 @@ radsim/
 - **Confirmation required**: All write, edit, delete, and shell operations ask first
 - **Keys secured**: Stored in `~/.radsim/.env` with chmod 600 (owner read/write only)
 - **Never logged**: API keys never appear in logs or error messages
-- **Emergency stop**: `Ctrl+C` twice or `/kill` to immediately terminate
+- **Emergency stop**: `Esc` or `Ctrl+C` to cancel, double `Ctrl+C` or `/kill` to force kill
 
 ---
 
@@ -431,6 +447,16 @@ Full philosophy: [RADSIM_DOCUMENTATION.md](RADSIM_DOCUMENTATION.md)
 ---
 
 ## Changelog
+
+### v1.2.0 (2026-02-28)
+
+- `/plan` command — structured plan-confirm-execute workflows with risk levels and checkpoints
+- `/panning` command — brain-dump processing that synthesises raw thoughts into themes, action items, and priorities
+- Escape key soft cancel — press Esc to cancel streaming or tool execution (like Claude Code)
+- Telegram bot integration (`/telegram`)
+- Startup update checker
+- Plan and panning prompts now stream readable text instead of raw JSON
+- Improved sub-agent configuration and streaming
 
 ### v1.1.0 (2026-02-09)
 

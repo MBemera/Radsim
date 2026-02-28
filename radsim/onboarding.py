@@ -442,21 +442,87 @@ def step_api_key(provider: str) -> str:
     print("  2. Create a new API key")
     print("  3. Copy the key")
     print()
-    print("  🔐 For security, you have two options:")
+    print("  🔐 For security, you have three options:")
     print()
     print("  Option A: Paste your key now (stored securely in ~/.radsim/.env)")
-    print("  Option B: Skip and add it to .env manually later")
+    print("  Option B: Create a blank .env file (you fill in the key yourself)")
+    print("  Option C: Skip for now (add key manually later)")
     print()
 
     try:
-        choice = input("  Enter your API key (or press Enter to skip): ").strip()
+        choice = input("  Enter choice (a/b/c) [a]: ").strip().lower() or "a"
     except (KeyboardInterrupt, EOFError):
         print("\n  Setup cancelled.")
         sys.exit(0)
 
-    if choice:
+    if choice == "b":
+        # Option B: Create blank .env with placeholder
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Load existing keys to preserve them
+        env_config = load_env_file()
+        existing_keys = env_config.get("keys", {})
+
+        lines = [
+            "# RadSim Configuration",
+            "# This file is chmod 600 (secure)",
+            "#",
+            "# Add your API key below and run 'radsim' again.",
+            f"# Get your key from: {provider_url}",
+            "",
+            f'RADSIM_PROVIDER="{provider}"',
+            "",
+            "# Paste your API key between the quotes below:",
+            f'{env_var_name}=""',
+            "",
+        ]
+
+        # Preserve any existing keys from other providers
+        for key_name, key_value in existing_keys.items():
+            if (
+                key_name != env_var_name
+                and key_value
+                and not key_value.lower().startswith("paste_your")
+            ):
+                lines.append(f'{key_name}="{key_value}"')
+
+        lines.append("")
+        ENV_FILE.write_text("\n".join(lines))
+        ENV_FILE.chmod(0o600)  # Secure permissions
+
+        print()
+        print("  ✓ Blank .env file created at:")
+        print(f"    {ENV_FILE}")
+        print()
+        print("  Next steps:")
+        print(f'  1. Open {ENV_FILE} in your text editor')
+        print(f'  2. Paste your API key between the quotes on the {env_var_name} line')
+        print("  3. Save the file and run 'radsim' again")
+        pause()
+        return None
+
+    elif choice == "a" or (choice != "c" and len(choice) >= 20):
+        # Option A: Paste key directly
+        # If they typed something long, treat it as an API key
+        if choice == "a":
+            print()
+            try:
+                api_key_input = input("  Paste your API key: ").strip()
+            except (KeyboardInterrupt, EOFError):
+                print("\n  Setup cancelled.")
+                sys.exit(0)
+        else:
+            # They typed the key directly instead of selecting an option
+            api_key_input = choice
+
+        if not api_key_input:
+            print()
+            print("  No key entered. You can add it later to ~/.radsim/.env")
+            pause()
+            return None
+
         # Validate key format (basic check)
-        if len(choice) < 20:
+        if len(api_key_input) < 20:
             print()
             print("  ⚠ That doesn't look like a valid API key.")
             print("  You can add it later to ~/.radsim/.env")
@@ -469,7 +535,7 @@ def step_api_key(provider: str) -> str:
         # Load existing keys and add this one
         env_config = load_env_file()
         existing_keys = env_config.get("keys", {})
-        existing_keys[env_var_name] = choice
+        existing_keys[env_var_name] = api_key_input
 
         # Write to .env file
         lines = [
@@ -492,8 +558,10 @@ def step_api_key(provider: str) -> str:
         print()
         print("  ✓ API key saved securely to ~/.radsim/.env")
         pause()
-        return choice
+        return api_key_input
+
     else:
+        # Option C: Skip
         print()
         print("  No problem! You can add it later:")
         print(f"  1. Open: {ENV_FILE}")
@@ -625,7 +693,7 @@ def step_tutorial():
     print("  │  SAFETY FEATURES                                │")
     print("  ├─────────────────────────────────────────────────┤")
     print("  │  • RadSim asks before writing/deleting files    │")
-    print("  │  • Press Ctrl+C to interrupt any operation      │")
+    print("  │  • Press Esc or Ctrl+C to cancel any operation  │")
     print("  │  • Double Ctrl+C = Emergency hard stop          │")
     print("  │  • Type /kill to immediately stop the agent     │")
     print("  │  • /reset budget clears token limits            │")

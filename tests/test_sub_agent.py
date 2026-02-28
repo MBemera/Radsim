@@ -84,7 +84,7 @@ class TestSubAgentTaskExecution(unittest.TestCase):
         result = execute_subagent_task(task)
 
         assert result.success is False
-        assert "OPENROUTER_API_KEY" in result.error
+        assert "API key" in result.error or "OPENROUTER_API_KEY" in result.error
 
     @patch("radsim.sub_agent.get_openrouter_api_key")
     @patch("radsim.sub_agent.create_client")

@@ -1,5 +1,6 @@
 """Slash command registry and handlers."""
 
+import json
 import sys
 
 from .config import setup_config
@@ -116,12 +117,30 @@ class CommandRegistry:
         )
         self.register(["/commands", "/cmds"], self._cmd_commands, "List all available commands")
 
+        # Memory management
+        self.register(
+            ["/memory", "/mem"], self._cmd_memory, "Manage persistent memory"
+        )
+
         # Mode toggles
         self.register(
             ["/teach", "/t"], self._cmd_teach, "Toggle Teach Me mode (explains while coding)"
         )
         self.register(["/modes"], self._cmd_modes, "List all available modes")
+        self.register(
+            ["/awake", "/caffeinate"], self._cmd_awake, "Toggle stay-awake mode (macOS)"
+        )
         self.register(["/show"], self._cmd_show, "Show last written file content")
+
+        # Self-modification
+        self.register(
+            ["/selfmod", "/self"], self._cmd_selfmod, "View/edit RadSim source and custom prompt"
+        )
+
+        # Telegram
+        self.register(
+            ["/telegram", "/tg"], self._cmd_telegram, "Configure Telegram notifications"
+        )
 
         # Agent config & self-improvement
         self.register(
@@ -140,6 +159,14 @@ class CommandRegistry:
         )
         self.register(
             ["/archaeology", "/arch", "/dead"], self._cmd_archaeology, "Find dead code & zombies"
+        )
+
+        # Planning & panning
+        self.register(
+            ["/plan", "/p"], self._cmd_plan, "Structured plan-confirm-execute workflow"
+        )
+        self.register(
+            ["/panning", "/pan"], self._cmd_panning, "Brain-dump processing & synthesis"
         )
 
     # --- Default Handlers ---
@@ -878,6 +905,256 @@ class CommandRegistry:
             print_error(f"Unknown action: {action}")
             print_info("Use /skill for help")
 
+    def _cmd_memory(self, agent, args=None):
+        """Manage persistent memory (remember/forget/list)."""
+        from .memory import Memory
+        from .menu import interactive_menu, safe_input
+
+        memory = Memory()
+
+        if not args:
+            choice = interactive_menu("MEMORY", [
+                ("remember", "Save something to memory"),
+                ("forget", "Remove something from memory"),
+                ("list", "Show all saved memories"),
+            ])
+            if choice is None:
+                return
+            args = [choice]
+
+        action = args[0].lower()
+
+        if action == "remember":
+            if len(args) >= 3:
+                key = args[1]
+                value = " ".join(args[2:])
+            elif len(args) == 2:
+                key = args[1]
+                value = safe_input("  Value: ")
+                if value is None:
+                    return
+            else:
+                key = safe_input("  Key (short name): ")
+                if key is None:
+                    return
+                value = safe_input("  Value: ")
+                if value is None:
+                    return
+
+            memory.set_preference(key.strip(), value.strip())
+            print_info(f"Remembered: {key.strip()} = {value.strip()[:60]}")
+
+        elif action == "forget":
+            if len(args) >= 2:
+                key = args[1]
+            else:
+                key = safe_input("  Key to forget: ")
+                if key is None:
+                    return
+
+            all_prefs = memory.get_all_preferences()
+            if key.strip() in all_prefs:
+                # Remove by setting to None and re-saving
+                prefs = memory.get_all_preferences()
+                prefs.pop(key.strip(), None)
+                memory._preferences = prefs
+                memory._save_file(memory._pref_file, prefs)
+                print_info(f"Forgotten: {key.strip()}")
+            else:
+                print_error(f"Key not found: {key.strip()}")
+
+        elif action == "list":
+            all_prefs = memory.get_all_preferences()
+            if not all_prefs:
+                print_info("No memories stored yet. Use /memory remember to add one.")
+                return
+
+            print()
+            print("  ═══ SAVED MEMORIES ═══")
+            print()
+            for i, (key, value) in enumerate(all_prefs.items(), 1):
+                if key.startswith("_"):
+                    continue
+                display_value = str(value)[:60]
+                print(f"    {i}. {key}: {display_value}")
+            print()
+
+        else:
+            print_error(f"Unknown action: {action}")
+            print_info("Use /memory for options")
+
+    def _cmd_selfmod(self, agent, args=None):
+        """View/edit RadSim source and custom prompt."""
+        from .config import CUSTOM_PROMPT_FILE, PACKAGE_DIR
+        from .menu import interactive_menu
+
+        if not args:
+            choice = interactive_menu("SELF-MODIFICATION", [
+                ("path", "Show RadSim source directory"),
+                ("prompt", "View/edit custom prompt additions"),
+                ("list", "List RadSim source files"),
+            ])
+            if choice is None:
+                return
+            args = [choice]
+
+        action = args[0].lower()
+
+        if action == "path":
+            print()
+            print(f"  RadSim source: {PACKAGE_DIR}")
+            print(f"  Custom prompt: {CUSTOM_PROMPT_FILE}")
+            print()
+
+        elif action == "prompt":
+            if CUSTOM_PROMPT_FILE.exists():
+                content = CUSTOM_PROMPT_FILE.read_text(encoding="utf-8").strip()
+                if content:
+                    print()
+                    print("  ═══ CUSTOM PROMPT ═══")
+                    print()
+                    for line in content.splitlines():
+                        print(f"    {line}")
+                    print()
+                else:
+                    print_info("Custom prompt file exists but is empty.")
+            else:
+                print_info("No custom prompt configured yet.")
+
+            print_info("To add custom prompt text, ask the agent to write to:")
+            print_info(f"  {CUSTOM_PROMPT_FILE}")
+
+        elif action == "list":
+            print()
+            print("  ═══ RADSIM SOURCE FILES ═══")
+            print()
+            source_files = sorted(PACKAGE_DIR.rglob("*.py"))
+            for f in source_files:
+                relative = f.relative_to(PACKAGE_DIR)
+                print(f"    {relative}")
+            print()
+            print(f"  Total: {len(source_files)} Python files")
+            print()
+
+        else:
+            print_error(f"Unknown action: {action}")
+            print_info("Use /selfmod for options")
+
+    def _cmd_telegram(self, agent, args=None):
+        """Configure Telegram bot notifications."""
+        from .menu import interactive_menu, safe_input
+        from .telegram import (
+            is_listening,
+            load_telegram_config,
+            save_telegram_config,
+            send_telegram_message,
+            start_listening,
+            stop_listening,
+        )
+
+        if not args:
+            listen_label = "listen off" if is_listening() else "listen on"
+            listen_desc = "Stop receiving messages" if is_listening() else "Start receiving messages"
+            choice = interactive_menu("TELEGRAM", [
+                ("setup", "Configure bot token and chat ID"),
+                (listen_label, listen_desc),
+                ("test", "Send a test message"),
+                ("send", "Send a custom message"),
+                ("status", "Check current configuration"),
+            ])
+            if choice is None:
+                return
+            args = choice.split()
+
+        action = args[0].lower()
+
+        if action == "setup":
+            print()
+            print("  ═══ SECURITY WARNING ═══")
+            print()
+            print("  - Your bot token grants full control of your Telegram bot")
+            print("  - Token is stored in ~/.radsim/.env (chmod 600, never committed to git)")
+            print("  - Messages are sent over HTTPS but NOT end-to-end encrypted")
+            print("  - Anyone with the token can impersonate your bot")
+            print("  - Do NOT share your bot token publicly")
+            print()
+            token = safe_input("  Bot token (from @BotFather): ")
+            if token is None:
+                return
+            chat_id = safe_input("  Chat ID (from @userinfobot): ")
+            if chat_id is None:
+                return
+            try:
+                save_telegram_config(token.strip(), chat_id.strip())
+            except ValueError as err:
+                print_error(str(err))
+                return
+            print()
+            print_info("Telegram configured. Test with: /telegram test")
+
+        elif action == "listen":
+            # Toggle or explicit on/off
+            if len(args) >= 2:
+                toggle = args[1].lower()
+            else:
+                toggle = "off" if is_listening() else "on"
+
+            if toggle == "on":
+                result = start_listening()
+                if result["success"]:
+                    print()
+                    print("  ✓ Telegram listener: ON")
+                    print("  Receiving messages from your Telegram bot.")
+                    print("  Messages will appear in your RadSim session.")
+                    print("  Use /telegram listen off to stop.")
+                    print()
+                else:
+                    print_error(f"Failed to start: {result['error']}")
+            elif toggle == "off":
+                result = stop_listening()
+                print()
+                print("  ✓ Telegram listener: OFF")
+                print("  No longer receiving Telegram messages.")
+                print()
+            else:
+                print_error("Use: /telegram listen on  or  /telegram listen off")
+
+        elif action == "test":
+            result = send_telegram_message("RadSim test - Telegram integration is working.")
+            if result["success"]:
+                print_info("Test message sent successfully.")
+            else:
+                print_error(f"Failed: {result['error']}")
+
+        elif action == "send":
+            if len(args) >= 2:
+                message = " ".join(args[1:])
+            else:
+                message = safe_input("  Message: ")
+                if message is None:
+                    return
+            result = send_telegram_message(message)
+            if result["success"]:
+                print_info("Message sent.")
+            else:
+                print_error(f"Failed: {result['error']}")
+
+        elif action == "status":
+            token, chat_id = load_telegram_config()
+            print()
+            if token:
+                masked = token[:8] + "..." + token[-4:] if len(token) > 12 else "***"
+                print(f"  Bot Token:  {masked}")
+            else:
+                print("  Bot Token:  Not configured")
+            print(f"  Chat ID:    {chat_id or 'Not configured'}")
+            print(f"  Listening:  {'ON' if is_listening() else 'OFF'}")
+            print()
+
+        else:
+            print_error(f"Unknown action: {action}")
+            print_info("Use /telegram for options")
+
     def _cmd_commands(self, agent):
         """List all available commands."""
         print()
@@ -915,6 +1192,16 @@ class CommandRegistry:
                 ("/skill remove <n>", "Remove a skill"),
                 ("/skill templates", "Show skill examples"),
             ],
+            "Memory": [
+                ("/memory remember", "Save to persistent memory"),
+                ("/memory forget", "Remove from memory"),
+                ("/memory list", "Show all memories"),
+            ],
+            "Self-Modification": [
+                ("/selfmod path", "Show source directory"),
+                ("/selfmod prompt", "View custom prompt"),
+                ("/selfmod list", "List source files"),
+            ],
             "Agent Config": [
                 ("/settings", "View/change agent settings"),
                 ("/settings <key> <val>", "Toggle a setting"),
@@ -926,7 +1213,15 @@ class CommandRegistry:
             ],
             "Modes": [
                 ("/teach, /t", "Toggle Teach Me mode"),
+                ("/awake", "Toggle stay-awake (macOS)"),
                 ("/modes", "List all modes"),
+            ],
+            "Notifications": [
+                ("/telegram setup", "Configure Telegram bot"),
+                ("/telegram listen", "Toggle receive on/off"),
+                ("/telegram test", "Send a test message"),
+                ("/telegram send", "Send a message"),
+                ("/telegram status", "Check configuration"),
             ],
             "Code Analysis": [
                 ("/complexity", "Complexity budget & scoring"),
@@ -965,6 +1260,28 @@ class CommandRegistry:
         else:
             print("  ✓ " + message)
             print("  Back to normal execution mode.")
+        print()
+
+    def _cmd_awake(self, agent):
+        """Toggle stay-awake mode (caffeinate)."""
+        import platform
+
+        from .modes import toggle_mode
+
+        if platform.system() != "Darwin":
+            print_info("Awake mode is only available on macOS.")
+            return
+
+        is_active, message = toggle_mode("awake")
+        print()
+        if is_active:
+            print("  ✓ " + message)
+            print("  macOS sleep prevention is active (display, idle, system).")
+            print("  Your Mac will stay awake while RadSim is running.")
+            print("  Use /awake again to turn off.")
+        else:
+            print("  ✓ " + message)
+            print("  macOS can now sleep normally.")
         print()
 
     def _cmd_modes(self, agent):
@@ -1236,6 +1553,299 @@ class CommandRegistry:
         print("  Usage: /archaeology [imports | deps | clean]")
         print()
 
+    def _cmd_plan(self, agent, args=None):
+        """Structured plan-confirm-execute workflow."""
+        from .menu import interactive_menu, safe_input
+        from .planner import get_plan_manager
+
+        pm = get_plan_manager()
+
+        if not args:
+            # No args: show menu or create plan
+            if pm.active_plan:
+                choice = interactive_menu("PLAN", [
+                    ("show", "Show current plan"),
+                    ("approve", "Approve plan for execution"),
+                    ("reject", "Reject and discard plan"),
+                    ("step", "Execute next step"),
+                    ("run", "Execute all remaining steps"),
+                    ("status", "Show progress"),
+                    ("export", "Export plan to markdown"),
+                    ("history", "Show past plans"),
+                    ("new", "Create a new plan"),
+                ])
+            else:
+                choice = interactive_menu("PLAN", [
+                    ("new", "Create a new plan"),
+                    ("history", "Show past plans"),
+                ])
+            if choice is None:
+                return
+
+            if choice == "new":
+                desc = safe_input("  Describe what you want to do: ")
+                if desc is None:
+                    return
+                args = [desc]
+            else:
+                args = [choice]
+
+        action = args[0].lower()
+
+        if action == "show":
+            print(pm.show_plan())
+
+        elif action == "approve":
+            print(pm.approve_plan())
+
+        elif action == "reject":
+            print(pm.reject_plan())
+
+        elif action == "status":
+            print(pm.get_status())
+
+        elif action == "history":
+            print(pm.get_history())
+
+        elif action == "export":
+            print(pm.export_plan())
+
+        elif action == "step":
+            if not pm.active_plan:
+                print("  No active plan. Use '/plan <description>' to create one.")
+                return
+            if pm.active_plan.status not in ("approved", "in_progress"):
+                print("  Plan must be approved first. Use '/plan approve'.")
+                return
+
+            next_step = pm.get_next_step()
+            if not next_step:
+                print("  ✅ All steps completed!")
+                return
+
+            step_index, step = next_step
+            print(f"\n  Executing Step {step_index + 1}: {step.description}")
+            if step.files:
+                print(f"  Files: {', '.join(step.files)}")
+            print(f"  Risk: {step.risk.upper()}")
+            print()
+
+            # Mark in progress and let agent execute
+            pm.mark_step_in_progress(step_index)
+
+            # Send the step as a prompt to the agent
+            step_prompt = (
+                f"Execute this plan step: {step.description}\n"
+                f"Files to modify: {', '.join(step.files) if step.files else 'as needed'}\n"
+                f"Risk level: {step.risk}"
+            )
+            agent.process_message(step_prompt)
+            pm.mark_step_complete(step_index)
+
+            print(f"\n  ✓ Step {step_index + 1} completed.")
+            print(pm.get_status())
+
+        elif action == "run":
+            if not pm.active_plan:
+                print("  No active plan. Use '/plan <description>' to create one.")
+                return
+            if pm.active_plan.status not in ("approved", "in_progress"):
+                print("  Plan must be approved first. Use '/plan approve'.")
+                return
+
+            while True:
+                next_step = pm.get_next_step()
+                if not next_step:
+                    print("\n  ✅ All steps completed!")
+                    break
+
+                step_index, step = next_step
+                print(f"\n  ── Step {step_index + 1}/{len(pm.active_plan.steps)}: {step.description}")
+
+                if step.checkpoint:
+                    try:
+                        confirm = input("  Continue? [y/n]: ").strip().lower()
+                    except (KeyboardInterrupt, EOFError):
+                        print("\n  Plan execution paused.")
+                        return
+                    if confirm not in ("y", "yes", ""):
+                        print("  Plan execution paused.")
+                        return
+
+                pm.mark_step_in_progress(step_index)
+                step_prompt = (
+                    f"Execute this plan step: {step.description}\n"
+                    f"Files to modify: {', '.join(step.files) if step.files else 'as needed'}\n"
+                    f"Risk level: {step.risk}"
+                )
+                agent.process_message(step_prompt)
+                pm.mark_step_complete(step_index)
+                print(f"  ✓ Step {step_index + 1} completed.")
+
+            print(pm.get_status())
+
+        else:
+            # Treat as a plan description (e.g., /plan Add JWT auth)
+            description = " ".join(args)
+            print(f"\n  Generating plan for: {description}")
+            print("  Thinking...")
+
+            # Use the planning prompt to generate a plan via the agent
+            from .prompts import PLANNING_SYSTEM_PROMPT
+
+            plan_prompt = (
+                f"{PLANNING_SYSTEM_PROMPT}\n\n"
+                f"Task: {description}\n\n"
+                f"Analyze the current project and generate a structured implementation plan."
+            )
+            response = agent.process_message(plan_prompt)
+
+            # Fallback: process_message may return None when tool calls consume
+            # the return value, but _last_response captures the final text.
+            if not response:
+                response = getattr(agent, "_last_response", None)
+
+            if response:
+                plan = pm.create_plan_from_response(response)
+                if plan:
+                    print(pm.show_plan())
+                else:
+                    print("  ⚠ Could not parse plan from response.")
+                    print("  The response was displayed above. Try again with a clearer description.")
+            else:
+                print("  ⚠ No response from agent. Check your API key and provider.")
+
+    def _cmd_panning(self, agent, args=None):
+        """Brain-dump processing & synthesis."""
+        from .menu import interactive_menu, safe_input
+        from .panning import get_panning_session, start_new_session
+
+        session = get_panning_session()
+
+        if not args:
+            if session.active:
+                choice = interactive_menu("PANNING", [
+                    ("end", "End session and generate synthesis"),
+                    ("file", "Add a file to the dump"),
+                    ("refine", "Refine the last synthesis"),
+                    ("bridge", "Bridge to /plan"),
+                ])
+            else:
+                choice = interactive_menu("PANNING", [
+                    ("start", "Start a new panning session"),
+                    ("text", "Process a one-shot brain dump"),
+                    ("file", "Process a text/transcript file"),
+                ])
+            if choice is None:
+                return
+
+            if choice == "text":
+                text = safe_input("  Dump your thoughts: ")
+                if text is None:
+                    return
+                args = [text]
+            elif choice in ("start", "end", "refine", "bridge"):
+                args = [choice]
+            elif choice == "file":
+                path = safe_input("  File path: ")
+                if path is None:
+                    return
+                args = ["file", path]
+
+        action = args[0].lower() if args else "start"
+
+        if action == "file" and len(args) >= 2:
+            path = " ".join(args[1:])
+            if not session.active:
+                session = start_new_session()
+                session.start()
+            print(session.process_file(path))
+            print("  Type '/panning end' to generate synthesis.")
+
+        elif action == "end":
+            if not session.dumps:
+                print("  Nothing to synthesise. Dump some thoughts first!")
+                return
+
+            print("\n  Synthesising your thoughts...")
+
+            from .prompts import PANNING_SYSTEM_PROMPT
+
+            panning_prompt = (
+                f"{PANNING_SYSTEM_PROMPT}\n\n"
+                f"Brain dump content:\n\n{session.get_all_dumps()}"
+            )
+            response = agent.process_message(panning_prompt)
+
+            # Fallback: capture from _last_response if return was None
+            if not response:
+                response = getattr(agent, "_last_response", None)
+
+            if response:
+                synthesis = session.parse_synthesis(response)
+                if synthesis:
+                    print(synthesis.format_display())
+                else:
+                    print("  ⚠ Could not parse synthesis. Response displayed above.")
+            else:
+                print("  ⚠ No response from agent.")
+
+            session.end()
+
+        elif action == "refine":
+            synthesis = session.get_latest_synthesis()
+            if not synthesis:
+                print("  No synthesis to refine. Run '/panning end' first.")
+                return
+
+            detail = safe_input("  What to drill into (or press Enter for general): ")
+            if detail is None:
+                return
+
+            from .prompts import PANNING_SYSTEM_PROMPT
+
+            refine_prompt = (
+                f"{PANNING_SYSTEM_PROMPT}\n\n"
+                f"Previous synthesis:\n{json.dumps(synthesis.to_dict(), indent=2)}\n\n"
+                f"Drill deeper into: {detail or 'all themes'}\n"
+                f"Provide a more detailed synthesis."
+            )
+            response = agent.process_message(refine_prompt)
+
+            # Fallback: capture from _last_response if return was None
+            if not response:
+                response = getattr(agent, "_last_response", None)
+
+            if response:
+                new_synthesis = session.parse_synthesis(response)
+                if new_synthesis:
+                    print(new_synthesis.format_display())
+                else:
+                    print("  ⚠ Could not parse refined synthesis.")
+
+        elif action == "bridge":
+            synthesis = session.get_latest_synthesis()
+            if not synthesis:
+                print("  No synthesis to bridge. Run '/panning end' first.")
+                return
+
+            plan_desc = synthesis.to_plan_description()
+            print(f"\n  Bridging to /plan with: {plan_desc[:80]}...")
+            self._cmd_plan(agent, [plan_desc])
+
+        elif action == "start":
+            session = start_new_session()
+            print(session.start())
+
+        else:
+            # Treat as one-shot brain dump text
+            if not session.active:
+                session = start_new_session()
+                session.start()
+            session.add_dump(" ".join(args))
+            print(f"  ✓ Added to panning session ({len(session.dumps)} dump(s) collected)")
+            print("  Keep dumping, or type '/panning end' to synthesise.")
+
     def get_relevant_commands(self, context: str) -> list:
         """Get commands relevant to a context for hints.
 
@@ -1274,6 +1884,10 @@ class CommandRegistry:
                 ("/complexity", "Check complexity budget"),
                 ("/stress", "Adversarial review"),
                 ("/archaeology", "Find dead code"),
+            ],
+            "planning": [
+                ("/plan", "Create/manage plans"),
+                ("/panning", "Brain-dump processing"),
             ],
         }
         return command_hints.get(context, [])

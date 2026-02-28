@@ -57,6 +57,9 @@ PROVIDER_MODELS = {
     ],
     "openrouter": [
         ("moonshotai/kimi-k2.5", "Kimi K2.5 (Recommended)"),
+        ("anthropic/claude-opus-4.6", "Claude Opus 4.6 via OpenRouter"),
+        ("anthropic/claude-sonnet-4.6", "Claude Sonnet 4.6 via OpenRouter"),
+        ("openai/gpt-5.2-codex", "GPT-5.2 Codex via OpenRouter"),
         ("minimax/minimax-m2.1", "Minimax M2.1 (Fast)"),
         ("z-ai/glm-4.7", "GLM 4.7 (Capable)"),
     ],
@@ -110,6 +113,9 @@ FALLBACK_MODELS = {
     ],
     "openrouter": [
         "moonshotai/kimi-k2.5",
+        "anthropic/claude-opus-4.6",
+        "anthropic/claude-sonnet-4.6",
+        "openai/gpt-5.2-codex",
         "minimax/minimax-m2.1",
         "z-ai/glm-4.7",
     ],
@@ -132,8 +138,11 @@ MODEL_PRICING = {
     "gemini-3-flash": (0.10, 0.40),
     "gemini-2.5-pro": (1.25, 5.00),
     "gemini-2.5-flash": (0.075, 0.30),
-    # OpenRouter models (Kimi, Minimax, GLM only)
+    # OpenRouter models
     "moonshotai/kimi-k2.5": (0.14, 0.28),
+    "anthropic/claude-opus-4.6": (5.00, 25.00),
+    "anthropic/claude-sonnet-4.6": (3.00, 15.00),
+    "openai/gpt-5.2-codex": (0.60, 2.40),
     "minimax/minimax-m2.1": (0.20, 0.55),
     "z-ai/glm-4.7": (0.50, 0.50),
 }
@@ -155,6 +164,10 @@ CONTEXT_LIMITS = {
     "gemini-3-flash": 1000000,
     "gemini-2.5-pro": 2000000,
     "gemini-2.5-flash": 1000000,
+    # OpenRouter models
+    "anthropic/claude-opus-4.6": 1000000,
+    "anthropic/claude-sonnet-4.6": 1000000,
+    "openai/gpt-5.2-codex": 128000,
 }
 
 # Model-specific capabilities and settings per provider documentation
@@ -245,6 +258,28 @@ MODEL_CAPABILITIES = {
         "supports_vision": True,
         "max_output_tokens": 8192,
     },
+    # OpenRouter models (Claude/OpenAI via OpenRouter)
+    "anthropic/claude-opus-4.6": {
+        "supports_tools": True,
+        "supports_streaming": True,
+        "supports_extended_thinking": True,
+        "supports_vision": True,
+        "max_output_tokens": 16384,
+    },
+    "anthropic/claude-sonnet-4.6": {
+        "supports_tools": True,
+        "supports_streaming": True,
+        "supports_extended_thinking": True,
+        "supports_vision": True,
+        "max_output_tokens": 8192,
+    },
+    "openai/gpt-5.2-codex": {
+        "supports_tools": True,
+        "supports_streaming": True,
+        "supports_reasoning": True,
+        "supports_vision": False,
+        "max_output_tokens": 16384,
+    },
 }
 
 
@@ -268,32 +303,30 @@ ENV_FILE = CONFIG_DIR / ".env"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 MEMORY_DIR = CONFIG_DIR / "memory"
 SCHEDULES_FILE = CONFIG_DIR / "schedules.json"
+PACKAGE_DIR = Path(__file__).parent  # The radsim source directory
+CUSTOM_PROMPT_FILE = CONFIG_DIR / "custom_prompt.txt"
 
 
 def load_env_file():
     """Load config from .env file.
 
-    Priority order:
-    1. Local .env in current directory (project-specific)
-    2. ~/.radsim/.env (global config)
+    Always reads ONLY from the global ~/.radsim/.env.
+    Local project .env files are intentionally ignored so that
+    API keys and model settings are always controlled from one place.
 
     Supports both RADSIM_API_KEY and provider-specific keys.
     """
     result = {"api_key": None, "provider": None, "model": None, "keys": {}}
 
-    # Check for local .env first (project-specific), then global
-    local_env = Path.cwd() / ".env"
+    # Only read from the global config file — never local project .env
     env_files_to_check = []
-
-    if local_env.exists():
-        env_files_to_check.append(local_env)
     if ENV_FILE.exists():
         env_files_to_check.append(ENV_FILE)
 
     if not env_files_to_check:
         return result
 
-    # Process files in priority order (local first)
+    # Process global config only
     for env_file in env_files_to_check:
         try:
             content = env_file.read_text()
@@ -331,6 +364,8 @@ def load_env_file():
                     "GOOGLE_CLOUD_PROJECT",
                     "GOOGLE_CLOUD_LOCATION",
                     "RADSIM_ACCESS_CODE",
+                    "TELEGRAM_BOT_TOKEN",
+                    "TELEGRAM_CHAT_ID",
                 ):
                     if key not in result["keys"]:
                         result["keys"][key] = value

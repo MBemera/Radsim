@@ -1,14 +1,15 @@
 """Vector-based long-term memory for RadSim Agent.
 
-Uses ChromaDB as an embedded vector store for semantic search
+Uses JSON-based storage with TF-IDF cosine similarity for semantic search
 across conversations, code patterns, user preferences, and project context.
 
-Falls back to JSON-based keyword search when ChromaDB is unavailable.
+Pure Python — no native dependencies required. Works on all Python 3.10+ versions.
 """
 
 import hashlib
 import json
 import logging
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -31,21 +32,6 @@ ALL_COLLECTIONS = [
     COLLECTION_USER_PREFERENCES,
     COLLECTION_PROJECT_CONTEXT,
 ]
-
-# Check if ChromaDB is available
-CHROMADB_AVAILABLE = False
-try:
-    import chromadb
-    from chromadb.config import Settings
-
-    CHROMADB_AVAILABLE = True
-except ImportError:
-    chromadb = None
-    Settings = None
-    logger.info(
-        "ChromaDB not installed. Using JSON-based memory fallback. "
-        "For semantic search, install with: pip install radsim[vector]"
-    )
 
 
 # =============================================================================
@@ -117,14 +103,18 @@ class JsonMemoryFallback:
         self._save_collection(collection)
 
     def search(self, collection: str, query: str, top_k: int) -> list[dict]:
-        """Search using keyword matching and return scored results."""
+        """Search using TF-IDF cosine similarity and return scored results."""
         if collection not in self.collections:
+            return []
+
+        entries = self.collections[collection]
+        if not entries:
             return []
 
         query_keywords = self._extract_keywords(query)
         if not query_keywords:
             # If no keywords extracted, return recent entries
-            entries = self.collections[collection][-top_k:]
+            recent = entries[-top_k:]
             return [
                 {
                     "id": e["id"],
@@ -132,24 +122,53 @@ class JsonMemoryFallback:
                     "metadata": e["metadata"],
                     "distance": 0.5,
                 }
-                for e in reversed(entries)
+                for e in reversed(recent)
             ]
 
+        # Build document frequency (DF) for IDF calculation
+        num_docs = len(entries)
+        doc_freq: dict[str, int] = {}
+        entry_keyword_sets = []
+        for entry in entries:
+            kw_set = set(entry.get("keywords", []))
+            entry_keyword_sets.append(kw_set)
+            for kw in kw_set:
+                doc_freq[kw] = doc_freq.get(kw, 0) + 1
+
         scored_results = []
-        for entry in self.collections[collection]:
-            # Convert stored list back to set for comparison
-            entry_keywords = set(entry.get("keywords", []))
-            # Calculate overlap score
-            overlap = len(query_keywords & entry_keywords)
-            if overlap > 0:
-                # Score based on keyword overlap ratio
-                score = overlap / max(len(query_keywords), 1)
-                scored_results.append({
-                    "id": entry["id"],
-                    "content": entry["content"],
-                    "metadata": entry["metadata"],
-                    "distance": 1.0 - score,  # Lower distance = better match
-                })
+        for idx, entry in enumerate(entries):
+            entry_keywords = entry_keyword_sets[idx]
+            if not entry_keywords:
+                continue
+
+            # Compute TF-IDF cosine similarity between query and entry
+            shared_terms = query_keywords & entry_keywords
+            if not shared_terms:
+                continue
+
+            # IDF weight: log(N / df) — higher for rarer terms
+            dot_product = 0.0
+            query_norm_sq = 0.0
+            entry_norm_sq = 0.0
+
+            all_terms = query_keywords | entry_keywords
+            for term in all_terms:
+                idf = math.log((num_docs + 1) / (doc_freq.get(term, 0) + 1)) + 1.0
+                q_tfidf = idf if term in query_keywords else 0.0
+                e_tfidf = idf if term in entry_keywords else 0.0
+                dot_product += q_tfidf * e_tfidf
+                query_norm_sq += q_tfidf * q_tfidf
+                entry_norm_sq += e_tfidf * e_tfidf
+
+            norm = math.sqrt(query_norm_sq) * math.sqrt(entry_norm_sq)
+            similarity = dot_product / norm if norm > 0 else 0.0
+
+            scored_results.append({
+                "id": entry["id"],
+                "content": entry["content"],
+                "metadata": entry["metadata"],
+                "distance": 1.0 - similarity,  # Lower distance = better match
+            })
 
         # Sort by distance (ascending) and return top_k
         scored_results.sort(key=lambda x: x["distance"])
@@ -228,10 +247,10 @@ def generate_memory_id(content: str, timestamp: str) -> str:
 
 
 class VectorMemory:
-    """Vector-based long-term memory using ChromaDB.
+    """Vector-based long-term memory using JSON storage with TF-IDF search.
 
-    Stores and retrieves memories using semantic similarity search.
-    Falls back to JSON-based keyword search when ChromaDB unavailable.
+    Stores and retrieves memories using TF-IDF cosine similarity.
+    Pure Python — no native dependencies required.
 
     Supports multiple collections for different types of memories:
     - conversations: Summarized conversation history
@@ -244,66 +263,13 @@ class VectorMemory:
         """Initialize the vector memory system.
 
         Args:
-            persist_directory: Path to store the vector database.
+            persist_directory: Path to store the memory JSON files.
                              Defaults to ~/.radsim/vector_store/
         """
         self.persist_directory = Path(persist_directory or DEFAULT_PERSIST_DIRECTORY)
-        self.use_chromadb = CHROMADB_AVAILABLE
-        self.is_available = True  # Always available (with fallback)
-        self.client = None
-        self.collections = {}
-        self.fallback: JsonMemoryFallback | None = None
-
-        if self.use_chromadb:
-            self._initialize_client()
-            self._initialize_collections()
-        else:
-            # Use JSON fallback
-            self.fallback = JsonMemoryFallback(self.persist_directory)
-            logger.info("VectorMemory using JSON fallback (keyword-based search)")
-
-    def _initialize_client(self) -> None:
-        """Initialize the ChromaDB client with persistence."""
-        if not self.is_available:
-            return
-
-        try:
-            # Create the persist directory if it doesn't exist
-            self.persist_directory.mkdir(parents=True, exist_ok=True)
-
-            # Initialize ChromaDB with persistent storage
-            self.client = chromadb.PersistentClient(
-                path=str(self.persist_directory),
-                settings=Settings(
-                    anonymized_telemetry=False,
-                    allow_reset=True,
-                ),
-            )
-            logger.info(f"ChromaDB initialized at {self.persist_directory}")
-
-        except Exception as error:
-            logger.error(f"Failed to initialize ChromaDB: {error}")
-            self.is_available = False
-            self.client = None
-
-    def _initialize_collections(self) -> None:
-        """Initialize all memory collections."""
-        if not self.is_available or not self.client:
-            return
-
-        for collection_name in ALL_COLLECTIONS:
-            try:
-                # Get or create the collection
-                # ChromaDB uses default embeddings (all-MiniLM-L6-v2) if not specified
-                collection = self.client.get_or_create_collection(
-                    name=collection_name,
-                    metadata={"description": f"RadSim {collection_name} memory"},
-                )
-                self.collections[collection_name] = collection
-                logger.debug(f"Initialized collection: {collection_name}")
-
-            except Exception as error:
-                logger.error(f"Failed to initialize collection {collection_name}: {error}")
+        self.is_available = True
+        self.fallback = JsonMemoryFallback(self.persist_directory)
+        logger.debug("VectorMemory initialized (JSON + TF-IDF backend)")
 
     def _validate_collection(self, collection: str) -> bool:
         """Validate that a collection name is valid.
@@ -365,24 +331,7 @@ class VectorMemory:
                         else:
                             full_metadata[key] = value
 
-            # Use fallback if ChromaDB not available
-            if self.fallback:
-                self.fallback.add(collection, memory_id, content, full_metadata)
-                logger.debug(f"Added memory {memory_id} to {collection} (JSON fallback)")
-                return memory_id
-
-            # Add to ChromaDB collection
-            chroma_collection = self.collections.get(collection)
-            if not chroma_collection:
-                logger.error(f"Collection not initialized: {collection}")
-                return ""
-
-            chroma_collection.add(
-                documents=[content],
-                metadatas=[full_metadata],
-                ids=[memory_id],
-            )
-
+            self.fallback.add(collection, memory_id, content, full_metadata)
             logger.debug(f"Added memory {memory_id} to {collection}")
             return memory_id
 
@@ -417,42 +366,9 @@ class VectorMemory:
             return []
 
         try:
-            # Use fallback if ChromaDB not available
-            if self.fallback:
-                results = self.fallback.search(collection, query, top_k)
-                logger.debug(f"Found {len(results)} memories in {collection} (JSON fallback)")
-                return results
-
-            chroma_collection = self.collections.get(collection)
-            if not chroma_collection:
-                logger.error(f"Collection not initialized: {collection}")
-                return []
-
-            # Query the collection
-            results = chroma_collection.query(
-                query_texts=[query],
-                n_results=min(top_k, 100),  # Cap at 100 for safety
-            )
-
-            # Format results
-            memories = []
-            if results and results.get("ids") and results["ids"][0]:
-                ids = results["ids"][0]
-                documents = results.get("documents", [[]])[0]
-                metadatas = results.get("metadatas", [[]])[0]
-                distances = results.get("distances", [[]])[0]
-
-                for i, memory_id in enumerate(ids):
-                    memory = {
-                        "id": memory_id,
-                        "content": documents[i] if i < len(documents) else "",
-                        "metadata": metadatas[i] if i < len(metadatas) else {},
-                        "distance": distances[i] if i < len(distances) else None,
-                    }
-                    memories.append(memory)
-
-            logger.debug(f"Found {len(memories)} memories in {collection} for query")
-            return memories
+            results = self.fallback.search(collection, query, top_k)
+            logger.debug(f"Found {len(results)} memories in {collection}")
+            return results
 
         except Exception as error:
             logger.error(f"Failed to search memories in {collection}: {error}")
@@ -476,21 +392,10 @@ class VectorMemory:
             return False
 
         try:
-            # Use fallback if ChromaDB not available
-            if self.fallback:
-                result = self.fallback.delete(collection, memory_id)
-                if result:
-                    logger.debug(f"Deleted memory {memory_id} from {collection} (JSON fallback)")
-                return result
-
-            chroma_collection = self.collections.get(collection)
-            if not chroma_collection:
-                logger.error(f"Collection not initialized: {collection}")
-                return False
-
-            chroma_collection.delete(ids=[memory_id])
-            logger.debug(f"Deleted memory {memory_id} from {collection}")
-            return True
+            result = self.fallback.delete(collection, memory_id)
+            if result:
+                logger.debug(f"Deleted memory {memory_id} from {collection}")
+            return result
 
         except Exception as error:
             logger.error(f"Failed to delete memory {memory_id}: {error}")
@@ -571,26 +476,12 @@ class VectorMemory:
             return {"available": False, "count": 0, "error": "Invalid collection"}
 
         try:
-            # Use fallback if ChromaDB not available
-            if self.fallback:
-                count = self.fallback.count(collection)
-                return {
-                    "available": True,
-                    "count": count,
-                    "collection": collection,
-                    "backend": "json",
-                }
-
-            chroma_collection = self.collections.get(collection)
-            if not chroma_collection:
-                return {"available": False, "count": 0}
-
-            count = chroma_collection.count()
+            count = self.fallback.count(collection)
             return {
                 "available": True,
                 "count": count,
                 "collection": collection,
-                "backend": "chromadb",
+                "backend": "json",
             }
 
         except Exception as error:
@@ -609,19 +500,7 @@ class VectorMemory:
             return False
 
         try:
-            # Use fallback if ChromaDB not available
-            if self.fallback:
-                self.fallback.clear(collection)
-                logger.info(f"Cleared collection: {collection} (JSON fallback)")
-                return True
-
-            # Delete and recreate the collection
-            self.client.delete_collection(collection)
-            new_collection = self.client.create_collection(
-                name=collection,
-                metadata={"description": f"RadSim {collection} memory"},
-            )
-            self.collections[collection] = new_collection
+            self.fallback.clear(collection)
             logger.info(f"Cleared collection: {collection}")
             return True
 
@@ -755,11 +634,8 @@ def get_context(query: str, max_tokens: int = 2000) -> str:
 def is_vector_memory_available() -> bool:
     """Check if vector memory functionality is available.
 
-    Memory is always available - uses ChromaDB when installed,
-    falls back to JSON-based keyword search otherwise.
-
     Returns:
-        True (memory is always available with fallback)
+        True (memory is always available — pure Python backend)
     """
     return True
 
@@ -768,6 +644,6 @@ def get_memory_backend() -> str:
     """Get the current memory backend being used.
 
     Returns:
-        'chromadb' if ChromaDB is available, 'json' otherwise
+        'json' — JSON storage with TF-IDF cosine similarity
     """
-    return "chromadb" if CHROMADB_AVAILABLE else "json"
+    return "json"

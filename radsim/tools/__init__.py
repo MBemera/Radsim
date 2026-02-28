@@ -364,5 +364,30 @@ def execute_tool(tool_name, tool_input):
 
         return list_schedules()
 
+    elif tool_name == "add_skill":
+        from ..skills import add_skill
+
+        return add_skill(
+            tool_input.get("instruction", ""),
+            tool_input.get("category"),
+        )
+
+    elif tool_name == "remove_skill":
+        from ..skills import remove_skill
+
+        index = tool_input.get("index", 0) - 1  # Convert 1-based to 0-based
+        return remove_skill(index)
+
+    elif tool_name == "list_skills":
+        from ..skills import list_skills
+
+        skills = list_skills()
+        return {"success": True, "skills": skills, "count": len(skills)}
+
+    elif tool_name == "send_telegram":
+        from ..telegram import send_telegram_message
+
+        return send_telegram_message(tool_input.get("message", ""))
+
     else:
         return {"success": False, "error": f"Unknown tool: {tool_name}"}

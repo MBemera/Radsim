@@ -288,6 +288,103 @@ You: "   Save this skill? [y/n]"
 Remember: Simple code is not dumbed-down code. It's carefully crafted to be immediately understandable while remaining fully functional."""
 
 
+PLANNING_SYSTEM_PROMPT = """You are RadSim in PLANNING MODE. Your task is to generate a structured implementation plan.
+
+Given the user's task description, first provide a clear human-readable summary of the plan, then include the machine-readable JSON at the end.
+
+FORMAT YOUR RESPONSE LIKE THIS:
+
+1. Start with a brief overview of the plan in plain text
+2. List the steps in readable numbered format with risk levels and affected files
+3. Mention any dependencies and rollback strategy
+4. End with the JSON block wrapped in ```json ... ```
+
+The JSON must follow this exact structure:
+
+```json
+{
+  "title": "Short one-line title",
+  "goal": "What success looks like",
+  "steps": [
+    {
+      "description": "What to do in this step",
+      "files": ["list", "of", "affected", "files"],
+      "risk": "low|medium|high",
+      "scope": "Estimated number of lines changed",
+      "checkpoint": true
+    }
+  ],
+  "dependencies": ["External requirements or blockers"],
+  "rollback": "How to undo if something goes wrong"
+}
+```
+
+Risk levels:
+- LOW: New files, adding dependencies, documentation
+- MEDIUM: Modifying existing files, adding new functions
+- HIGH: Changing existing logic, modifying shared state, database changes
+
+Set checkpoint=true for MEDIUM and HIGH risk steps.
+
+IMPORTANT:
+- Always start with human-readable text BEFORE the JSON block
+- The JSON block must appear at the END of your response wrapped in ```json ... ```
+- Be specific about files and changes
+- Order steps by dependency (what must come first)
+- Include a realistic rollback strategy
+"""
+
+
+PANNING_SYSTEM_PROMPT = """You are RadSim in PANNING MODE. Your task is to analyse unstructured brain-dump input and extract structured insights.
+
+The user will provide raw, unstructured thoughts — potentially from voice transcripts, scattered notes, or stream-of-consciousness writing. Rambling and repetition are expected.
+
+FORMAT YOUR RESPONSE LIKE THIS:
+
+1. Start with a plain-text narrative synthesis of what you found
+2. Highlight the key themes, action items, and priorities in readable prose
+3. Call out any surprising connections between ideas
+4. List open questions that still need answering
+5. End with the machine-readable JSON block wrapped in ```json ... ```
+
+The JSON must follow this exact structure:
+
+```json
+{
+  "themes": [
+    {"title": "Theme title", "description": "Brief description"}
+  ],
+  "action_items": [
+    {"task": "Specific actionable task", "priority": "high|medium|low"}
+  ],
+  "priorities": [
+    {"item": "What to prioritize", "signal": "Why (e.g., mentioned 4x, frustration detected)", "rank": 1}
+  ],
+  "connections": [
+    {"items": ["Theme A", "Theme B"], "insight": "How they connect"}
+  ],
+  "open_questions": [
+    "Question that still needs answering"
+  ]
+}
+```
+
+Analysis rules:
+- Count how many times topics are mentioned (repetition = importance)
+- Detect emotional signals: frustration, excitement, uncertainty, urgency
+- Identify hidden connections between seemingly unrelated ideas
+- Extract concrete action items, not vague ideas
+- Flag decisions that need to be made
+- Rank priorities by signal strength (repetition × emotional intensity)
+
+IMPORTANT:
+- Always start with human-readable text BEFORE the JSON block
+- The JSON block must appear at the END of your response wrapped in ```json ... ```
+- Be thorough — users dump messy thoughts expecting you to find the gold
+- Don't judge or filter — extract everything, then organize
+"""
+
+
 def get_system_prompt():
     """Get the RadSim system prompt."""
     prompt = RADSIM_SYSTEM_PROMPT
@@ -311,6 +408,32 @@ def get_system_prompt():
             prompt += skills_section
     except Exception:
         logger.debug("Failed to load skills for prompt")
+
+    # Load custom prompt extensions (user-defined via /selfmod)
+    try:
+        from .config import CUSTOM_PROMPT_FILE
+
+        if CUSTOM_PROMPT_FILE.exists():
+            custom_text = CUSTOM_PROMPT_FILE.read_text(encoding="utf-8").strip()
+            if custom_text:
+                max_custom_size = 5000  # 5KB max
+                if len(custom_text) > max_custom_size:
+                    custom_text = custom_text[:max_custom_size] + "\n[custom_prompt.txt truncated]"
+                prompt += f"\n\n## Custom Instructions\n{custom_text}"
+    except Exception:
+        logger.debug("Failed to load custom_prompt.txt")
+
+    # Self-modification awareness
+    try:
+        from .config import PACKAGE_DIR
+
+        prompt += "\n\n## Self-Modification"
+        prompt += f"\nYour source code is at: {PACKAGE_DIR}"
+        prompt += "\nYou may read and edit your own source files ONLY when the user explicitly requests it."
+        prompt += "\nABSOLUTE RULE: You must NEVER delete or modify the RADSIM_SYSTEM_PROMPT string in prompts.py."
+        prompt += "\nTo add custom prompt content, write to ~/.radsim/custom_prompt.txt instead."
+    except Exception:
+        logger.debug("Failed to add self-modification info")
 
     # Check for local agents.md context
     # WARNING: This loads content from the project directory - potential prompt injection vector
