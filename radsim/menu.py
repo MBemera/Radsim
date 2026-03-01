@@ -5,8 +5,23 @@ every command can be cleanly exited with 'q' or Ctrl+C.
 """
 
 
+def _flush_stdin():
+    """Flush any buffered stdin characters to prevent stale input."""
+    import select
+    import sys
+
+    try:
+        while select.select([sys.stdin], [], [], 0)[0]:
+            sys.stdin.read(1)
+    except Exception:
+        pass
+
+
 def safe_input(prompt="  Select: "):
     """Prompt for user input with clean cancel handling.
+
+    Flushes stdin first to discard any buffered keystrokes from
+    streaming output or background job notifications.
 
     Args:
         prompt: The input prompt string
@@ -14,6 +29,7 @@ def safe_input(prompt="  Select: "):
     Returns:
         str: User's input (stripped), or None if cancelled (Ctrl+C / EOF / 'q')
     """
+    _flush_stdin()
     try:
         value = input(prompt).strip()
         if value.lower() in ("q", "quit", "exit", "back"):
@@ -24,13 +40,16 @@ def safe_input(prompt="  Select: "):
         return None
 
 
-def interactive_menu(title, options, prompt="  Select: "):
+def interactive_menu(title, options, prompt="  Select: ", max_retries=3):
     """Display a numbered menu and return the user's choice.
+
+    Retries on invalid input (up to max_retries) before giving up.
 
     Args:
         title: Menu title (displayed in header)
         options: List of (key, label) tuples. Key is returned on selection.
         prompt: Input prompt string
+        max_retries: Number of retries on invalid input before returning None
 
     Returns:
         str: The key of the selected option, or None if cancelled.
@@ -52,24 +71,30 @@ def interactive_menu(title, options, prompt="  Select: "):
     print("  [q] Back")
     print()
 
-    selection = safe_input(prompt)
-    if selection is None:
-        return None
+    for attempt in range(max_retries):
+        selection = safe_input(prompt)
+        if selection is None:
+            return None
 
-    # Accept number
-    try:
-        index = int(selection) - 1
-        if 0 <= index < len(options):
-            return options[index][0]
-    except ValueError:
-        pass
+        # Accept number
+        try:
+            index = int(selection) - 1
+            if 0 <= index < len(options):
+                return options[index][0]
+        except ValueError:
+            pass
 
-    # Accept key name directly
-    for key, _ in options:
-        if selection.lower() == key.lower():
-            return key
+        # Accept key name directly
+        for key, _ in options:
+            if selection.lower() == key.lower():
+                return key
 
-    print(f"  Invalid choice: {selection}")
+        remaining = max_retries - attempt - 1
+        if remaining > 0:
+            print(f"  Invalid choice: {selection} — enter 1-{len(options)} or q to cancel")
+        else:
+            print(f"  Invalid choice: {selection}")
+
     return None
 
 

@@ -149,6 +149,12 @@ def read_file(file_path, offset=0, limit=None):
             content = content[:MAX_TRUNCATED_SIZE]
             content += f"\n... [Truncated at {MAX_TRUNCATED_SIZE} chars, {total_lines} total lines]"
 
+        try:
+            from .memory import Memory
+            Memory().project_mem.update_recent_file(str(path))
+        except Exception:
+            pass
+
         return {
             "success": True,
             "content": content,
@@ -213,6 +219,12 @@ def write_file(file_path, content):
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+
+        try:
+            from .memory import Memory
+            Memory().project_mem.update_recent_file(str(path))
+        except Exception:
+            pass
 
         return {"success": True, "path": str(path), "bytes_written": len(content.encode("utf-8"))}
     except PermissionError:

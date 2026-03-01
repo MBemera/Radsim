@@ -19,6 +19,8 @@ This package provides all tools for the RadSim agent, organized into modules:
 - definitions: Tool definitions for API
 """
 
+import logging
+
 # Try to import browser tools (optional dependency)
 try:
     from ..browser import browser_click, browser_open, browser_screenshot, browser_type
@@ -50,6 +52,7 @@ from .directory_ops import create_directory, list_directory
 # Import all tool functions for execute_tool
 from .file_ops import (
     delete_file,
+    multi_edit,
     read_file,
     read_many_files,
     rename_file,
@@ -79,12 +82,18 @@ from .shell import run_shell_command
 from .testing import detect_project_type, format_code, lint_code, run_tests, type_check
 from .web import web_fetch
 
+logger = logging.getLogger(__name__)
+
 
 def execute_tool(tool_name, tool_input):
     """Execute a tool and return the result.
 
     This is the main entry point for tool execution, used by the agent.
     """
+    # Strip _intent before dispatching (chain-of-thought, not a real parameter)
+    intent = tool_input.pop("_intent", None)
+    if intent:
+        logger.debug("Tool intent [%s]: %s", tool_name, intent)
 
     # Browser Tools
     if tool_name.startswith("browser_"):
@@ -162,6 +171,7 @@ def execute_tool(tool_name, tool_input):
             tool_input.get("file_pattern"),
             tool_input.get("ignore_case", False),
             tool_input.get("context_lines", 0),
+            tool_input.get("output_mode", "content"),
         )
 
     elif tool_name == "search_files":
@@ -388,6 +398,38 @@ def execute_tool(tool_name, tool_input):
         from ..telegram import send_telegram_message
 
         return send_telegram_message(tool_input.get("message", ""))
+
+    # Task Tracking
+    elif tool_name == "todo_read":
+        from ..todo import get_tracker
+
+        return get_tracker().read()
+
+    elif tool_name == "todo_write":
+        from ..todo import get_tracker
+
+        return get_tracker().write(tool_input.get("todos", []))
+
+    # Atomic Batch Edit
+    elif tool_name == "multi_edit":
+        return multi_edit(tool_input.get("file_path", ""), tool_input.get("edits", []))
+
+    # Codebase Structure
+    elif tool_name == "repo_map":
+        from ..repo_map import generate_repo_map
+
+        return generate_repo_map(
+            directory=tool_input.get("directory_path", "."),
+            focus_files=tool_input.get("focus_files"),
+            max_tokens=tool_input.get("max_tokens", 4000),
+            language_filter=tool_input.get("language_filter"),
+        )
+
+    # Multi-File Patch
+    elif tool_name == "apply_patch":
+        from ..patch import apply_patch
+
+        return apply_patch(tool_input.get("patch", ""))
 
     else:
         return {"success": False, "error": f"Unknown tool: {tool_name}"}

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "radsim"
-version = "1.2.0"
+version = "1.2.1"
 description = "RadSim - Radically Simple Code Generator"
 readme = "README.md"
 license = "MIT"
@@ -25,19 +25,26 @@ classifiers = [
 ]
 dependencies = [
     "anthropic>=0.40.0,<1.0",
+    "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]
 openai = ["openai>=1.50.0,<2.0"]
-gemini = ["google-genai>=0.8.0"]
+gemini = ["google-genai>=0.8.0,<2.0"]
+
 browser = [
     "playwright>=1.40.0,<2.0",
 ]
-memory = []
-vector = []
+treesitter = [
+    "tree-sitter>=0.21.0,<1.0",
+    "tree-sitter-python>=0.21.0",
+    "tree-sitter-javascript>=0.21.0",
+    "tree-sitter-typescript>=0.21.0",
+]
+
 all = [
     "openai>=1.50.0,<2.0",
-    "google-genai>=0.8.0",
+    "google-genai>=0.8.0,<2.0",
     "playwright>=1.40.0,<2.0",
 ]
 dev = [

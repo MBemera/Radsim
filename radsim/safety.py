@@ -198,6 +198,10 @@ def confirm_write(file_path, content, config=None):
         print("⚠️  This will OVERWRITE the existing file!")
 
     # Ask for confirmation - loop to allow 's' to show full code first
+    # Pause the escape listener so input() works in normal line-buffered mode
+    from .escape_listener import pause_escape_listener, resume_escape_listener
+
+    pause_escape_listener()
     try:
         while True:
             # Check if teach mode is active for the prompt hint
@@ -249,6 +253,8 @@ def confirm_write(file_path, content, config=None):
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         return False
+    finally:
+        resume_escape_listener()
 
 
 def confirm_action(message, config=None):
@@ -260,6 +266,10 @@ def confirm_action(message, config=None):
     if _telegram_confirm_fn:
         return _telegram_confirm_fn(message)
 
+    # Pause the escape listener so input() works in normal line-buffered mode
+    from .escape_listener import pause_escape_listener, resume_escape_listener
+
+    pause_escape_listener()
     try:
         response = input(f"\n{message} [y/n/all]: ").strip()
 
@@ -286,3 +296,5 @@ def confirm_action(message, config=None):
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         return False
+    finally:
+        resume_escape_listener()

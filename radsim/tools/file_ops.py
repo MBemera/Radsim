@@ -270,3 +270,85 @@ def delete_file(file_path):
         return {"success": True, "path": str(path)}
     except Exception as error:
         return {"success": False, "error": str(error)}
+
+
+def multi_edit(file_path, edits):
+    """Apply multiple search-and-replace edits to a file atomically.
+
+    All edits are validated against the original content first.
+    If any edit fails (old_string not found or not unique), no changes are applied.
+
+    Args:
+        file_path: Path to the file to edit.
+        edits: List of dicts, each with 'old_string' and 'new_string'.
+
+    Returns:
+        dict with success status and details.
+    """
+    is_safe, path, error = validate_path(file_path)
+    if not is_safe:
+        return {"success": False, "error": error}
+
+    is_protected, reason = is_protected_path(file_path)
+    if is_protected:
+        return {"success": False, "error": f"Cannot modify: {reason}"}
+
+    try:
+        if not path.exists():
+            return {"success": False, "error": f"File not found: {file_path}"}
+
+        original = path.read_text(encoding="utf-8")
+    except OSError as e:
+        return {"success": False, "error": f"Cannot read file: {e}"}
+
+    if not edits:
+        return {"success": False, "error": "No edits provided."}
+
+    # Phase 1: Validate all edits against original content
+    errors = []
+    for i, edit in enumerate(edits):
+        old_string = edit.get("old_string", "")
+        if not old_string:
+            errors.append(f"Edit {i + 1}: empty old_string")
+            continue
+
+        count = original.count(old_string)
+        if count == 0:
+            errors.append(f"Edit {i + 1}: old_string not found")
+        elif count > 1:
+            errors.append(f"Edit {i + 1}: old_string matches {count} locations (must be unique)")
+
+    if errors:
+        return {
+            "success": False,
+            "error": "Validation failed (no changes applied):\n" + "\n".join(errors),
+        }
+
+    # Phase 2: Apply all edits sequentially
+    content = original
+    applied = []
+    for i, edit in enumerate(edits):
+        old_string = edit.get("old_string", "")
+        new_string = edit.get("new_string", "")
+
+        if old_string not in content:
+            return {
+                "success": False,
+                "error": f"Edit {i + 1} failed during apply (content changed by earlier edit). No changes written.",
+            }
+
+        content = content.replace(old_string, new_string, 1)
+        applied.append(f"Edit {i + 1}: replaced {len(old_string)} chars with {len(new_string)} chars")
+
+    # Phase 3: Write the result
+    try:
+        path.write_text(content, encoding="utf-8")
+    except OSError as e:
+        return {"success": False, "error": f"Failed to write: {e}"}
+
+    return {
+        "success": True,
+        "file_path": str(file_path),
+        "edits_applied": len(applied),
+        "details": applied,
+    }

@@ -9,7 +9,12 @@ import atexit
 import os
 import signal
 import sys
+import warnings
 from importlib.metadata import version
+
+# Suppress Pydantic V1 compatibility warning on Python 3.14+
+# (triggered by openai SDK internals — harmless, cosmetic only)
+warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality", category=UserWarning)
 
 from .agent import run_interactive, run_single_shot
 from .config import load_config
@@ -174,6 +179,8 @@ Environment variables:
         help="Skip the startup update check",
     )
 
+
+
     return parser.parse_args()
 
 
@@ -266,7 +273,9 @@ def main():
         except Exception:
             pass  # Never let update check break startup
 
-    # Run in appropriate mode
+
+
+    # Run in appropriate mode (CLI)
     if args.prompt:
         # Single-shot mode
         try:

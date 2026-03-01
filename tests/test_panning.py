@@ -5,9 +5,6 @@
 """Tests for the panning session."""
 
 import json
-from pathlib import Path
-
-import pytest
 
 from radsim.panning import (
     PanningSession,

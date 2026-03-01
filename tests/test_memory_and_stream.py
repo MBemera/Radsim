@@ -14,13 +14,13 @@ class TestMemoryPersistence:
 
         import radsim.config
 
-        monkeypatch.setattr(radsim.config, "MEMORY_DIR", fake_memory_dir)
+        monkeypatch.setattr(radsim.config, "CONFIG_DIR", fake_memory_dir)
 
         # Reload memory module to use new path
         from radsim.memory import load_memory, save_memory
 
         # Force Memory to use the new directory
-        monkeypatch.setattr("radsim.memory.MEMORY_DIR", fake_memory_dir)
+        monkeypatch.setattr("radsim.memory.CONFIG_DIR", fake_memory_dir)
 
         # Test save
         result = save_memory("test_key", "test_value", "preference")
@@ -40,21 +40,22 @@ class TestMemoryPersistence:
 
         import radsim.config
 
-        monkeypatch.setattr(radsim.config, "MEMORY_DIR", fake_memory_dir)
-        monkeypatch.setattr("radsim.memory.MEMORY_DIR", fake_memory_dir)
+        monkeypatch.setattr(radsim.config, "CONFIG_DIR", fake_memory_dir)
+        monkeypatch.setattr("radsim.memory.CONFIG_DIR", fake_memory_dir)
 
         from radsim.memory import save_memory
 
         save_memory("persistent_key", "persistent_value", "preference")
 
         # Check file exists
-        prefs_file = fake_memory_dir / "preferences.json"
+        prefs_file = fake_memory_dir / "global_memory.json"
         assert prefs_file.exists(), "Preferences file should be created"
 
         # Check content
         data = json.loads(prefs_file.read_text())
-        assert "persistent_key" in data
-        assert data["persistent_key"] == "persistent_value"
+        assert "preferences" in data
+        assert "persistent_key" in data["preferences"]
+        assert data["preferences"]["persistent_key"] == "persistent_value"
 
 
 class TestStreamConfiguration:

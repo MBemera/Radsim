@@ -1,11 +1,8 @@
 """Tests for radsim.telegram module."""
 
-import json
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -1,10 +1,22 @@
 """Terminal output formatting for RadSim Agent."""
 
-import itertools
 import sys
-import threading
 import time
 from importlib.metadata import version as get_version
+
+from .ui import (
+    Spinner,
+    print_error,
+    print_hint,
+    print_info,
+    print_prompt,
+    print_success,
+    print_teach,
+    print_typewriter,
+    print_warning,
+    show_error_panel,
+    show_success_panel,
+)
 
 # ANSI color codes
 COLORS = {
@@ -144,9 +156,23 @@ def print_boot_sequence(provider, model, animated=True):
 
     # Quick tips
     print(colorize("  Type your request or use commands:", "dim"))
-    print(colorize("    /help", "cyan") + colorize(" - Show all commands", "dim"))
-    print(colorize("    /tools", "cyan") + colorize(" - List available tools (35 total)", "dim"))
-    print(colorize("    /exit", "cyan") + colorize(" - Quit RadSim", "dim"))
+    if animated:
+        sys.stdout.write("    ")
+        sys.stdout.flush()
+        print_typewriter("/help", delay=0.03, style="cyan", end="")
+        print(colorize(" - Show all commands", "dim"))
+        sys.stdout.write("    ")
+        sys.stdout.flush()
+        print_typewriter("/tools", delay=0.03, style="cyan", end="")
+        print(colorize(" - List available tools (35 total)", "dim"))
+        sys.stdout.write("    ")
+        sys.stdout.flush()
+        print_typewriter("/exit", delay=0.03, style="cyan", end="")
+        print(colorize(" - Quit RadSim", "dim"))
+    else:
+        print(colorize("    /help", "cyan") + colorize(" - Show all commands", "dim"))
+        print(colorize("    /tools", "cyan") + colorize(" - List available tools (35 total)", "dim"))
+        print(colorize("    /exit", "cyan") + colorize(" - Quit RadSim", "dim"))
     print()
 
 
@@ -192,49 +218,6 @@ def print_status_bar(model, input_tokens, output_tokens):
     print()
 
 
-def print_prompt(active_modes: list = None):
-    """Print the input prompt with optional mode indicators.
-
-    Args:
-        active_modes: List of active mode names to display
-    """
-    mode_prefix = ""
-    if active_modes:
-        mode_tags = " ".join(f"[{m}]" for m in active_modes)
-        mode_prefix = colorize(mode_tags + " ", "bright_magenta")
-
-    prompt = mode_prefix + colorize("> ", "cyan")
-    return input(prompt)
-
-
-def print_error(message):
-    """Print an error message."""
-    print(colorize(f"Error: {message}", "red"))
-
-
-def print_success(message):
-    """Print a success message."""
-    print(colorize(f"✓ {message}", "green"))
-
-
-def print_warning(message):
-    """Print a warning message."""
-    print(colorize(f"⚠ {message}", "yellow"))
-
-
-def print_info(message):
-    """Print an info message."""
-    print(colorize(message, "dim"))
-
-
-def print_teach(message):
-    """Print a teaching message in magenta (for Teach Mode).
-
-    Args:
-        message: The teaching content to display
-    """
-    # Use magenta/bright_magenta to distinguish from green success messages
-    print(colorize(f"  💡 {message}", "bright_magenta"))
 
 
 def print_code(code, language=None):
@@ -247,228 +230,16 @@ def print_code(code, language=None):
         print(colorize("```", "dim"))
     print()
 
-
-class Spinner:
-    """Animated terminal spinner with multiple style options."""
-
-    def __init__(self, message="Thinking...", delay=0.1, style="dots"):
-        """Initialize spinner.
-
-        Args:
-            message: Text to display next to spinner
-            delay: Seconds between animation frames
-            style: One of 'dots', 'braille', 'moon', 'arrows'
-        """
-        spinner_frames = SPINNER_STYLES.get(style, SPINNER_STYLES["dots"])
-        self.spinner = itertools.cycle(spinner_frames)
-        self.message = message
-        self.delay = delay
-        self.style = style
-        self.stop_running = False
-        self.thread = None
-
-    def spin(self):
-        """Spin animation loop."""
-        while not self.stop_running:
-            if supports_color():
-                sys.stdout.write(
-                    f"\r{colorize(next(self.spinner), 'bright_cyan')} {colorize(self.message, 'dim')}"
-                )
-            else:
-                sys.stdout.write(f"\r{next(self.spinner)} {self.message}")
-            sys.stdout.flush()
-            time.sleep(self.delay)
-
-    def start(self):
-        """Start the spinner in a separate thread."""
-        self.stop_running = False
-        self.thread = threading.Thread(target=self.spin)
-        self.thread.start()
-
-    def stop(self):
-        """Stop the spinner and clear the line."""
-        self.stop_running = True
-        if self.thread:
-            self.thread.join()
-        sys.stdout.write("\r" + " " * (len(self.message) + 4) + "\r")
-        sys.stdout.flush()
-
-
-class ThinkingIndicator:
-    """Animated thinking indicator with elapsed time display.
-
-    Shows: ⠋ Thinking... (3.2s)
-    """
-
-    def __init__(self, message="Thinking", style="dots"):
-        """Initialize thinking indicator.
-
-        Args:
-            message: Base message to display
-            style: Spinner style from SPINNER_STYLES
-        """
-        self.message = message
-        self.style = style
-        self.stop_running = False
-        self.thread = None
-        self.start_time = None
-        self.lock = threading.Lock()
-
-    def _animation_loop(self):
-        """Run the animation loop in background thread."""
-        spinner_frames = SPINNER_STYLES.get(self.style, SPINNER_STYLES["dots"])
-        spinner = itertools.cycle(spinner_frames)
-
-        while not self.stop_running:
-            elapsed = time.time() - self.start_time
-            elapsed_str = f"({elapsed:.1f}s)"
-
-            with self.lock:
-                current_message = self.message
-
-            display_text = f"{current_message}... {elapsed_str}"
-
-            if supports_color():
-                frame = colorize(next(spinner), "bright_cyan")
-                text = colorize(display_text, "dim")
-                sys.stdout.write(f"\r{frame} {text}")
-            else:
-                sys.stdout.write(f"\r{next(spinner)} {display_text}")
-
-            sys.stdout.flush()
-            time.sleep(0.1)
-
-    def start(self):
-        """Start the thinking indicator."""
-        self.stop_running = False
-        self.start_time = time.time()
-        self.thread = threading.Thread(target=self._animation_loop)
-        self.thread.start()
-
-    def update(self, message):
-        """Update the displayed message.
-
-        Args:
-            message: New message to display
-        """
-        with self.lock:
-            self.message = message
-
-    def stop(self):
-        """Stop the thinking indicator and clear the line."""
-        self.stop_running = True
-        if self.thread:
-            self.thread.join()
-
-        # Clear the line
-        clear_width = len(self.message) + 30
-        sys.stdout.write("\r" + " " * clear_width + "\r")
-        sys.stdout.flush()
-
-
-class ProgressBar:
-    """Terminal progress bar with percentage and count display.
-
-    Shows: Processing files ████████░░░░░░░░ 50% (5/10)
-    """
-
-    def __init__(self, total, description=""):
-        """Initialize progress bar.
-
-        Args:
-            total: Total number of items to process
-            description: Text description shown before the bar
-        """
-        self.total = max(total, 1)
-        self.description = description
-        self.current = 0
-        self.bar_width = 20
-        self.start_time = None
-
-    def _render(self):
-        """Render the progress bar to terminal."""
-        if self.start_time is None:
-            self.start_time = time.time()
-
-        # Calculate progress
-        percent = (self.current / self.total) * 100
-        filled_width = int(self.bar_width * self.current / self.total)
-        empty_width = self.bar_width - filled_width
-
-        # Build bar characters
-        filled_char = "█"
-        empty_char = "░"
-        bar = filled_char * filled_width + empty_char * empty_width
-
-        # Build status string
-        status = f"{percent:3.0f}% ({self.current}/{self.total})"
-
-        # Combine description and bar
-        if self.description:
-            display = f"{self.description} {bar} {status}"
-        else:
-            display = f"{bar} {status}"
-
-        # Colorize if supported
-        if supports_color():
-            colored_bar = colorize(filled_char * filled_width, "bright_cyan") + colorize(
-                empty_char * empty_width, "dim"
-            )
-            if self.description:
-                display = (
-                    f"{colorize(self.description, 'cyan')} {colored_bar} {colorize(status, 'dim')}"
-                )
-            else:
-                display = f"{colored_bar} {colorize(status, 'dim')}"
-
-        sys.stdout.write(f"\r{display}")
-        sys.stdout.flush()
-
-    def update(self, current):
-        """Update progress bar to new position.
-
-        Args:
-            current: Current progress value (0 to total)
-        """
-        self.current = min(current, self.total)
-        self._render()
-
-    def increment(self, amount=1):
-        """Increment progress by given amount.
-
-        Args:
-            amount: Amount to increment by (default 1)
-        """
-        self.update(self.current + amount)
-
-    def finish(self):
-        """Complete the progress bar and move to next line."""
-        self.current = self.total
-        self._render()
-
-        # Calculate elapsed time
-        if self.start_time:
-            elapsed = time.time() - self.start_time
-            elapsed_str = f" ({elapsed:.1f}s)"
-        else:
-            elapsed_str = ""
-
-        # Print completion message
-        if supports_color():
-            print(colorize(f" Done{elapsed_str}", "green"))
-        else:
-            print(f" Done{elapsed_str}")
-
+class ThinkingIndicator(Spinner):
+    """Animated thinking indicator (alias for Spinner)."""
+    pass
 
 def print_thinking():
     """Print thinking indicator (legacy)."""
-    # Now handled by Spinner context in agent
     pass
-
 
 def clear_thinking():
     """Clear the thinking indicator (legacy)."""
-    # Now handled by Spinner context in agent
     pass
 
 
@@ -536,6 +307,7 @@ def print_stream_chunk(text):
     teach_active = False
     try:
         from .modes import is_mode_active
+
         teach_active = is_mode_active("teach")
     except Exception:
         pass
@@ -633,6 +405,11 @@ def print_tool_call(tool_name, tool_input, style="full", show_code=False):
     print()
     print(colorize(f"  ┌─ {icon} ", "dim") + colorize(tool_name, "bright_cyan"))
 
+    # Show intent if present (chain-of-thought for destructive tools)
+    intent = tool_input.get("_intent") if tool_input else None
+    if intent:
+        print(colorize("  │  intent: ", "dim") + colorize(str(intent), "yellow"))
+
     # For write_file, show file path prominently and optionally show code
     if tool_name == "write_file" and tool_input:
         file_path = tool_input.get("file_path", "")
@@ -654,6 +431,8 @@ def print_tool_call(tool_name, tool_input, style="full", show_code=False):
 
     elif style == "full" and tool_input:
         for key, value in tool_input.items():
+            if key.startswith("_"):
+                continue
             # Truncate long values
             val_str = str(value)
             if len(val_str) > 60:
@@ -678,57 +457,55 @@ def print_tool_call(tool_name, tool_input, style="full", show_code=False):
 
 
 def print_tool_result_verbose(tool_name, result, duration_ms=None):
-    """Print tool result in verbose Claude Code style.
-
-    Args:
-        tool_name: Name of the tool
-        result: Result dictionary from tool execution
-        duration_ms: Optional execution duration
-    """
+    """Print tool result using rich Status Panels."""
     success = result.get("success", False)
-
-    # Status indicator
-    if success:
-        status = colorize("  ✓ ", "green")
-    else:
-        status = colorize("  ✗ ", "red")
 
     # Duration string
     duration_str = ""
     if duration_ms is not None:
         if duration_ms < 1000:
-            duration_str = colorize(f" ({duration_ms:.0f}ms)", "dim")
+            duration_str = f"{duration_ms:.0f}ms"
         else:
-            duration_str = colorize(f" ({duration_ms / 1000:.1f}s)", "dim")
+            duration_str = f"{duration_ms / 1000:.1f}s"
 
     # Result summary based on tool
+    message = ""
     if tool_name == "read_file":
         lines = result.get("line_count", 0)
-        print(f"{status}Read {lines} lines{duration_str}")
+        message = f"Read {lines} lines"
     elif tool_name == "write_file":
-        print(f"{status}File written{duration_str}")
+        message = "File written"
     elif tool_name == "run_shell_command":
         code = result.get("returncode", 0)
         if success:
-            print(f"{status}Exit code: {code}{duration_str}")
+            message = f"Exit code: {code}"
         else:
-            print(f"{status}Failed (exit {code}){duration_str}")
+            message = f"Failed (exit {code})"
     elif tool_name == "list_directory":
         count = result.get("count", 0)
-        print(f"{status}Found {count} items{duration_str}")
+        message = f"Found {count} items"
     elif tool_name == "glob_files":
         count = result.get("count", 0)
-        print(f"{status}Matched {count} files{duration_str}")
+        message = f"Matched {count} files"
     elif tool_name == "grep_search":
         count = result.get("count", 0)
         files = result.get("files_searched", 0)
-        print(f"{status}{count} matches in {files} files{duration_str}")
+        message = f"{count} matches in {files} files"
     else:
         if success:
-            print(f"{status}Done{duration_str}")
+            message = "Done"
         else:
-            error = result.get("error", "Unknown error")[:50]
-            print(f"{status}{error}{duration_str}")
+            message = result.get("error", "Unknown error")[:100]
+
+    title = f"{tool_name} Result"
+    content = f"[primary]{message}[/primary]"
+    if duration_str:
+        content += f"\n[muted]Duration: {duration_str}[/muted]"
+
+    if success:
+        show_success_panel(title, content)
+    else:
+        show_error_panel(title, content)
 
 
 def print_shell_output(stdout, stderr=None, max_lines=20):
@@ -809,11 +586,13 @@ def add_session_file(path: str, content: str, display_content: str = None):
             entry["content"] = content
             entry["display_content"] = display_content
             return
-    _session_files.append({
-        "path": path,
-        "content": content,
-        "display_content": display_content,
-    })
+    _session_files.append(
+        {
+            "path": path,
+            "content": content,
+            "display_content": display_content,
+        }
+    )
 
 
 def get_all_session_files():
@@ -852,7 +631,6 @@ def print_all_session_code():
             highlight_teach=True,
         )
         print()
-
 
 
 def print_code_content(
@@ -894,7 +672,7 @@ def print_code_content(
         # Wider limit for teach annotations (educational prose needs more room)
         max_width = 120 if (highlight_teach and is_teach_comment(line_text)) else 80
         if len(line_text) > max_width:
-            line_text = line_text[:max_width - 3] + "..."
+            line_text = line_text[: max_width - 3] + "..."
         if highlight_teach and is_teach_comment(line_text):
             return line_num_str + colorize(line_text, "bright_magenta")
         return line_num_str + line_text
@@ -1009,8 +787,634 @@ def print_command_hints(context: str, hints: list = None):
     print()
 
 
-def print_help():
-    """Print help information."""
+# ============================================================================
+# DETAILED HELP CONTENT
+# ============================================================================
+
+HELP_DETAILS = {
+    "help": {
+        "title": "Help Menu",
+        "aliases": ["/h", "/?"],
+        "summary": "Show the help menu or detailed help for a specific command.",
+        "usage": ["/help", "/help <command>"],
+        "details": (
+            "Displays the main help menu with categorized commands.\n"
+            "Pass a command name to get detailed help, usage examples, and tips."
+        ),
+        "examples": ["/help", "/help skill", "/help plan", "/h complexity"],
+        "related": ["/commands", "/tools", "/modes"],
+        "tips": ["You can also ask naturally, e.g. 'how do I use skills?'"],
+    },
+    "switch": {
+        "title": "Quick Switch Provider/Model",
+        "aliases": ["/model"],
+        "summary": "Interactively switch your AI provider and model.",
+        "usage": ["/switch"],
+        "details": (
+            "Opens an interactive menu to select a new provider (Claude, GPT-5,\n"
+            "Gemini, Vertex AI, OpenRouter) and then pick a model. Requires an\n"
+            "API key already configured in your .env file."
+        ),
+        "examples": ["/switch", "/model"],
+        "related": ["/config", "/free"],
+        "tips": ["Use /free to instantly switch to the cheapest model."],
+    },
+    "config": {
+        "title": "Provider Configuration",
+        "aliases": ["/provider", "/swap"],
+        "summary": "Full configuration setup for provider and API key.",
+        "usage": ["/config"],
+        "details": (
+            "Re-runs the configuration wizard where you can change your AI\n"
+            "provider and enter a new API key. This is the full setup flow —\n"
+            "use /switch for a quicker model change."
+        ),
+        "examples": ["/config"],
+        "related": ["/switch", "/setup", "/free"],
+    },
+    "free": {
+        "title": "Free Model",
+        "aliases": [],
+        "summary": "Instantly switch to the cheapest OpenRouter model.",
+        "usage": ["/free"],
+        "details": (
+            "Switches to Kimi K2.5 on OpenRouter ($0.14/$0.28 per 1M tokens).\n"
+            "Requires an OPENROUTER_API_KEY in your .env file."
+        ),
+        "examples": ["/free"],
+        "related": ["/switch", "/config"],
+        "tips": ["Great for quick tasks where you don't need a top-tier model."],
+    },
+    "skill": {
+        "title": "Custom Skills & Instructions",
+        "aliases": ["/skills"],
+        "summary": "Add, list, remove, or import custom instructions.",
+        "usage": [
+            "/skill",
+            "/skill add <instruction>",
+            "/skill list",
+            "/skill remove <n>",
+            "/skill templates",
+            "/skill learn <file>",
+            "/skill clear",
+        ],
+        "details": (
+            "Skills are persistent custom instructions that shape how RadSim\n"
+            "responds. They survive across conversations.\n\n"
+            "  • add       — Add a new instruction (e.g. 'Always use TypeScript')\n"
+            "  • list      — Show all active skills\n"
+            "  • remove    — Remove a skill by number\n"
+            "  • templates — Show example skills to get started\n"
+            "  • learn     — Import skills from a file\n"
+            "  • clear     — Remove all skills"
+        ),
+        "examples": [
+            "/skill add Always use TypeScript instead of JavaScript",
+            "/skill list",
+            "/skill remove 2",
+            "/skill templates",
+        ],
+        "related": ["/preferences", "/settings"],
+        "tips": [
+            "Skills are stored in ~/.radsim/skills.json",
+            "Use /skill templates for inspiration",
+        ],
+    },
+    "memory": {
+        "title": "Persistent Memory",
+        "aliases": ["/mem"],
+        "summary": "Save, recall, and manage persistent memory entries.",
+        "usage": ["/memory", "/memory remember <text>", "/memory forget <n>", "/memory list"],
+        "details": (
+            "Memory lets RadSim remember facts across conversations.\n\n"
+            "  • remember — Save a piece of information\n"
+            "  • forget   — Remove a memory by number\n"
+            "  • list     — Show all stored memories"
+        ),
+        "examples": [
+            "/memory remember My project uses PostgreSQL 16",
+            "/memory list",
+            "/memory forget 3",
+        ],
+        "related": ["/skill", "/preferences"],
+    },
+    "teach": {
+        "title": "Teach Me Mode",
+        "aliases": ["/t"],
+        "summary": "Toggle teach mode — adds explanations to every response.",
+        "usage": ["/teach", "/t"],
+        "details": (
+            "When teach mode is ON, RadSim adds 🎓 inline annotations explaining\n"
+            "what each piece of code does and why. Great for learning new\n"
+            "languages, frameworks, or understanding unfamiliar codebases.\n\n"
+            "Annotations appear in magenta and are automatically stripped\n"
+            "from files written to disk."
+        ),
+        "examples": ["/teach", "/t"],
+        "related": ["/modes", "/show"],
+        "tips": [
+            "Press T as a hotkey to toggle teach mode quickly",
+            "Annotations are stripped from saved files automatically",
+        ],
+    },
+    "plan": {
+        "title": "Plan Mode",
+        "aliases": ["/p"],
+        "summary": "Structured plan → confirm → execute workflow.",
+        "usage": ["/plan", "/plan <task description>"],
+        "details": (
+            "Plan mode breaks complex tasks into steps:\n\n"
+            "  1. You describe the task\n"
+            "  2. RadSim generates a structured plan\n"
+            "  3. You review and approve (or edit)\n"
+            "  4. RadSim executes the approved plan step by step\n\n"
+            "This gives you full control over multi-step operations."
+        ),
+        "examples": [
+            "/plan refactor the auth module to use JWT tokens",
+            "/plan add dark mode to the settings page",
+            "/p",
+        ],
+        "related": ["/panning", "/complexity"],
+        "tips": ["Use /plan for tasks with multiple files or risky changes."],
+    },
+    "panning": {
+        "title": "Brain-Dump Processing",
+        "aliases": ["/pan"],
+        "summary": "Process messy brain-dumps into structured synthesis.",
+        "usage": ["/panning", "/panning <brain dump text>"],
+        "details": (
+            "Panning mode takes unstructured thoughts, ideas, or notes and\n"
+            "synthesizes them into a structured, actionable output. Great for:\n\n"
+            "  • Converting rough notes into a spec\n"
+            "  • Organizing scattered requirements\n"
+            "  • Turning brainstorms into action items"
+        ),
+        "examples": [
+            "/panning I need auth, maybe OAuth, also user profiles, and...",
+            "/pan",
+        ],
+        "related": ["/plan"],
+    },
+    "complexity": {
+        "title": "Complexity Budget & Scoring",
+        "aliases": ["/cx"],
+        "summary": "Analyze and manage code complexity.",
+        "usage": [
+            "/complexity",
+            "/complexity budget <N>",
+            "/complexity analyze <file>",
+            "/complexity report",
+        ],
+        "details": (
+            "The complexity system scores code and enforces budgets:\n\n"
+            "  • (no args) — Interactive menu\n"
+            "  • budget N  — Set max complexity budget\n"
+            "  • analyze   — Score a specific file\n"
+            "  • report    — Full project complexity report"
+        ),
+        "examples": ["/complexity", "/cx budget 50", "/complexity analyze src/auth.py"],
+        "related": ["/stress", "/archaeology"],
+    },
+    "stress": {
+        "title": "Adversarial Code Review",
+        "aliases": ["/adversarial"],
+        "summary": "Run adversarial stress testing on your code.",
+        "usage": ["/stress", "/stress <file>"],
+        "details": (
+            "Stress testing tries to break your code by finding edge cases,\n"
+            "security vulnerabilities, performance issues, and logic errors.\n"
+            "Can target a specific file or run on the whole project."
+        ),
+        "examples": ["/stress", "/stress src/api/routes.py"],
+        "related": ["/complexity", "/archaeology"],
+    },
+    "archaeology": {
+        "title": "Dead Code Archaeology",
+        "aliases": ["/arch", "/dead"],
+        "summary": "Find dead code, zombie functions, and unused imports.",
+        "usage": ["/archaeology", "/archaeology clean"],
+        "details": (
+            "Scans your project for:\n\n"
+            "  • Unused imports\n"
+            "  • Dead functions never called\n"
+            "  • Zombie code (commented out blocks)\n"
+            "  • Unreachable code paths\n\n"
+            "Use 'clean' for interactive cleanup."
+        ),
+        "examples": ["/archaeology", "/arch clean"],
+        "related": ["/complexity", "/stress"],
+    },
+    "settings": {
+        "title": "Agent Settings",
+        "aliases": ["/set"],
+        "summary": "View or change agent configuration parameters.",
+        "usage": ["/settings", "/settings <key> <value>", "/settings security_level <level>"],
+        "details": (
+            "Manage RadSim's internal settings:\n\n"
+            "  • (no args)          — Interactive menu\n"
+            "  • <key>              — View a single setting\n"
+            "  • <key> <value>      — Change a setting\n"
+            "  • security_level     — Set preset (strict/balanced/permissive)"
+        ),
+        "examples": [
+            "/settings",
+            "/settings security_level strict",
+            "/set self_improvement.enabled true",
+        ],
+        "related": ["/evolve", "/config"],
+    },
+    "evolve": {
+        "title": "Self-Improvement Proposals",
+        "aliases": ["/self-improve"],
+        "summary": "Review, generate, and manage self-improvement proposals.",
+        "usage": ["/evolve", "/evolve analyze", "/evolve history", "/evolve stats"],
+        "details": (
+            "RadSim can propose improvements to itself based on usage patterns:\n\n"
+            "  • (no args) — Review pending proposals\n"
+            "  • analyze   — Generate new proposals from learning data\n"
+            "  • history   — View past approved/rejected proposals\n"
+            "  • stats     — Improvement statistics"
+        ),
+        "examples": ["/evolve", "/evolve analyze", "/evolve stats"],
+        "related": ["/settings", "/selfmod"],
+        "tips": ["Enable with: /settings self_improvement.enabled true"],
+    },
+    "selfmod": {
+        "title": "Self-Modification",
+        "aliases": ["/self"],
+        "summary": "View or edit RadSim source code and custom prompt.",
+        "usage": ["/selfmod", "/selfmod path", "/selfmod prompt", "/selfmod list"],
+        "details": (
+            "Access RadSim's own source code:\n\n"
+            "  • path   — Show the RadSim source directory\n"
+            "  • prompt — View/edit the custom system prompt\n"
+            "  • list   — List all source files"
+        ),
+        "examples": ["/selfmod path", "/selfmod prompt", "/self list"],
+        "related": ["/evolve", "/settings"],
+    },
+    "telegram": {
+        "title": "Telegram Notifications",
+        "aliases": ["/tg"],
+        "summary": "Configure Telegram bot for notifications and remote control.",
+        "usage": [
+            "/telegram",
+            "/telegram setup",
+            "/telegram listen",
+            "/telegram test",
+            "/telegram send <msg>",
+            "/telegram status",
+        ],
+        "details": (
+            "Connect RadSim to a Telegram bot for:\n\n"
+            "  • setup   — Configure bot token and chat ID\n"
+            "  • listen  — Toggle receiving messages from Telegram\n"
+            "  • test    — Send a test message\n"
+            "  • send    — Send a custom message\n"
+            "  • status  — Check current configuration"
+        ),
+        "examples": ["/telegram setup", "/tg test", "/telegram send Task done!"],
+        "related": ["/settings"],
+    },
+    "good": {
+        "title": "Positive Feedback",
+        "aliases": ["/+"],
+        "summary": "Mark the last response as good (positive feedback).",
+        "usage": ["/good", "/+"],
+        "details": (
+            "Records positive feedback on the last response. RadSim uses this\n"
+            "to learn your preferences and improve future responses."
+        ),
+        "examples": ["/good", "/+"],
+        "related": ["/improve", "/stats", "/preferences"],
+    },
+    "improve": {
+        "title": "Improvement Feedback",
+        "aliases": ["/-"],
+        "summary": "Mark the last response for improvement (negative feedback).",
+        "usage": ["/improve", "/-"],
+        "details": (
+            "Records that the last response could be better. RadSim uses this\n"
+            "alongside positive feedback to learn what works and what doesn't."
+        ),
+        "examples": ["/improve", "/-"],
+        "related": ["/good", "/stats", "/preferences"],
+    },
+    "stats": {
+        "title": "Learning Statistics",
+        "aliases": [],
+        "summary": "Show a summary of learning statistics.",
+        "usage": ["/stats"],
+        "details": (
+            "Displays key learning metrics: tasks completed, success rate,\n"
+            "errors tracked, feedback received, examples stored, and tools tracked."
+        ),
+        "examples": ["/stats"],
+        "related": ["/report", "/audit", "/preferences"],
+    },
+    "report": {
+        "title": "Learning Report",
+        "aliases": [],
+        "summary": "Export a detailed learning report.",
+        "usage": ["/report"],
+        "details": "Generates and prints a full-text learning report with all tracked data.",
+        "examples": ["/report"],
+        "related": ["/stats", "/audit"],
+    },
+    "audit": {
+        "title": "Preference Audit",
+        "aliases": [],
+        "summary": "Audit all learned preferences.",
+        "usage": ["/audit"],
+        "details": (
+            "Shows every preference RadSim has learned, with current values.\n"
+            "Use /reset preferences to clear them."
+        ),
+        "examples": ["/audit"],
+        "related": ["/preferences", "/stats", "/reset"],
+    },
+    "preferences": {
+        "title": "Learned Preferences",
+        "aliases": ["/prefs"],
+        "summary": "Show current learned code style and behavior preferences.",
+        "usage": ["/preferences", "/prefs"],
+        "details": (
+            "Displays learned preferences like indentation, naming convention,\n"
+            "comment style, type hint usage, verbosity, and preferred tools."
+        ),
+        "examples": ["/preferences", "/prefs"],
+        "related": ["/audit", "/stats", "/skill"],
+    },
+    "reset": {
+        "title": "Reset Learning Data",
+        "aliases": [],
+        "summary": "Reset a category of learned data or the token budget.",
+        "usage": ["/reset", "/reset <category>"],
+        "details": (
+            "Reset specific learning categories:\n\n"
+            "  • budget       — Reset token budget counters\n"
+            "  • preferences  — Reset learned code style\n"
+            "  • errors       — Reset error patterns\n"
+            "  • examples     — Reset few-shot examples\n"
+            "  • tools        — Reset tool effectiveness data\n"
+            "  • reflections  — Reset task reflections\n"
+            "  • all          — Reset everything"
+        ),
+        "examples": ["/reset budget", "/reset preferences", "/reset all"],
+        "related": ["/stats", "/preferences"],
+    },
+    "clear": {
+        "title": "Clear Conversation",
+        "aliases": ["/c"],
+        "summary": "Clear the current conversation history.",
+        "usage": ["/clear", "/c"],
+        "details": (
+            "Clears all messages in the current conversation. Does NOT reset\n"
+            "learned preferences, skills, or token budgets — use /new for that."
+        ),
+        "examples": ["/clear", "/c"],
+        "related": ["/new", "/reset"],
+    },
+    "new": {
+        "title": "Fresh Start",
+        "aliases": ["/fresh"],
+        "summary": "Start a completely new conversation with fresh context.",
+        "usage": ["/new", "/fresh"],
+        "details": (
+            "Clears conversation history AND resets rate limiters and budget\n"
+            "counters. Use this for a clean slate when starting a new project."
+        ),
+        "examples": ["/new", "/fresh"],
+        "related": ["/clear", "/reset"],
+    },
+    "tools": {
+        "title": "Available Tools",
+        "aliases": [],
+        "summary": "List all available tools the agent can use.",
+        "usage": ["/tools"],
+        "details": (
+            "Displays the full list of tools available to RadSim, including\n"
+            "file operations, git, shell, search, testing, and more."
+        ),
+        "examples": ["/tools"],
+        "related": ["/commands", "/help"],
+    },
+    "commands": {
+        "title": "All Commands",
+        "aliases": ["/cmds"],
+        "summary": "List every available slash command with descriptions.",
+        "usage": ["/commands", "/cmds"],
+        "details": (
+            "Shows the full categorized list of every slash command. More\n"
+            "comprehensive than /help, which shows only the most common ones."
+        ),
+        "examples": ["/commands", "/cmds"],
+        "related": ["/help", "/tools"],
+    },
+    "show": {
+        "title": "Show Last Written File",
+        "aliases": [],
+        "summary": "Display the content of the last file written by the agent.",
+        "usage": ["/show", "/show all"],
+        "details": (
+            "Shows the last file RadSim wrote, with line numbers. In teach\n"
+            "mode, annotations are highlighted in magenta.\n\n"
+            "  • (no args) — Show last written file\n"
+            "  • all       — Show all files written this session"
+        ),
+        "examples": ["/show", "/show all"],
+        "related": ["/teach"],
+        "tips": ["Press S during a write confirmation to preview code."],
+    },
+    "modes": {
+        "title": "Available Modes",
+        "aliases": [],
+        "summary": "List all available mode toggles.",
+        "usage": ["/modes"],
+        "details": "Shows all modes (teach, awake, etc.) and their current on/off status.",
+        "examples": ["/modes"],
+        "related": ["/teach", "/awake"],
+    },
+    "awake": {
+        "title": "Stay-Awake Mode",
+        "aliases": ["/caffeinate"],
+        "summary": "Toggle stay-awake mode (prevents macOS sleep).",
+        "usage": ["/awake", "/caffeinate"],
+        "details": (
+            "Uses macOS 'caffeinate' to prevent the system from sleeping.\n"
+            "Useful during long-running tasks. Toggle off when done."
+        ),
+        "examples": ["/awake", "/caffeinate"],
+        "related": ["/modes"],
+    },
+    "exit": {
+        "title": "Exit RadSim",
+        "aliases": ["/quit", "/q"],
+        "summary": "Quit RadSim gracefully.",
+        "usage": ["/exit", "/quit", "/q"],
+        "details": "Exits RadSim cleanly. You can also type 'exit' or 'quit' without the slash.",
+        "examples": ["/exit", "/quit"],
+        "related": ["/kill"],
+    },
+    "kill": {
+        "title": "Emergency Stop",
+        "aliases": ["/stop", "/abort"],
+        "summary": "EMERGENCY: Immediately terminate the agent.",
+        "usage": ["/kill", "/stop", "/abort"],
+        "details": (
+            "Force-kills RadSim immediately. Use when the agent is stuck or\n"
+            "doing something unexpected. Prefer /exit for normal shutdown."
+        ),
+        "examples": ["/kill", "/stop"],
+        "related": ["/exit"],
+        "tips": ["Only use in emergencies — /exit is safer for normal use."],
+    },
+    "setup": {
+        "title": "Setup Wizard",
+        "aliases": ["/onboarding"],
+        "summary": "Re-run the initial setup wizard.",
+        "usage": ["/setup", "/onboarding"],
+        "details": (
+            "Runs the full onboarding flow again: provider selection, API key\n"
+            "entry, and model selection."
+        ),
+        "examples": ["/setup"],
+        "related": ["/config", "/switch"],
+    },
+}
+
+# Build an alias-to-topic lookup for quick matching
+_ALIAS_TO_TOPIC = {}
+for _topic, _info in HELP_DETAILS.items():
+    _ALIAS_TO_TOPIC[_topic] = _topic
+    _ALIAS_TO_TOPIC[f"/{_topic}"] = _topic
+    for _alias in _info.get("aliases", []):
+        _ALIAS_TO_TOPIC[_alias.lstrip("/")] = _topic
+        _ALIAS_TO_TOPIC[_alias] = _topic
+del _topic, _info  # Clean up loop variables from module scope
+try:
+    del _alias
+except NameError:
+    pass
+
+
+def _resolve_help_topic(raw_topic):
+    """Resolve a raw topic string to a HELP_DETAILS key, or None."""
+    if not raw_topic:
+        return None
+    normalized = raw_topic.strip().lower().lstrip("/")
+    return _ALIAS_TO_TOPIC.get(normalized) or _ALIAS_TO_TOPIC.get(f"/{normalized}")
+
+
+def print_help_detail(topic):
+    """Print detailed help for a specific topic.
+
+    Args:
+        topic: A key in HELP_DETAILS
+    """
+    info = HELP_DETAILS.get(topic)
+    if not info:
+        return
+
+    title = info["title"]
+    aliases = info.get("aliases", [])
+    alias_str = ", ".join(aliases) if aliases else ""
+
+    # Header box
+    print()
+    print(colorize("  ╭─────────────────────────────────────────────╮", "dim"))
+    header_text = f"  /{topic}"
+    if alias_str:
+        header_text += f"  ({alias_str})"
+    padded = header_text.ljust(46)
+    print(colorize("  │", "dim") + colorize(padded[2:], "bold") + colorize("│", "dim"))
+    print(
+        colorize("  │", "dim")
+        + colorize(f"  {title}".ljust(44), "bright_cyan")
+        + colorize("│", "dim")
+    )
+    print(colorize("  ╰─────────────────────────────────────────────╯", "dim"))
+    print()
+
+    # Summary
+    print(colorize("  Summary:", "bright_cyan"))
+    print(f"    {info['summary']}")
+    print()
+
+    # Usage
+    usage = info.get("usage", [])
+    if usage:
+        print(colorize("  Usage:", "bright_cyan"))
+        for u in usage:
+            print(colorize(f"    {u}", "cyan"))
+        print()
+
+    # Details
+    details = info.get("details", "")
+    if details:
+        print(colorize("  Details:", "bright_cyan"))
+        for line in details.split("\n"):
+            print(f"    {line}")
+        print()
+
+    # Examples
+    examples = info.get("examples", [])
+    if examples:
+        print(colorize("  Examples:", "bright_cyan"))
+        for ex in examples:
+            print(colorize("    $ ", "dim") + colorize(ex, "white"))
+        print()
+
+    # Tips
+    tips = info.get("tips", [])
+    if tips:
+        print(colorize("  Tips:", "yellow"))
+        for tip in tips:
+            print(colorize(f"    💡 {tip}", "dim"))
+        print()
+
+    # Related
+    related = info.get("related", [])
+    if related:
+        related_str = "  ".join(colorize(r, "cyan") for r in related)
+        print(colorize("  Related: ", "dim") + related_str)
+        print()
+
+
+def print_help(topic=None):
+    """Print help information, optionally for a specific topic.
+
+    Args:
+        topic: Optional command name to show detailed help for.
+              If None, shows the overview menu.
+    """
+    if topic:
+        resolved = _resolve_help_topic(topic)
+        if resolved:
+            print_help_detail(resolved)
+        else:
+            # Topic not found — show suggestions
+            print()
+            print(colorize(f"  No help found for '{topic}'.", "yellow"))
+            print()
+            available = sorted(HELP_DETAILS.keys())
+            cols = 5
+            print(colorize("  Available topics:", "dim"))
+            for i in range(0, len(available), cols):
+                row = available[i : i + cols]
+                row_str = "".join(colorize(f"/{t:<16}", "cyan") for t in row)
+                print(f"    {row_str}")
+            print()
+            print(
+                colorize("  Usage: ", "dim")
+                + colorize("/help <topic>", "cyan")
+                + colorize("  e.g. /help skill", "dim")
+            )
+            print()
+        return
+
+    # Default: show the overview menu
     print()
     print(colorize("  ╭─────────────────────────────────────────────╮", "dim"))
     print(
@@ -1059,7 +1463,10 @@ def print_help():
 
     print(
         colorize("  Tip: ", "yellow")
-        + colorize("Use /commands to see ALL available commands", "dim")
+        + colorize("/help <command> ", "cyan")
+        + colorize("for detailed help (e.g. ", "dim")
+        + colorize("/help skill", "cyan")
+        + colorize(")", "dim")
     )
     print()
 

@@ -186,6 +186,7 @@ class TelegramListener:
         self._running = False
         self._last_update_id = 0
         self.incoming_messages = queue.Queue()
+        self.incoming_callbacks = queue.Queue()
 
     @property
     def is_running(self):
@@ -264,18 +265,35 @@ class TelegramListener:
         return []
 
     def _process_update(self, update, allowed_chat_id):
-        """Process a single update from Telegram."""
+        """Process a single update from Telegram.
+
+        Handles both regular text/command messages and callback queries
+        from inline keyboards.
+        """
         update_id = update.get("update_id", 0)
         if update_id > self._last_update_id:
             self._last_update_id = update_id
 
-        message = update.get("message", {})
-        text = message.get("text", "")
-        chat_id = str(message.get("chat", {}).get("id", ""))
-        sender = message.get("from", {}).get("first_name", "Unknown")
+        # 1. Handle Callback Queries (Button presses)
+        if "callback_query" in update:
+            callback = update["callback_query"]
+            message = callback.get("message", {})
+            chat_id = str(message.get("chat", {}).get("id", ""))
 
-        if not text:
+            # Security check for callbacks
+            if not allowed_chat_id or chat_id != str(allowed_chat_id):
+                logger.warning(f"Rejected callback from unauthorized chat: {chat_id}")
+                return
+
+            self.incoming_callbacks.put(update)
             return
+
+        # 2. Handle standard Messages
+        message = update.get("message", {})
+        if not message:
+            return
+
+        chat_id = str(message.get("chat", {}).get("id", ""))
 
         # Security: fail-closed — reject ALL messages if no chat_id configured
         if not allowed_chat_id:
@@ -287,12 +305,56 @@ class TelegramListener:
             logger.warning(f"Rejected message from unauthorized chat: {chat_id}")
             return
 
-        self.incoming_messages.put({
-            "text": text,
-            "sender": sender,
-            "chat_id": chat_id,
-            "timestamp": message.get("date", 0),
-        })
+        # Parse message with bot command entity support
+        parsed = parse_incoming_message(message)
+        if parsed["text"] or parsed["is_command"]:
+            self.incoming_messages.put(parsed)
+
+def parse_incoming_message(message: dict) -> dict:
+    """Extract command metadata from Telegram message.
+
+    Args:
+        message: Raw message dict from Telegram API
+
+    Returns:
+        Enriched message dict with parsed command info
+    """
+    text = message.get("text", "")
+    chat_id = str(message.get("chat", {}).get("id", ""))
+    sender = message.get("from", {}).get("first_name", "Unknown")
+    timestamp = message.get("date", 0)
+
+    result = {
+        "text": text,
+        "sender": sender,
+        "chat_id": chat_id,
+        "timestamp": timestamp,
+        "is_command": False,
+        "command": None,
+        "args": [],
+    }
+
+    # Check for bot command entities
+    entities = message.get("entities", [])
+    for entity in entities:
+        if entity.get("type") == "bot_command":
+            # Split command from args
+            parts = text.split()
+            if parts:
+                result["command"] = parts[0].lower()
+                result["args"] = parts[1:]
+                result["is_command"] = True
+            break
+
+    # Fallback to simple slash check if no entities (e.g. some web clients)
+    if not result["is_command"] and text.startswith("/"):
+        parts = text.split()
+        if parts:
+            result["command"] = parts[0].lower()
+            result["args"] = parts[1:]
+            result["is_command"] = True
+
+    return result
 
 
 # =============================================================================
@@ -326,6 +388,17 @@ def start_listening():
             "error": "No TELEGRAM_CHAT_ID configured. Run /telegram setup. "
             "A chat_id is required for security.",
         }
+
+    # Register commands with Telegram native bot menu
+    try:
+        from .commands import CommandRegistry
+        registry = CommandRegistry()
+        commands = registry.get_telegram_command_list()
+        result = set_bot_commands(commands, token)
+        if not result.get("success"):
+            logger.warning(f"Failed to set Telegram bot commands: {result.get('error')}")
+    except Exception as e:
+        logger.debug(f"Error registering bot commands: {e}")
 
     try:
         listener = get_listener()
@@ -364,3 +437,225 @@ def check_incoming():
         Message dict or None
     """
     return get_listener().get_message()
+
+def check_incoming_callback():
+    """Check for incoming inline keyboard callback queries.
+
+    Returns:
+        Callback update dict or None
+    """
+    listener = get_listener()
+    try:
+        return listener.incoming_callbacks.get_nowait()
+    except queue.Empty:
+        return None
+
+def set_bot_commands(commands: list, token: str = None) -> dict:
+    """Register commands with Telegram's native bot menu.
+
+    This populates the command menu that appears when users
+    type "/" in the chat.
+
+    Args:
+        commands: List of dicts with 'command' (no slash) and 'description'
+        token: Bot token (loads from config if None)
+
+    Returns:
+        Dict with success status
+    """
+    if not token:
+        token, _ = load_telegram_config()
+
+    if not token:
+        return {"success": False, "error": "No token configured"}
+
+    url = f"{TELEGRAM_API_BASE}{token}/setMyCommands"
+
+    # Format for Telegram API
+    bot_commands = [
+        {
+            "command": cmd["command"].lstrip("/"),
+            "description": cmd["description"][:64]  # Telegram limit
+        }
+        for cmd in commands[:100]  # Telegram limit
+    ]
+
+    body = {"commands": bot_commands}
+    data = json.dumps(body).encode("utf-8")
+
+    try:
+        req = Request(url, data=data, headers={"Content-Type": "application/json"})
+        resp = urlopen(req, timeout=10)
+        result = json.loads(resp.read().decode("utf-8"))
+
+        if result.get("ok"):
+            return {"success": True}
+        return {"success": False, "error": result.get("description")}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def send_message_with_keyboard(message, buttons: list, token=None, chat_id=None, parse_mode=None):
+    """Send message with inline keyboard options.
+
+    Args:
+        message: Text message to send
+        buttons: List of dicts with 'text' and 'callback_data' keys
+        token: Bot token
+        chat_id: Target chat ID
+        parse_mode: Markdown or HTML
+
+    Returns:
+        Dict with success status and message_id
+    """
+    if not token or not chat_id:
+        saved_token, saved_chat_id = load_telegram_config()
+        token = token or saved_token
+        chat_id = chat_id or saved_chat_id
+
+    if not token or not chat_id:
+        return {"success": False, "error": "Missing config"}
+
+    url = f"{TELEGRAM_API_BASE}{token}/sendMessage"
+
+    # Build inline keyboard structure (2 buttons per row)
+    keyboard = []
+    row = []
+    for btn in buttons:
+        row.append({
+            "text": btn["text"],
+            "callback_data": btn.get("callback_data", btn["text"])
+        })
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    body = {
+        "chat_id": chat_id,
+        "text": message,
+        "reply_markup": {
+            "inline_keyboard": keyboard
+        }
+    }
+    if parse_mode:
+        body["parse_mode"] = parse_mode
+
+    data = json.dumps(body).encode("utf-8")
+
+    try:
+        req = Request(url, data=data, headers={"Content-Type": "application/json"})
+        resp = urlopen(req, timeout=10)
+        result = json.loads(resp.read().decode("utf-8"))
+
+        if result.get("ok"):
+            return {"success": True, "message_id": result["result"]["message_id"]}
+        return {"success": False, "error": result.get("description")}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def create_command_keyboard(command: str, args: list = None) -> list:
+    """Create context-aware keyboard for command."""
+    keyboards = {
+        "/skill": [
+            {"text": "📚 List Skills", "callback_data": "skill_list"},
+            {"text": "➕ Learn Skill", "callback_data": "skill_learn"},
+            {"text": "🗑️ Clear Skill", "callback_data": "skill_clear"},
+            {"text": "❓ Help", "callback_data": "skill_help"},
+        ],
+        "/memory": [
+            {"text": "💾 Show All", "callback_data": "memory_show"},
+            {"text": "🔍 Search", "callback_data": "memory_search"},
+            {"text": "🧹 Clear All", "callback_data": "memory_clear"},
+        ],
+        "/tools": [
+            {"text": "🔧 Core Tools", "callback_data": "tools_core"},
+            {"text": "📁 File Ops", "callback_data": "tools_file"},
+            {"text": "🌐 Web Tools", "callback_data": "tools_web"},
+        ],
+        "/commands": [
+            {"text": "⚡ Quick Actions", "callback_data": "cmds_quick"},
+            {"text": "⚙️ Settings", "callback_data": "cmds_settings"},
+            {"text": "📊 Status", "callback_data": "cmds_status"},
+        ],
+    }
+
+    if args and args[0] in ["learn", "list", "clear", "core", "file", "web", "show", "search"]:
+        return [{"text": "⬅️ Back to Menu", "callback_data": f"menu_{command.lstrip('/')}"}]
+
+    return keyboards.get(command, [
+        {"text": "📖 Help", "callback_data": "help"},
+        {"text": "🔄 Refresh", "callback_data": f"refresh_{command.lstrip('/')}"},
+    ])
+
+def handle_callback_query(update: dict) -> dict:
+    """Process callback from inline keyboard button press."""
+    query = update.get("callback_query", {})
+    callback_data = query.get("data", "")
+    message = query.get("message", {})
+    chat_id = str(message.get("chat", {}).get("id", ""))
+    message_id = message.get("message_id")
+
+    result = {
+        "type": "callback",
+        "callback_data": callback_data,
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "action": None,
+        "response_text": None,
+    }
+
+    if callback_data.startswith("skill_"):
+        subcommand = callback_data.replace("skill_", "")
+        result["action"] = "execute_command"
+        result["command"] = "/skill"
+        result["args"] = [subcommand]
+
+    elif callback_data.startswith("memory_"):
+        subcommand = callback_data.replace("memory_", "")
+        result["action"] = "execute_command"
+        result["command"] = "/memory"
+        result["args"] = [subcommand]
+
+    elif callback_data.startswith("tools_"):
+        subcommand = callback_data.replace("tools_", "")
+        result["action"] = "execute_command"
+        result["command"] = "/tools"
+        result["args"] = [subcommand]
+
+    elif callback_data.startswith("menu_"):
+        cmd = callback_data.replace("menu_", "/")
+        result["action"] = "execute_command"
+        result["command"] = "/commands" if cmd == "/cmds" else cmd
+        result["args"] = []
+
+    elif callback_data == "help":
+        result["action"] = "execute_command"
+        result["command"] = "/help"
+        result["args"] = []
+
+    else:
+        result["action"] = "unknown"
+        result["response_text"] = "Unknown option selected"
+
+    return result
+
+def answer_callback_query(query_id: str, text: str = None, token: str = None):
+    """Acknowledge button press to Telegram to stop loading spinner on client."""
+    if not token:
+        token, _ = load_telegram_config()
+
+    if not token:
+        return
+
+    url = f"{TELEGRAM_API_BASE}{token}/answerCallbackQuery"
+    body = {"callback_query_id": query_id}
+    if text:
+        body["text"] = text
+
+    try:
+        data = json.dumps(body).encode("utf-8")
+        req = Request(url, data=data, headers={"Content-Type": "application/json"})
+        urlopen(req, timeout=5)
+    except Exception as e:
+        logger.debug(f"Failed to answer callback query: {e}")

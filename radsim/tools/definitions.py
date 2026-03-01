@@ -100,6 +100,10 @@ TOOL_DEFINITIONS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "_intent": {
+                    "type": "string",
+                    "description": "Brief explanation of why this action is needed and what it achieves",
+                },
                 "file_path": {"type": "string", "description": "Path to the file to write"},
                 "content": {"type": "string", "description": "Content to write to the file"},
             },
@@ -112,6 +116,10 @@ TOOL_DEFINITIONS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "_intent": {
+                    "type": "string",
+                    "description": "Brief explanation of why this action is needed and what it achieves",
+                },
                 "file_path": {"type": "string", "description": "Path to the file"},
                 "old_string": {
                     "type": "string",
@@ -133,6 +141,10 @@ TOOL_DEFINITIONS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "_intent": {
+                    "type": "string",
+                    "description": "Brief explanation of why this action is needed and what it achieves",
+                },
                 "old_path": {"type": "string", "description": "Current file path"},
                 "new_path": {"type": "string", "description": "New file path"},
             },
@@ -145,7 +157,11 @@ TOOL_DEFINITIONS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "file_path": {"type": "string", "description": "Path to the file to delete"}
+                "_intent": {
+                    "type": "string",
+                    "description": "Brief explanation of why this action is needed and what it achieves",
+                },
+                "file_path": {"type": "string", "description": "Path to the file to delete"},
             },
             "required": ["file_path"],
         },
@@ -233,6 +249,12 @@ TOOL_DEFINITIONS = [
                     "description": "Lines of context before/after match (default: 0)",
                     "default": 0,
                 },
+                "output_mode": {
+                    "type": "string",
+                    "description": "Output format: 'content' (matching lines with context), 'files_only' (just file paths), 'count' (match counts per file)",
+                    "enum": ["content", "files_only", "count"],
+                    "default": "content",
+                },
             },
             "required": ["pattern"],
         },
@@ -260,6 +282,10 @@ TOOL_DEFINITIONS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "_intent": {
+                    "type": "string",
+                    "description": "Brief explanation of why this action is needed and what it achieves",
+                },
                 "command": {"type": "string", "description": "The command to execute"},
                 "timeout": {
                     "type": "integer",
@@ -612,6 +638,10 @@ TOOL_DEFINITIONS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "_intent": {
+                    "type": "string",
+                    "description": "Brief explanation of why this action is needed and what it achieves",
+                },
                 "pattern": {"type": "string", "description": "Text or regex pattern to find"},
                 "replacement": {"type": "string", "description": "Text to replace with"},
                 "file_pattern": {
@@ -682,7 +712,7 @@ TOOL_DEFINITIONS = [
     # Agentic Delegation
     {
         "name": "delegate_task",
-        "description": "Delegate a task to a sub-agent using a specified model. Supports parallel execution with multiple models.",
+        "description": "Delegate a task to a sub-agent with tool access. Runs in background by default so the user can keep working. Default tier='fast' (Haiku, read-only tools, cheap). Use tier='capable' for code generation/refactoring (full tools). Set background=false only when the main agent needs the result immediately to continue.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -690,13 +720,19 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "Detailed description of the task for the sub-agent",
                 },
+                "tier": {
+                    "type": "string",
+                    "description": "Model tier: 'fast' (default, Haiku, read-only tools), 'capable' (code gen, full tools), 'review' (audits, read-only tools)",
+                    "enum": ["fast", "capable", "review"],
+                    "default": "fast",
+                },
                 "context": {
                     "type": "string",
                     "description": "Additional context or file contents to provide",
                 },
                 "model": {
                     "type": "string",
-                    "description": "Model to use: 'current' (uses the selected model), 'free', 'glm', 'minimax', 'kimi', 'qwen', 'arcee', or full OpenRouter model ID",
+                    "description": "Override: specific model alias or full model ID. Overrides tier default.",
                     "default": "current",
                 },
                 "system_prompt": {
@@ -715,6 +751,11 @@ TOOL_DEFINITIONS = [
                         "required": ["task"],
                     },
                     "description": "Run multiple tasks in parallel with different models. If provided, task_description is ignored.",
+                },
+                "background": {
+                    "type": "boolean",
+                    "description": "Run in background (default: true). Set to false only when the main agent needs the result immediately to continue its current response.",
+                    "default": True,
                 },
             },
             "required": ["task_description"],
@@ -886,6 +927,10 @@ TOOL_DEFINITIONS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "_intent": {
+                    "type": "string",
+                    "description": "Brief explanation of why this action is needed and what it achieves",
+                },
                 "action": {
                     "type": "string",
                     "description": "Refactoring action: 'rename', 'extract_function', 'inline_variable'",
@@ -914,6 +959,10 @@ TOOL_DEFINITIONS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "_intent": {
+                    "type": "string",
+                    "description": "Brief explanation of why this action is needed and what it achieves",
+                },
                 "platform": {
                     "type": "string",
                     "description": "Target platform: 'vercel', 'netlify', 'heroku', 'railway', 'flyio', 'auto'",
@@ -986,5 +1035,118 @@ TOOL_DEFINITIONS = [
         "name": "list_schedules",
         "description": "List all scheduled tasks and their status.",
         "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    # Task Tracking
+    {
+        "name": "todo_read",
+        "description": "Read the current task tracking list. Shows pending, in-progress, and completed items. Use frequently during multi-step tasks to check progress.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "todo_write",
+        "description": "Update the task tracking list. Pass the full list of tasks with statuses. Exactly one task can be 'in_progress' at a time.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "todos": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "integer", "description": "Task ID (omit for new tasks)"},
+                            "description": {"type": "string", "description": "Task description"},
+                            "status": {
+                                "type": "string",
+                                "enum": ["pending", "in_progress", "completed"],
+                                "default": "pending",
+                            },
+                        },
+                        "required": ["description"],
+                    },
+                    "description": "Full task list with statuses",
+                },
+            },
+            "required": ["todos"],
+        },
+    },
+    # Codebase Structure
+    {
+        "name": "repo_map",
+        "description": "Generate a ranked structural overview of the codebase showing all classes, functions, and methods with signatures. Use BEFORE reading individual files to understand the architecture. Much cheaper than reading every file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "directory_path": {
+                    "type": "string",
+                    "description": "Root directory to map (default: current)",
+                    "default": ".",
+                },
+                "focus_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Files to rank higher (currently relevant to the task)",
+                },
+                "max_tokens": {
+                    "type": "integer",
+                    "description": "Token budget for the map (default: 4000)",
+                    "default": 4000,
+                },
+                "language_filter": {
+                    "type": "string",
+                    "description": "Limit to a language: 'python', 'javascript', 'typescript'",
+                },
+            },
+            "required": [],
+        },
+    },
+    # Multi-File Patch
+    {
+        "name": "apply_patch",
+        "description": "Apply a multi-file unified diff patch atomically. Supports create, modify, and delete operations. If any hunk fails validation, no changes are applied.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "_intent": {
+                    "type": "string",
+                    "description": "Brief explanation of why this action is needed and what it achieves",
+                },
+                "patch": {
+                    "type": "string",
+                    "description": "Simplified unified diff text. Use '--- /dev/null' for create, '+++ /dev/null' for delete.",
+                },
+            },
+            "required": ["patch"],
+        },
+    },
+    # Atomic Batch Edit
+    {
+        "name": "multi_edit",
+        "description": "Apply multiple search-and-replace edits to a single file atomically. If any edit fails, none are applied. More efficient than sequential replace_in_file calls.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "_intent": {
+                    "type": "string",
+                    "description": "Brief explanation of why this action is needed and what it achieves",
+                },
+                "file_path": {"type": "string", "description": "Path to the file to edit"},
+                "edits": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old_string": {
+                                "type": "string",
+                                "description": "Exact text to find (must be unique in file)",
+                            },
+                            "new_string": {"type": "string", "description": "Replacement text"},
+                        },
+                        "required": ["old_string", "new_string"],
+                    },
+                    "description": "List of edits to apply in order",
+                },
+            },
+            "required": ["file_path", "edits"],
+        },
     },
 ]

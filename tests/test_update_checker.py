@@ -5,12 +5,8 @@
 """Tests for the auto-update checker."""
 
 import json
-import os
 import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from radsim.update_checker import (
     _cache_is_fresh,

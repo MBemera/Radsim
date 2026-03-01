@@ -43,6 +43,7 @@ from .tools import DESTRUCTIVE_COMMANDS, TOOL_DEFINITIONS, execute_tool
 
 logger = logging.getLogger(__name__)
 
+
 # Tools that require confirmation before execution
 CONFIRMATION_TOOLS = {
     "write_file",
@@ -57,6 +58,8 @@ CONFIRMATION_TOOLS = {
     "add_dependency",
     "remove_dependency",
     "batch_replace",
+    "multi_edit",
+    "apply_patch",
     "format_code",
     # Advanced Skills
     "run_docker",
@@ -87,6 +90,7 @@ READ_ONLY_TOOLS = {
     "find_definition",
     "find_references",
     "get_project_info",
+    "repo_map",
     "list_dependencies",
     "plan_task",
     "load_context",
@@ -205,6 +209,14 @@ class RadSimAgent:
         # Teach mode: track if we've already asked the model to retry with annotations
         self._teach_retry_attempted = False
 
+        # Session-level model for capable/review sub-agent tasks
+        self._session_capable_model = None
+
+        # Background job manager — completion notifications and result tracking
+        self._injected_job_ids = set()
+        from .background import get_job_manager
+        get_job_manager().set_completion_callback(self._on_background_job_complete)
+
         # Initialize protection manager with config settings
         from .rate_limiter import BudgetGuard, CircuitBreaker, RateLimiter
 
@@ -229,6 +241,7 @@ class RadSimAgent:
         """Start a background thread that auto-processes incoming Telegram messages."""
         try:
             from . import telegram as _tg_check  # noqa: F401 — availability check
+
             del _tg_check
         except ImportError:
             return
@@ -258,96 +271,153 @@ class RadSimAgent:
             from .commands import CommandRegistry
             from .output import print_status_bar
             from .safety import set_telegram_confirm
-            from .telegram import check_incoming, is_listening, send_telegram_message
+            from .telegram import (
+                check_incoming,
+                check_incoming_callback,
+                is_listening,
+            )
 
             registry = CommandRegistry()
-
-            # Commands safe to run via Telegram (no input() calls)
-            telegram_safe_commands = {
-                "/help", "/h", "/?",
-                "/tools",
-                "/clear", "/c",
-                "/new", "/fresh",
-                "/free",
-                "/good", "/+",
-                "/improve", "/-",
-                "/stats",
-                "/report",
-                "/audit",
-                "/preferences", "/prefs",
-                "/commands", "/cmds",
-                "/teach", "/t",
-                "/awake", "/caffeinate",
-                "/modes",
-                "/show",
-            }
-
-            # Commands that should never run from Telegram
-            telegram_blocked_commands = {"/exit", "/quit", "/q", "/kill", "/stop", "/abort"}
 
             while True:
                 time.sleep(0.5)
                 try:
                     if not is_listening():
                         continue
+
+                    # Check for incoming text/commands
                     msg = check_incoming()
-                    if not msg:
-                        continue
+                    if msg:
+                        _process_telegram_message(msg, registry, self, set_telegram_confirm)
 
-                    sender = msg.get("sender", "Telegram")
-                    text = msg.get("text", "")
-                    print_info(f"\n[Telegram from {sender}]: {text}")
+                    # Check for callback queries (button presses)
+                    callback = check_incoming_callback()
+                    if callback:
+                        _process_callback_query(callback, registry, self, set_telegram_confirm)
 
-                    # Route slash commands
-                    if text.startswith("/"):
-                        cmd = text.strip().split()[0].lower()
-
-                        if cmd in telegram_blocked_commands:
-                            send_telegram_message(f"Command '{cmd}' cannot be run via Telegram.")
-                            continue
-
-                        if cmd in telegram_safe_commands:
-                            with self._processing_lock:
-                                if registry.handle_input(text, self):
-                                    send_telegram_message(f"Command executed: {text}")
-                                    self.system_prompt = get_system_prompt()
-                                    continue
-                        else:
-                            # Interactive command — don't run, inform user
-                            send_telegram_message(
-                                f"Command '{cmd}' requires terminal interaction. "
-                                "Run it in the RadSim terminal instead."
-                            )
-                            continue
-
-                    # Process as normal message with Telegram confirmations
-                    set_telegram_confirm(_telegram_confirm)
-                    self._telegram_mode = True
-                    try:
-                        with self._processing_lock:
-                            response = self.process_message(
-                                f"[via Telegram from {sender}]: {text}"
-                            )
-                    finally:
-                        self._telegram_mode = False
-                        set_telegram_confirm(None)
-
-                    if response:
-                        reply = response if len(response) <= 4000 else response[:3997] + "..."
-                        result = send_telegram_message(reply)
-                        if result["success"]:
-                            print_info("[Reply sent to Telegram]")
-                        else:
-                            print_info(f"[Telegram reply failed: {result['error']}]")
-
-                    # Show token usage in terminal
-                    print_status_bar(
-                        self.config.model,
-                        self.usage_stats["input_tokens"],
-                        self.usage_stats["output_tokens"],
-                    )
+                    # Show token usage in terminal if activity occurred
+                    if msg or callback:
+                        print_status_bar(
+                            self.config.model,
+                            self.usage_stats["input_tokens"],
+                            self.usage_stats["output_tokens"],
+                        )
                 except Exception as err:
                     logger.debug(f"Telegram processor error: {err}")
+
+        def _process_telegram_message(msg, registry, agent, set_telegram_confirm):
+            """Handle incoming text message or command."""
+            from .telegram import send_telegram_message
+
+            sender = msg.get("sender", "Telegram")
+            text = msg.get("text", "")
+            print_info(f"\n[Telegram from {sender}]: {text}")
+
+            # Handle bot commands
+            if msg.get("is_command"):
+                cmd = msg["command"]
+
+                # Special handling for /help — send formatted help via Telegram
+                if cmd in ["/help", "/h", "/?"]:
+                    commands = registry.get_telegram_command_list()
+                    help_text = _format_telegram_help(commands)
+                    send_telegram_message(help_text)
+                    return
+
+                # Check if command is in the allowlist
+                if not registry.is_telegram_safe(cmd):
+                    send_telegram_message(
+                        f"⚠️ *'{cmd}' requires terminal interaction*\n\n"
+                        f"This command needs direct access to your terminal. "
+                        f"Please run it in the RadSim terminal session.\n\n"
+                        f"Use /help to see commands available from Telegram.",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                # Execute safe command
+                with agent._processing_lock:
+                    if registry.handle_input(text, agent):
+                        send_telegram_message(f"Command executed: {text}")
+                        agent.system_prompt = get_system_prompt()
+                    return
+
+            # Process as normal message with Telegram confirmations
+            set_telegram_confirm(_telegram_confirm)
+            agent._telegram_mode = True
+            try:
+                with agent._processing_lock:
+                    response = agent.process_message(f"[via Telegram from {sender}]: {text}")
+            finally:
+                agent._telegram_mode = False
+                set_telegram_confirm(None)
+
+            if response:
+                reply = response if len(response) <= 4000 else response[:3997] + "..."
+                result = send_telegram_message(reply)
+                if result["success"]:
+                    print_info("[Reply sent to Telegram]")
+                else:
+                    print_info(f"[Telegram reply failed: {result['error']}]")
+
+        def _process_callback_query(callback, registry, agent, set_telegram_confirm):
+            """Handle inline keyboard button presses."""
+            from .telegram import (
+                answer_callback_query,
+                handle_callback_query,
+                send_telegram_message,
+            )
+
+            action = handle_callback_query(callback)
+
+            # Answer the callback (required by Telegram to stop loading state)
+            answer_callback_query(
+                callback["callback_query"]["id"],
+                text=action.get("response_text")
+            )
+
+            if action["action"] == "execute_command":
+                cmd = action["command"]
+                args = action["args"]
+                cmd_string = f"{cmd} {' '.join(args)}".strip()
+
+                print_info(f"\n[Telegram Button]: {cmd_string}")
+
+                # Check allowlist before executing
+                if not registry.is_telegram_safe(cmd):
+                    send_telegram_message(
+                        f"⚠️ '{cmd}' requires terminal interaction. "
+                        f"Run it in the RadSim terminal session."
+                    )
+                    return
+
+                # Route /help through the special handler
+                if cmd in ["/help", "/h", "/?"]:
+                    _process_telegram_message(
+                        {"is_command": True, "command": cmd, "args": args, "text": cmd_string, "sender": "Button"},
+                        registry, agent, set_telegram_confirm
+                    )
+                    return
+
+                with agent._processing_lock:
+                    if registry.handle_input(cmd_string, agent):
+                        send_telegram_message(f"Executed: {cmd_string}")
+                        agent.system_prompt = get_system_prompt()
+            elif action["action"] == "show_help":
+                send_telegram_message(action["response_text"])
+
+        def _format_telegram_help(commands: list) -> str:
+            """Format help text for Telegram mobile clients."""
+            lines = ["*Available Commands*\n"]
+            lines.append("Commands you can run from Telegram:\n")
+
+            for cmd in commands[:20]:  # Limit to avoid message too long
+                name = cmd["command"]
+                desc = cmd["description"]
+                lines.append(f"`/{name}` - {desc}")
+
+            lines.append("\nOther commands require the RadSim terminal.")
+            return "\n".join(lines)
 
         thread = threading.Thread(target=_telegram_loop, daemon=True, name="telegram-processor")
         thread.start()
@@ -388,6 +458,7 @@ class RadSimAgent:
         self._last_response = ""
         self._current_task_start = None
         self._current_task_tools = []
+        self._injected_job_ids = set()
 
     def estimate_tokens(self, text):
         """Estimate token count for text (rough approximation).
@@ -487,6 +558,19 @@ class RadSimAgent:
         self._current_task_start = time.time()
         self._current_task_tools = []
 
+        # Inject completed background job results before the user message
+        # so the AI sees them as context for this turn
+        bg_results = self._collect_finished_background_results()
+        if bg_results:
+            self.messages.append({
+                "role": "user",
+                "content": f"[SYSTEM: Background sub-agent results arrived]\n{bg_results}",
+            })
+            self.messages.append({
+                "role": "assistant",
+                "content": "I have the background job results. Let me incorporate them.",
+            })
+
         self.messages.append(
             {
                 "role": "user",
@@ -551,9 +635,8 @@ class RadSimAgent:
                 tool_optimizer.complete_task_chain(user_input[:200], success=True)
 
             # Self-improvement: check if enough data for new proposals
-            if (
-                config_mgr.get("self_improvement.enabled", False)
-                and config_mgr.get("self_improvement.auto_propose", True)
+            if config_mgr.get("self_improvement.enabled", False) and config_mgr.get(
+                "self_improvement.auto_propose", True
             ):
                 from .learning.self_improver import get_self_improver
 
@@ -967,6 +1050,20 @@ class RadSimAgent:
         if tool_name == "batch_replace":
             return self._handle_batch_replace(tool_input)
 
+        # Atomic multi-edit
+        if tool_name == "multi_edit":
+            return self._handle_multi_edit(tool_input)
+
+        # Multi-file patch
+        if tool_name == "apply_patch":
+            return self._handle_apply_patch(tool_input)
+
+        # Task tracking (read-only, no confirmation needed)
+        if tool_name in ("todo_read", "todo_write"):
+            result = execute_tool(tool_name, tool_input)
+            self._print_tool_result(tool_name, tool_input, result)
+            return result
+
         # Context management (light confirmation)
         if tool_name == "save_context":
             return self._handle_save_context(tool_input)
@@ -992,18 +1089,130 @@ class RadSimAgent:
         return result
 
     def _resolve_subagent_model(self, requested_model):
-        """Resolve sub-agent model, using main agent's model for 'current'.
+        """Resolve sub-agent model to an OpenRouter config model.
+
+        Sub-agents ALWAYS run via OpenRouter. The "current" option is
+        not supported — sub-agents never use the main agent's model.
 
         Args:
             requested_model: Model alias or ID requested for the sub-agent
 
         Returns:
-            Tuple of (model, provider, api_key) for the sub-agent
+            Tuple of (model, "openrouter", "") — always OpenRouter
         """
-        if requested_model == "current":
-            return self.config.model, self.config.provider, self.config.api_key
-        # For named aliases (free, glm, etc.), use OpenRouter
-        return requested_model, "openrouter", ""
+        from .sub_agent import resolve_model_name
+
+        resolved = resolve_model_name(requested_model)
+        return resolved, "openrouter", ""
+
+    def _prompt_subagent_model(self):
+        """Prompt user to select a model for sub-agent tasks.
+
+        Shows Haiku (fast/cheap) as default, then the OpenRouter
+        config models for bigger tasks. Stores the selection in
+        self._session_capable_model for the rest of the session.
+
+        Returns:
+            Tuple of (model_id, "openrouter", "")
+        """
+        from .menu import interactive_menu
+        from .sub_agent import HAIKU_MODEL, get_available_models
+
+        # Build options: Haiku first (recommended default), then config models
+        options = [(HAIKU_MODEL, "Claude Haiku 4.5 (Fast & cheap — recommended)")]
+        for model_id, description in get_available_models():
+            if model_id != HAIKU_MODEL:
+                options.append((model_id, description))
+
+        print_info("Select a model for sub-agent tasks (OpenRouter):")
+        choice = interactive_menu("SUB-AGENT MODEL", options)
+
+        if choice is None:
+            print_info(f"No selection — using Haiku: {HAIKU_MODEL}")
+            self._session_capable_model = HAIKU_MODEL
+        else:
+            self._session_capable_model = choice
+            print_success(f"Session model set: {choice}")
+
+        return self._session_capable_model, "openrouter", ""
+
+    def _on_background_job_complete(self, job):
+        """Callback when a background job finishes. Prints notification."""
+        import sys
+
+        from .output import supports_color
+
+        yellow = "\033[33m" if supports_color() else ""
+        green = "\033[32m" if supports_color() else ""
+        red = "\033[31m" if supports_color() else ""
+        dim = "\033[2m" if supports_color() else ""
+        reset = "\033[0m" if supports_color() else ""
+        duration = f"{job.duration:.1f}s"
+
+        if job.status.value == "completed":
+            icon = green + "+" + reset
+            status = "completed"
+        else:
+            icon = red + "x" + reset
+            status = job.status.value
+
+        # Header
+        line = f"\n{yellow}[{icon} Background job #{job.job_id} {status} ({duration})]{reset}\n"
+        sys.stdout.write(line)
+
+        # Show result preview for completed jobs
+        if job.status.value == "completed" and job.result_content:
+            preview_lines = job.result_content.strip().splitlines()
+            max_preview = 15
+            for pline in preview_lines[:max_preview]:
+                sys.stdout.write(f"  {dim}{pline[:120]}{reset}\n")
+            if len(preview_lines) > max_preview:
+                sys.stdout.write(f"  {dim}... ({len(preview_lines) - max_preview} more lines — /bg {job.job_id} for full output){reset}\n")
+        elif job.error:
+            sys.stdout.write(f"  {red}Error: {job.error[:200]}{reset}\n")
+
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+    def _collect_finished_background_results(self):
+        """Collect results from completed background jobs and inject into messages.
+
+        Called at the start of each user turn so the AI model sees
+        any results that arrived while the user was idle.
+
+        Returns:
+            str or None: Summary of completed job results, or None if no jobs finished.
+        """
+        from .background import get_job_manager
+
+        manager = get_job_manager()
+        injected_ids = getattr(self, "_injected_job_ids", set())
+
+        parts = []
+        for job in manager.list_jobs():
+            if job.job_id in injected_ids:
+                continue
+            if job.status.value == "completed" and job.result_content:
+                duration = f"{job.duration:.1f}s"
+                parts.append(
+                    f"[Background job #{job.job_id} COMPLETED ({duration})]\n"
+                    f"Task: {job.description}\n"
+                    f"Results:\n{job.result_content}"
+                )
+                injected_ids.add(job.job_id)
+            elif job.status.value == "failed":
+                parts.append(
+                    f"[Background job #{job.job_id} FAILED]\n"
+                    f"Task: {job.description}\n"
+                    f"Error: {job.error}"
+                )
+                injected_ids.add(job.job_id)
+
+        self._injected_job_ids = injected_ids
+
+        if parts:
+            return "\n\n".join(parts)
+        return None
 
     def _should_stream_subagent(self):
         """Check if sub-agent streaming output is enabled in agent config."""
@@ -1012,7 +1221,8 @@ class RadSimAgent:
         config_manager = AgentConfigManager()
         return config_manager.get("subagents.stream_output", True)
 
-    def _stream_delegate_task(self, task_desc, model, provider, api_key, system_prompt):
+    def _stream_delegate_task(self, task_desc, model, provider, api_key, system_prompt,
+                              tools=None, max_iterations=10):
         """Execute a sub-agent task with live streaming output to terminal.
 
         Shows the sub-agent's response as it generates, so the user
@@ -1024,6 +1234,8 @@ class RadSimAgent:
             provider: Provider name
             api_key: API key for the provider
             system_prompt: System prompt for the sub-agent
+            tools: Tool definitions for the sub-agent (None = text-only)
+            max_iterations: Safety limit for agentic loop
 
         Returns:
             SubAgentResult with full execution results
@@ -1039,6 +1251,8 @@ class RadSimAgent:
             provider=provider,
             api_key=api_key,
             system_prompt=system_prompt,
+            tools=tools or [],
+            max_iterations=max_iterations,
         )
 
         # Print header for sub-agent output
@@ -1057,9 +1271,15 @@ class RadSimAgent:
         try:
             while True:
                 chunk = next(generator)
-                text = chunk.get("text", "")
-                sys.stdout.write(f"{dim}{text}{reset}")
-                sys.stdout.flush()
+                chunk_type = chunk.get("type", "")
+                if chunk_type == "tool_status":
+                    # Show tool execution status in cyan
+                    sys.stdout.write(f"\n{cyan}  ⚙ {chunk.get('text', '')}{reset}\n")
+                    sys.stdout.flush()
+                else:
+                    text = chunk.get("text", "")
+                    sys.stdout.write(f"{dim}{text}{reset}")
+                    sys.stdout.flush()
         except StopIteration as stop:
             result = stop.value
 
@@ -1074,80 +1294,207 @@ class RadSimAgent:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         from .sub_agent import delegate_task as subagent_delegate
+        from .sub_agent import resolve_task_config
 
         task_desc = tool_input.get("task_description", "")
         context = tool_input.get("context", "")
-        model = tool_input.get("model", "current")  # Default to current model
+        explicit_model = tool_input.get("model", "")
+        tier = tool_input.get("tier", "fast")
         parallel_tasks = tool_input.get("parallel_tasks", [])
         system_prompt = tool_input.get("system_prompt", "")
+
+        # Ignore "current" — sub-agents never use the main agent's model
+        if explicit_model == "current":
+            explicit_model = ""
+
+        # Resolve tier config to get tools, max_tokens, and default model
+        from .sub_agent import HAIKU_MODEL
+
+        tier_config = resolve_task_config(task_desc, tier=tier, model=None)
+        tier_tools = tier_config["tools"]
 
         # If context provided, prepend it to task description
         if context:
             task_desc = f"CONTEXT:\n{context}\n\nTASK:\n{task_desc}"
 
+        # Read background flag early
+        background = tool_input.get("background", True)
+
         # Parallel execution mode
         if parallel_tasks:
-            print_info(f"Delegating {len(parallel_tasks)} tasks in parallel...")
-            results = []
+            # Prompt user for model on first sub-agent use (unless background/telegram)
+            if not self._session_capable_model and not self._telegram_mode:
+                self._prompt_subagent_model()
+            session_model = self._session_capable_model or HAIKU_MODEL
 
-            with ThreadPoolExecutor(max_workers=min(3, len(parallel_tasks))) as executor:
-                futures = {}
-                for i, pt in enumerate(parallel_tasks):
-                    pt_task = pt.get("task", "")
-                    pt_model = pt.get("model", "current")
-                    pt_prompt = pt.get("system_prompt", "")
-                    resolved_model, resolved_provider, resolved_key = self._resolve_subagent_model(pt_model)
-                    future = executor.submit(
-                        subagent_delegate, pt_task,
-                        model=resolved_model,
-                        provider=resolved_provider,
-                        api_key=resolved_key,
-                        system_prompt=pt_prompt,
-                    )
-                    futures[future] = {"index": i, "model": resolved_model}
+            print_info(f"Delegating {len(parallel_tasks)} tasks in parallel (model: {session_model})...")
 
-                for future in as_completed(futures):
-                    info = futures[future]
-                    try:
-                        result = future.result()
-                        results.append(
-                            {
-                                "index": info["index"],
-                                "model": info["model"],
-                                "success": result.success,
-                                "content": result.content,
-                                "error": result.error,
-                                "input_tokens": result.input_tokens,
-                                "output_tokens": result.output_tokens,
-                            }
+            def run_parallel():
+                results = []
+                with ThreadPoolExecutor(max_workers=min(3, len(parallel_tasks))) as executor:
+                    futures = {}
+                    for i, pt in enumerate(parallel_tasks):
+                        pt_task = pt.get("task", "")
+                        pt_prompt = pt.get("system_prompt", "")
+
+                        # Use session model for all parallel tasks
+                        resolved_model = session_model
+                        resolved_provider = "openrouter"
+                        resolved_key = ""
+                        future = executor.submit(
+                            subagent_delegate,
+                            pt_task,
+                            model=resolved_model,
+                            provider=resolved_provider,
+                            api_key=resolved_key,
+                            system_prompt=pt_prompt,
+                            tools=tier_tools,
+                            max_iterations=10,
                         )
-                    except Exception as e:
-                        results.append(
-                            {
-                                "index": info["index"],
-                                "model": info["model"],
-                                "success": False,
-                                "error": str(e),
-                            }
-                        )
+                        futures[future] = {"index": i, "model": resolved_model}
 
-            # Sort by original index
-            results.sort(key=lambda x: x["index"])
+                    for future in as_completed(futures):
+                        info = futures[future]
+                        try:
+                            result = future.result()
+                            results.append(
+                                {
+                                    "index": info["index"],
+                                    "model": info["model"],
+                                    "success": result.success,
+                                    "content": result.content,
+                                    "error": result.error,
+                                    "input_tokens": result.input_tokens,
+                                    "output_tokens": result.output_tokens,
+                                }
+                            )
+                        except Exception as e:
+                            results.append(
+                                {
+                                    "index": info["index"],
+                                    "model": info["model"],
+                                    "success": False,
+                                    "error": str(e),
+                                }
+                            )
 
-            success_count = sum(1 for r in results if r.get("success"))
-            print_success(f"Parallel delegation complete: {success_count}/{len(results)} succeeded")
+                # Sort by original index
+                results.sort(key=lambda x: x["index"])
+                success_count = sum(1 for r in results if r.get("success"))
 
+                # Combine content for the result wrapper
+                combined_content = f"Parallel delegation complete: {success_count}/{len(results)} succeeded\n\n"
+                for i, r in enumerate(results):
+                    status = "✅" if r.get("success") else "❌"
+                    combined_content += f"--- Task {i + 1} ({status}) ---\n"
+                    if r.get("success"):
+                        combined_content += r.get("content", "") + "\n\n"
+                    else:
+                        combined_content += r.get("error", "") + "\n\n"
+
+                from .sub_agent import SubAgentResult
+                return SubAgentResult(
+                    success=success_count > 0,
+                    content=combined_content,
+                    model_used="multiple",
+                    provider_used="openrouter",
+                    input_tokens=sum(r.get("input_tokens", 0) for r in results),
+                    output_tokens=sum(r.get("output_tokens", 0) for r in results),
+                    error="" if success_count > 0 else "Some parallel tasks failed.",
+                )
+
+            if background:
+                from .background import get_job_manager
+                manager = get_job_manager()
+
+                # Build descriptive task list for /bg display
+                task_descriptions = [pt.get("task", "")[:80] for pt in parallel_tasks]
+                desc_summary = " | ".join(
+                    pt.get("task", "task")[:40] for pt in parallel_tasks
+                )
+
+                job = manager.start_job(
+                    description=desc_summary[:100],
+                    run_function=run_parallel,
+                    model=session_model,
+                    tier=tier,
+                    sub_tasks=task_descriptions,
+                )
+                print_success(f"Background parallel job #{job.job_id} started — /bg {job.job_id} to check")
+                return {
+                    "success": True,
+                    "background": True,
+                    "job_id": job.job_id,
+                    "message": f"{len(parallel_tasks)} parallel tasks running in background as job #{job.job_id}. Use /bg to check status.",
+                }
+            else:
+                # Run synchronously
+                sync_result = run_parallel()
+                return {
+                    "success": sync_result.success,
+                    "content": sync_result.content,
+                    "models_used": "multiple",
+                    "input_tokens": sync_result.input_tokens,
+                    "output_tokens": sync_result.output_tokens,
+                    "error": sync_result.error,
+                }
+
+        # Resolve model — sub-agents ALWAYS use OpenRouter
+        # If user already picked a model this session, reuse it.
+        # Otherwise, prompt them to choose (Haiku default, or pick from config list).
+        if explicit_model:
+            # AI explicitly requested a model — validate against config
+            resolved_model, resolved_provider, resolved_key = self._resolve_subagent_model(
+                explicit_model
+            )
+        elif self._session_capable_model:
+            # User already picked a model this session — reuse it
+            resolved_model = self._session_capable_model
+            resolved_provider = "openrouter"
+            resolved_key = ""
+        elif background or self._telegram_mode:
+            # Can't prompt interactively — use Haiku
+            resolved_model = HAIKU_MODEL
+            resolved_provider = "openrouter"
+            resolved_key = ""
+        else:
+            # First sub-agent use this session — ask user to pick
+            resolved_model, resolved_provider, resolved_key = self._prompt_subagent_model()
+
+        print_info(f"Delegating task to sub-agent (model: {resolved_model}, tier: {tier})")
+
+        # Background execution: run in thread and return immediately
+        if background:
+            from .background import get_job_manager
+
+            manager = get_job_manager()
+
+            def run_background():
+                return subagent_delegate(
+                    task_desc,
+                    model=resolved_model,
+                    provider=resolved_provider,
+                    api_key=resolved_key,
+                    system_prompt=system_prompt,
+                    tools=tier_tools,
+                    max_iterations=10,
+                )
+
+            job = manager.start_job(
+                description=task_desc[:100],
+                run_function=run_background,
+                model=resolved_model,
+                tier=tier,
+            )
+            print_success(f"Background job #{job.job_id} started — /bg {job.job_id} to check")
             return {
-                "success": success_count > 0,
-                "results": results,
-                "models_used": [r["model"] for r in results],
+                "success": True,
+                "background": True,
+                "job_id": job.job_id,
+                "message": f"Task running in background as job #{job.job_id}. Use /bg to check status.",
             }
 
-        # Single task delegation
-        resolved_model, resolved_provider, resolved_key = self._resolve_subagent_model(model)
-        print_info(f"Delegating task to sub-agent (model: {resolved_model})")
-
-        # Check if streaming output is enabled
+        # Foreground execution
         stream_output = self._should_stream_subagent()
 
         if stream_output:
@@ -1157,6 +1504,8 @@ class RadSimAgent:
                 resolved_provider,
                 resolved_key,
                 system_prompt,
+                tools=tier_tools,
+                max_iterations=10,
             )
         else:
             result = subagent_delegate(
@@ -1165,6 +1514,8 @@ class RadSimAgent:
                 provider=resolved_provider,
                 api_key=resolved_key,
                 system_prompt=system_prompt,
+                tools=tier_tools,
+                max_iterations=10,
             )
 
         if result.success:
@@ -1308,7 +1659,6 @@ class RadSimAgent:
                 self._teach_retry_attempted = False
                 content = stripped
             tool_input = {**tool_input, "content": content}
-
 
         safe, reason = is_path_safe(file_path)
         if not safe:
@@ -1928,6 +2278,30 @@ class RadSimAgent:
                 "error": "STOPPED: User rejected batch replace. Do NOT retry.",
             }
 
+    def _handle_multi_edit(self, tool_input):
+        """Handle multi_edit with confirmation."""
+        file_path = tool_input.get("file_path", "")
+        edits = tool_input.get("edits", [])
+
+        return self._run_tool_with_confirmation(
+            tool_name="multi_edit",
+            tool_input=tool_input,
+            description=f"Apply {len(edits)} edits to '{file_path}'",
+            success_message=f"Applied {len(edits)} edits to {file_path}",
+        )
+
+    def _handle_apply_patch(self, tool_input):
+        """Handle apply_patch with confirmation."""
+        patch_text = tool_input.get("patch", "")
+        line_count = len(patch_text.strip().split("\n")) if patch_text else 0
+
+        return self._run_tool_with_confirmation(
+            tool_name="apply_patch",
+            tool_input=tool_input,
+            description=f"Apply multi-file patch ({line_count} lines)",
+            success_message="Patch applied successfully",
+        )
+
     def _handle_save_context(self, tool_input):
         """Handle save_context with light confirmation."""
         filename = tool_input.get("filename", "radsim_context.json")
@@ -2104,7 +2478,6 @@ def run_single_shot(config, prompt, context_file=None):
 
 def run_interactive(config, context_file=None):
     """Run the interactive conversation loop."""
-    import os
 
     from .memory import load_memory
     from .modes import get_active_modes
@@ -2132,9 +2505,29 @@ def run_interactive(config, context_file=None):
         if user_name:
             print_info(f"Welcome back, {user_name}!")
 
-    if os.path.exists("agents.md") and not context_file:
+    from .memory import Memory
+    memory = Memory()
+    agents_md_path = memory.project_mem.agents_file
+
+    if agents_md_path.exists() and not context_file:
         # Auto-load agents.md if it exists and no explicit context file provided
-        agent.load_initial_context("agents.md")
+        agent.load_initial_context(str(agents_md_path))
+
+    if memory.session_mem.is_expired():
+        # Start fresh session visually
+        print_info("Started new session (previous session expired).")
+        import datetime
+        memory.session_mem.data = {
+                 "started_at": datetime.datetime.now().isoformat(),
+                 "last_active": datetime.datetime.now().isoformat(),
+                 "active_task": "",
+                 "conversation_summary": ""
+        }
+        memory.session_mem.update_activity()
+    else:
+        if memory.session_mem.data.get("active_task"):
+            print_info(f"Resumed session. Active Task: {memory.session_mem.data['active_task']}")
+            memory.session_mem.update_activity()
 
     # Start background Telegram processor (auto-processes messages without Enter)
     agent.start_telegram_processor()
@@ -2181,6 +2574,16 @@ def run_interactive(config, context_file=None):
             agent.system_prompt = get_system_prompt()
             continue
 
+        # Check for natural language help intent (e.g. "how do I use skills?")
+        from .commands import detect_help_intent
+
+        help_topic = detect_help_intent(user_input)
+        if help_topic:
+            from .output import print_help
+
+            print_help(topic=help_topic)
+            continue
+
         try:
             # Pass user name in context if available
             if user_name and len(agent.messages) == 0:
@@ -2196,6 +2599,12 @@ def run_interactive(config, context_file=None):
 
             with agent._processing_lock:
                 response = agent.process_message(user_input)
+
+            try:
+                from .memory import Memory
+                Memory().session_mem.update_activity()
+            except Exception:
+                pass
 
             # Only print response if not streaming (streaming already prints during _call_api)
             if not config.stream:
@@ -2241,8 +2650,8 @@ def print_tools_list():
         "Git (Write)": ["git_add", "git_commit", "git_checkout", "git_stash"],
         "Testing & Validation": ["run_tests", "lint_code", "format_code", "type_check"],
         "Dependencies": ["list_dependencies", "add_dependency", "remove_dependency"],
-        "Project": ["get_project_info", "batch_replace"],
-        "Task Planning": ["plan_task", "save_context", "load_context"],
+        "Project": ["get_project_info", "batch_replace", "multi_edit"],
+        "Task Planning": ["plan_task", "save_context", "load_context", "todo_read", "todo_write"],
         "Code Intelligence": ["find_definition", "find_references"],
     }
 

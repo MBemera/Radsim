@@ -4,18 +4,12 @@
 
 """Tests for the plan manager."""
 
-import json
-import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 from radsim.planner import (
     Plan,
     PlanManager,
     PlanStep,
-    get_plan_manager,
 )
 
 

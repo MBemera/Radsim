@@ -8,7 +8,7 @@ assignees: ''
 
 ## Describe the bug
 
-A clear description of what went wrong.
+<!-- A clear description of what went wrong. One paragraph max. -->
 
 ## To Reproduce
 
@@ -20,18 +20,26 @@ Steps to reproduce:
 
 ## Expected behavior
 
-What you expected to happen.
+<!-- What you expected to happen. -->
+
+## Actual behavior
+
+<!-- What actually happened. -->
 
 ## Error output
 
 ```
-Paste the full error message here
+Paste the FULL error message or traceback here.
+Do NOT screenshot terminal text — copy and paste it.
 ```
 
-## Environment
+## Environment (required)
 
-- **OS:** (macOS / Linux / Windows + version)
-- **Python version:** (`python --version`)
-- **RadSim version:** (`radsim --version`)
-- **Provider:** (claude / openai / gemini / vertex / openrouter)
-- **Install method:** (install.sh / install.ps1 / install.py / pip)
+- **OS:** <!-- e.g. macOS 14.2 / Ubuntu 22.04 / Windows 11 -->
+- **Python version:** <!-- run: python --version -->
+- **RadSim version:** <!-- run: radsim --version -->
+- **Provider:** <!-- claude / openai / gemini / vertex / openrouter -->
+- **Model:** <!-- e.g. claude-sonnet-4-5, gpt-5.2 -->
+- **Install method:** <!-- install.sh / install.ps1 / install.py / pip -->
+
+<!-- Issues missing environment info will be closed and asked to resubmit. -->

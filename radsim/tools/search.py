@@ -53,7 +53,7 @@ def glob_files(pattern, directory_path="."):
         return {"success": False, "error": str(error)}
 
 
-def grep_search(pattern, directory_path=".", file_pattern=None, ignore_case=False, context_lines=0):
+def grep_search(pattern, directory_path=".", file_pattern=None, ignore_case=False, context_lines=0, output_mode="content"):
     """Search file contents with regex (like Claude Code's Grep tool).
 
     Args:
@@ -62,9 +62,10 @@ def grep_search(pattern, directory_path=".", file_pattern=None, ignore_case=Fals
         file_pattern: Optional glob pattern to filter files (e.g., "*.py")
         ignore_case: If True, case-insensitive search
         context_lines: Number of context lines before/after match
+        output_mode: Output format - 'content' (default), 'files_only', or 'count'
 
     Returns:
-        dict with success, matches (with file, line, content)
+        dict with success, matches (format depends on output_mode)
     """
     is_safe, path, error = validate_path(directory_path)
     if not is_safe:
@@ -133,13 +134,35 @@ def grep_search(pattern, directory_path=".", file_pattern=None, ignore_case=Fals
             if len(matches) >= MAX_SEARCH_RESULTS:
                 break
 
-        return {
-            "success": True,
-            "pattern": pattern,
-            "matches": matches,
-            "count": len(matches),
-            "files_searched": files_searched,
-        }
+        # Format output based on output_mode
+        if output_mode == "files_only":
+            file_paths = sorted({m["file"] for m in matches})
+            return {
+                "success": True,
+                "pattern": pattern,
+                "matches": file_paths,
+                "count": len(file_paths),
+                "files_searched": files_searched,
+            }
+        elif output_mode == "count":
+            counts = {}
+            for m in matches:
+                counts[m["file"]] = counts.get(m["file"], 0) + 1
+            return {
+                "success": True,
+                "pattern": pattern,
+                "matches": counts,
+                "count": len(matches),
+                "files_searched": files_searched,
+            }
+        else:
+            return {
+                "success": True,
+                "pattern": pattern,
+                "matches": matches,
+                "count": len(matches),
+                "files_searched": files_searched,
+            }
     except Exception as error:
         return {"success": False, "error": str(error)}
 

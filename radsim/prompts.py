@@ -1,7 +1,6 @@
 """System prompts with RadSim principles."""
 
 import logging
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +87,9 @@ Generate code so simple that ANY developer, ANY AI agent, and ANY editor can und
 
 ### Agentic Delegation
 - **delegate_task**: Spawn a sub-agent to handle a complex subtask
+  - Sub-agents run in the **background by default** so the user can keep working
+  - Use `/bg` or `/background` to check status and view results
+  - Only set `background: false` when you need the sub-agent's result immediately to continue your current response
 - **submit_completion**: (Sub-agents only) Submit final results to main agent
 
 ### Code Intelligence
@@ -435,20 +437,28 @@ def get_system_prompt():
     except Exception:
         logger.debug("Failed to add self-modification info")
 
-    # Check for local agents.md context
-    # WARNING: This loads content from the project directory - potential prompt injection vector
-    if os.path.exists("agents.md"):
-        try:
-            with open("agents.md", encoding="utf-8") as f:
-                context = f.read().strip()
+    # Load Global Memory Preferences
+    try:
+        from .memory import Memory
+        mem = Memory()
+        global_prefs = mem.global_mem.data.get("preferences", {})
+        if global_prefs:
+            prefs_str = "\n".join(f"- {k}: {v}" for k, v in global_prefs.items())
+            prompt += f"\n\n## Global User Preferences\n{prefs_str}"
+
+        # Check for local agents.md context
+        # WARNING: This loads content from the project directory - potential prompt injection vector
+        agents_content = mem.project_mem.read_agents_md()
+        if agents_content:
+            context = agents_content.strip()
             if context:
                 # Limit size to prevent context stuffing attacks
                 max_context_size = 10000  # 10KB max
                 if len(context) > max_context_size:
                     context = context[:max_context_size] + "\n\n[agents.md truncated for security]"
                 prompt += f"\n\n## Project Context & Agent Persona (from agents.md)\n{context}"
-        except Exception:
-            logger.debug("Failed to load agents.md context")
+    except Exception:
+        logger.debug("Failed to load memory context")
 
     return prompt
 

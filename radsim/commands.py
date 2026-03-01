@@ -4,7 +4,7 @@ import json
 import sys
 
 from .config import setup_config
-from .output import print_help, print_info
+from .output import _resolve_help_topic, print_error, print_help, print_info, print_success
 
 
 class CommandRegistry:
@@ -36,6 +36,47 @@ class CommandRegistry:
                 "primary": names[0],  # To group aliases in help
             }
 
+    # Allowlist: commands safe to run from Telegram (no terminal input needed).
+    # Commands with subcommands list which args work without interactive prompts.
+    TELEGRAM_SAFE_COMMANDS = {
+        # No-arg commands (just print output or toggle a state)
+        "/help": "Show help and available commands",
+        "/tools": "List all available tools",
+        "/clear": "Clear conversation history",
+        "/new": "Start new conversation with fresh context",
+        "/free": "Switch to free OpenRouter model",
+        "/good": "Mark last response as good",
+        "/improve": "Mark last response for improvement",
+        "/stats": "Show learning statistics",
+        "/report": "Export detailed learning report",
+        "/audit": "Audit learned preferences",
+        "/preferences": "Show learned preferences",
+        "/commands": "List all available commands",
+        "/teach": "Toggle Teach Me mode",
+        "/awake": "Toggle stay-awake mode (macOS)",
+        "/modes": "List all available modes",
+        "/show": "Show last written file content",
+        "/background": "View/manage background sub-agent jobs",
+    }
+
+    def is_telegram_safe(self, command: str) -> bool:
+        """Check if a command is safe to run from Telegram.
+
+        Uses an explicit allowlist — only commands that never require
+        terminal input (no input(), interactive_menu, safe_input) are allowed.
+        """
+        return command in self.TELEGRAM_SAFE_COMMANDS
+
+    def get_telegram_command_list(self) -> list:
+        """Get list of commands safe for Telegram with descriptions."""
+        safe_commands = []
+        for command, description in self.TELEGRAM_SAFE_COMMANDS.items():
+            safe_commands.append({
+                "command": command.lstrip("/"),
+                "description": description[:64],
+            })
+        return sorted(safe_commands, key=lambda x: x["command"])
+
     def handle_input(self, user_input, agent):
         """Check if input is a command and execute it.
 
@@ -51,6 +92,12 @@ class CommandRegistry:
         # Check explicit slash commands
         if cmd_name in self.commands:
             return self._execute(cmd_name, agent, parts[1:])
+
+        # Handle /bg<N> (no space) — e.g., "/bg1" → "/bg 1"
+        import re
+        bg_match = re.match(r"^/(bg|background)(\d+)$", cmd_name)
+        if bg_match:
+            return self._execute("/background", agent, [bg_match.group(2)] + parts[1:])
 
         # Check legacy commands without slash (exit, quit) - strictly for backward compat
         if cmd_name in ["exit", "quit"]:
@@ -118,18 +165,14 @@ class CommandRegistry:
         self.register(["/commands", "/cmds"], self._cmd_commands, "List all available commands")
 
         # Memory management
-        self.register(
-            ["/memory", "/mem"], self._cmd_memory, "Manage persistent memory"
-        )
+        self.register(["/memory", "/mem"], self._cmd_memory, "Manage persistent memory")
 
         # Mode toggles
         self.register(
             ["/teach", "/t"], self._cmd_teach, "Toggle Teach Me mode (explains while coding)"
         )
         self.register(["/modes"], self._cmd_modes, "List all available modes")
-        self.register(
-            ["/awake", "/caffeinate"], self._cmd_awake, "Toggle stay-awake mode (macOS)"
-        )
+        self.register(["/awake", "/caffeinate"], self._cmd_awake, "Toggle stay-awake mode (macOS)")
         self.register(["/show"], self._cmd_show, "Show last written file content")
 
         # Self-modification
@@ -138,44 +181,38 @@ class CommandRegistry:
         )
 
         # Telegram
-        self.register(
-            ["/telegram", "/tg"], self._cmd_telegram, "Configure Telegram notifications"
-        )
+        self.register(["/telegram", "/tg"], self._cmd_telegram, "Configure Telegram notifications")
 
         # Agent config & self-improvement
-        self.register(
-            ["/settings", "/set"], self._cmd_settings, "View/change agent settings"
-        )
+        self.register(["/settings", "/set"], self._cmd_settings, "View/change agent settings")
         self.register(
             ["/evolve", "/self-improve"], self._cmd_evolve, "Review self-improvement proposals"
         )
 
         # Code analysis tools
-        self.register(
-            ["/complexity", "/cx"], self._cmd_complexity, "Complexity budget & scoring"
-        )
-        self.register(
-            ["/stress", "/adversarial"], self._cmd_stress, "Adversarial code review"
-        )
+        self.register(["/complexity", "/cx"], self._cmd_complexity, "Complexity budget & scoring")
+        self.register(["/stress", "/adversarial"], self._cmd_stress, "Adversarial code review")
         self.register(
             ["/archaeology", "/arch", "/dead"], self._cmd_archaeology, "Find dead code & zombies"
         )
 
         # Planning & panning
+        self.register(["/plan", "/p"], self._cmd_plan, "Structured plan-confirm-execute workflow")
+        self.register(["/panning", "/pan"], self._cmd_panning, "Brain-dump processing & synthesis")
+
+        # Background jobs
         self.register(
-            ["/plan", "/p"], self._cmd_plan, "Structured plan-confirm-execute workflow"
-        )
-        self.register(
-            ["/panning", "/pan"], self._cmd_panning, "Brain-dump processing & synthesis"
+            ["/background", "/bg"], self._cmd_background, "View/manage background sub-agent jobs"
         )
 
     # --- Default Handlers ---
 
-    def _cmd_help(self, agent):
-        print_help()
-        # Also print custom skills if any
-        # (This is a simplified help, print_help in output.py is hardcoded currently)
-        # We might want to dynamically list commands here later
+    def _cmd_help(self, agent, args=None):
+        if args:
+            topic = " ".join(args).strip().lower().lstrip("/")
+            print_help(topic=topic)
+        else:
+            print_help()
 
     def _cmd_tools(self, agent):
         from .agent import print_tools_list
@@ -184,7 +221,13 @@ class CommandRegistry:
 
     def _cmd_clear(self, agent):
         agent.reset()
-        print_info("Conversation cleared.")
+        from .background import reset_job_manager
+        from .todo import reset_tracker
+
+        reset_tracker()
+        reset_job_manager()
+        agent._session_capable_model = None
+        print_info("Conversation, task tracker, and background jobs cleared.")
 
     def _cmd_config(self, agent):
         from .output import print_header
@@ -279,9 +322,7 @@ class CommandRegistry:
             if not project_id or project_id.lower().startswith("paste_your"):
                 print("  ⚠ No GOOGLE_CLOUD_PROJECT found. Add it to .env first.")
                 return
-            location = env_config.get("keys", {}).get(
-                "GOOGLE_CLOUD_LOCATION", "us-central1"
-            )
+            location = env_config.get("keys", {}).get("GOOGLE_CLOUD_LOCATION", "us-central1")
             api_key = f"{project_id}:{location}"
         else:
             env_var = PROVIDER_ENV_VARS.get(provider, "RADSIM_API_KEY")
@@ -421,15 +462,18 @@ class CommandRegistry:
         from .menu import interactive_menu
 
         if not args:
-            choice = interactive_menu("RESET", [
-                ("budget", "Reset token budget"),
-                ("preferences", "Reset learned code style & preferences"),
-                ("errors", "Reset error patterns"),
-                ("examples", "Reset few-shot examples"),
-                ("tools", "Reset tool effectiveness data"),
-                ("reflections", "Reset task reflections"),
-                ("all", "Reset everything"),
-            ])
+            choice = interactive_menu(
+                "RESET",
+                [
+                    ("budget", "Reset token budget"),
+                    ("preferences", "Reset learned code style & preferences"),
+                    ("errors", "Reset error patterns"),
+                    ("examples", "Reset few-shot examples"),
+                    ("tools", "Reset tool effectiveness data"),
+                    ("reflections", "Reset task reflections"),
+                    ("all", "Reset everything"),
+                ],
+            )
             if choice is None:
                 return
             args = [choice]
@@ -491,11 +535,14 @@ class CommandRegistry:
         config_mgr = get_agent_config_manager()
 
         if not args:
-            choice = interactive_menu("SETTINGS", [
-                ("view", "View all settings"),
-                ("change", "Change a setting"),
-                ("security", "Set security level"),
-            ])
+            choice = interactive_menu(
+                "SETTINGS",
+                [
+                    ("view", "View all settings"),
+                    ("change", "Change a setting"),
+                    ("security", "Set security level"),
+                ],
+            )
             if choice is None:
                 return
 
@@ -582,12 +629,15 @@ class CommandRegistry:
             return
 
         if not args:
-            choice = interactive_menu("SELF-IMPROVEMENT", [
-                ("review", "Review pending proposals"),
-                ("analyze", "Analyze & generate new proposals"),
-                ("history", "View improvement history"),
-                ("stats", "Improvement statistics"),
-            ])
+            choice = interactive_menu(
+                "SELF-IMPROVEMENT",
+                [
+                    ("review", "Review pending proposals"),
+                    ("analyze", "Analyze & generate new proposals"),
+                    ("history", "View improvement history"),
+                    ("stats", "Improvement statistics"),
+                ],
+            )
             if choice is None:
                 return
             args = [choice]
@@ -711,14 +761,17 @@ class CommandRegistry:
         )
 
         if not args:
-            choice = interactive_menu("SKILLS", [
-                ("add", "Add a custom instruction"),
-                ("list", "List active skills"),
-                ("remove", "Remove a skill"),
-                ("templates", "Show skill templates"),
-                ("learn", "Learn skills from a file"),
-                ("clear", "Remove all skills"),
-            ])
+            choice = interactive_menu(
+                "SKILLS",
+                [
+                    ("add", "Add a custom instruction"),
+                    ("list", "List active skills"),
+                    ("remove", "Remove a skill"),
+                    ("templates", "Show skill templates"),
+                    ("learn", "Learn skills from a file"),
+                    ("clear", "Remove all skills"),
+                ],
+            )
             if choice is None:
                 return
 
@@ -906,78 +959,118 @@ class CommandRegistry:
             print_info("Use /skill for help")
 
     def _cmd_memory(self, agent, args=None):
-        """Manage persistent memory (remember/forget/list)."""
+        """Manage persistent memory (view/edit/forget/export)."""
+        import os
+        import subprocess
+        import zipfile
+        from datetime import datetime
+
         from .memory import Memory
         from .menu import interactive_menu, safe_input
+        from .output import print_error, print_info
 
         memory = Memory()
 
         if not args:
-            choice = interactive_menu("MEMORY", [
-                ("remember", "Save something to memory"),
-                ("forget", "Remove something from memory"),
-                ("list", "Show all saved memories"),
-            ])
+            choice = interactive_menu(
+                "MEMORY",
+                [
+                    ("view", "Dump current global/project memory status"),
+                    ("edit", "Open memory files in default editor"),
+                    ("forget", "Clear specific contexts or keys"),
+                    ("export", "Zip and export current memory context"),
+                ],
+            )
             if choice is None:
                 return
             args = [choice]
 
         action = args[0].lower()
 
-        if action == "remember":
-            if len(args) >= 3:
-                key = args[1]
-                value = " ".join(args[2:])
-            elif len(args) == 2:
-                key = args[1]
-                value = safe_input("  Value: ")
-                if value is None:
-                    return
+        if action == "view":
+            print("\n  ═══ GLOBAL MEMORY ═══")
+            prefs = memory.global_mem.data.get("preferences", {})
+            if prefs:
+                for k, v in prefs.items():
+                    print(f"  • {k}: {v}")
             else:
-                key = safe_input("  Key (short name): ")
-                if key is None:
-                    return
-                value = safe_input("  Value: ")
-                if value is None:
-                    return
+                print("  No global preferences set.")
 
-            memory.set_preference(key.strip(), value.strip())
-            print_info(f"Remembered: {key.strip()} = {value.strip()[:60]}")
+            patterns = memory.global_mem.data.get("learned_patterns", [])
+            if patterns:
+                print("\n  ═══ LEARNED PATTERNS ═══")
+                for p in patterns[-5:]:  # Show last 5
+                    if isinstance(p, dict):
+                        print(f"  • [{p.get('confidence', 'medium')}] {p.get('pattern')}")
+                    else:
+                        print(f"  • {p}")
+
+            print("\n  ═══ PROJECT MEMORY ═══")
+            print(f"  Active Project: {memory.project_mem.data.get('project', {}).get('name', 'Unknown')}")
+            decs = memory.project_mem.data.get("decisions", [])
+            if decs:
+                print(f"  Recent Decisions ({len(decs)} total):")
+                for d in decs[-3:]:
+                    print(f"  • {d.get('decision')} (Rationale: {d.get('rationale', 'none')})")
+            print()
+
+        elif action == "edit":
+            choice = interactive_menu(
+                "EDIT MEMORY",
+                [
+                    ("project", "Edit agents.md (Project Context)"),
+                    ("global", "Edit global_memory.json (Expert only)"),
+                ],
+            )
+            if choice:
+                editor = os.environ.get("EDITOR", "nano")
+                try:
+                    target_file = memory.project_mem.agents_file if choice == "project" else memory.global_mem.file_path
+                    subprocess.call([editor, str(target_file)])
+                    print_info("Memory file updated. Reloading memory system.")
+                    # Force reload
+                    memory.global_mem.data = memory.global_mem._load_json(memory.global_mem.file_path)
+                    memory.project_mem.data = memory.project_mem._load_json(memory.project_mem.json_file)
+                except Exception as e:
+                    print_error(f"Could not open editor: {e}")
 
         elif action == "forget":
-            if len(args) >= 2:
-                key = args[1]
-            else:
+            choice = interactive_menu(
+                "FORGET MEMORY",
+                [
+                    ("preference", "Forget a global preference"),
+                    ("project", "Clear entire project memory"),
+                ],
+            )
+            if choice == "preference":
                 key = safe_input("  Key to forget: ")
-                if key is None:
-                    return
+                if key:
+                    prefs = memory.global_mem.data.get("preferences", {})
+                    if key in prefs:
+                        del prefs[key]
+                        memory.global_mem._save_json(memory.global_mem.file_path, memory.global_mem.data)
+                        print_info(f"Forgotten preference: {key}")
+                    else:
+                        print_error(f"Key not found: {key}")
+            elif choice == "project":
+                confirm = safe_input("  Are you sure you want to clear this project's memory? [y/N]: ")
+                if confirm and confirm.lower() in ("y", "yes"):
+                    memory.clear_context(memory.project_mem.project_dir.name)
+                    print_info(f"Cleared project memory for: {memory.project_mem.project_dir.name}")
 
-            all_prefs = memory.get_all_preferences()
-            if key.strip() in all_prefs:
-                # Remove by setting to None and re-saving
-                prefs = memory.get_all_preferences()
-                prefs.pop(key.strip(), None)
-                memory._preferences = prefs
-                memory._save_file(memory._pref_file, prefs)
-                print_info(f"Forgotten: {key.strip()}")
-            else:
-                print_error(f"Key not found: {key.strip()}")
-
-        elif action == "list":
-            all_prefs = memory.get_all_preferences()
-            if not all_prefs:
-                print_info("No memories stored yet. Use /memory remember to add one.")
-                return
-
-            print()
-            print("  ═══ SAVED MEMORIES ═══")
-            print()
-            for i, (key, value) in enumerate(all_prefs.items(), 1):
-                if key.startswith("_"):
-                    continue
-                display_value = str(value)[:60]
-                print(f"    {i}. {key}: {display_value}")
-            print()
+        elif action == "export":
+            export_name = f"radsim_memory_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+            try:
+                with zipfile.ZipFile(export_name, 'w') as zf:
+                    if memory.global_mem.file_path.exists():
+                        zf.write(memory.global_mem.file_path, "global_memory.json")
+                    if memory.project_mem.json_file.exists():
+                        zf.write(memory.project_mem.json_file, "project/memory.json")
+                    if memory.project_mem.agents_file.exists():
+                        zf.write(memory.project_mem.agents_file, "project/agents.md")
+                print_info(f"Memory exported successfully to {export_name}")
+            except Exception as e:
+                print_error(f"Failed to export memory: {e}")
 
         else:
             print_error(f"Unknown action: {action}")
@@ -989,11 +1082,14 @@ class CommandRegistry:
         from .menu import interactive_menu
 
         if not args:
-            choice = interactive_menu("SELF-MODIFICATION", [
-                ("path", "Show RadSim source directory"),
-                ("prompt", "View/edit custom prompt additions"),
-                ("list", "List RadSim source files"),
-            ])
+            choice = interactive_menu(
+                "SELF-MODIFICATION",
+                [
+                    ("path", "Show RadSim source directory"),
+                    ("prompt", "View/edit custom prompt additions"),
+                    ("list", "List RadSim source files"),
+                ],
+            )
             if choice is None:
                 return
             args = [choice]
@@ -1054,14 +1150,19 @@ class CommandRegistry:
 
         if not args:
             listen_label = "listen off" if is_listening() else "listen on"
-            listen_desc = "Stop receiving messages" if is_listening() else "Start receiving messages"
-            choice = interactive_menu("TELEGRAM", [
-                ("setup", "Configure bot token and chat ID"),
-                (listen_label, listen_desc),
-                ("test", "Send a test message"),
-                ("send", "Send a custom message"),
-                ("status", "Check current configuration"),
-            ])
+            listen_desc = (
+                "Stop receiving messages" if is_listening() else "Start receiving messages"
+            )
+            choice = interactive_menu(
+                "TELEGRAM",
+                [
+                    ("setup", "Configure bot token and chat ID"),
+                    (listen_label, listen_desc),
+                    ("test", "Send a test message"),
+                    ("send", "Send a custom message"),
+                    ("status", "Check current configuration"),
+                ],
+            )
             if choice is None:
                 return
             args = choice.split()
@@ -1354,12 +1455,15 @@ class CommandRegistry:
         from .menu import interactive_menu, safe_input
 
         if not args:
-            choice = interactive_menu("COMPLEXITY", [
-                ("overview", "Score overview"),
-                ("budget", "Set budget"),
-                ("report", "Full file-by-file report"),
-                ("file", "Score a single file"),
-            ])
+            choice = interactive_menu(
+                "COMPLEXITY",
+                [
+                    ("overview", "Score overview"),
+                    ("budget", "Set budget"),
+                    ("report", "Full file-by-file report"),
+                    ("file", "Score a single file"),
+                ],
+            )
             if choice is None:
                 return
 
@@ -1444,10 +1548,13 @@ class CommandRegistry:
         from .menu import interactive_menu, safe_input
 
         if not args:
-            choice = interactive_menu("ADVERSARIAL REVIEW", [
-                ("project", "Scan entire project"),
-                ("file", "Stress test a single file"),
-            ])
+            choice = interactive_menu(
+                "ADVERSARIAL REVIEW",
+                [
+                    ("project", "Scan entire project"),
+                    ("file", "Stress test a single file"),
+                ],
+            )
             if choice is None:
                 return
 
@@ -1493,12 +1600,15 @@ class CommandRegistry:
         from .menu import interactive_menu
 
         if not args:
-            choice = interactive_menu("CODE ARCHAEOLOGY", [
-                ("full", "Full dead code scan"),
-                ("imports", "Unused imports only"),
-                ("deps", "Zombie dependencies only"),
-                ("clean", "Interactive cleanup (review-only)"),
-            ])
+            choice = interactive_menu(
+                "CODE ARCHAEOLOGY",
+                [
+                    ("full", "Full dead code scan"),
+                    ("imports", "Unused imports only"),
+                    ("deps", "Zombie dependencies only"),
+                    ("clean", "Interactive cleanup (review-only)"),
+                ],
+            )
             if choice is None:
                 return
 
@@ -1530,9 +1640,11 @@ class CommandRegistry:
             results = run_full_archaeology(os.getcwd())
             summary = results["summary"]
 
-            total_items = (summary["dead_function_count"] +
-                           summary["unused_import_count"] +
-                           summary["zombie_dep_count"])
+            total_items = (
+                summary["dead_function_count"]
+                + summary["unused_import_count"]
+                + summary["zombie_dep_count"]
+            )
 
             if total_items == 0:
                 print("\n  Nothing to clean up! Codebase is tidy. ✅")
@@ -1563,22 +1675,28 @@ class CommandRegistry:
         if not args:
             # No args: show menu or create plan
             if pm.active_plan:
-                choice = interactive_menu("PLAN", [
-                    ("show", "Show current plan"),
-                    ("approve", "Approve plan for execution"),
-                    ("reject", "Reject and discard plan"),
-                    ("step", "Execute next step"),
-                    ("run", "Execute all remaining steps"),
-                    ("status", "Show progress"),
-                    ("export", "Export plan to markdown"),
-                    ("history", "Show past plans"),
-                    ("new", "Create a new plan"),
-                ])
+                choice = interactive_menu(
+                    "PLAN",
+                    [
+                        ("show", "Show current plan"),
+                        ("approve", "Approve plan for execution"),
+                        ("reject", "Reject and discard plan"),
+                        ("step", "Execute next step"),
+                        ("run", "Execute all remaining steps"),
+                        ("status", "Show progress"),
+                        ("export", "Export plan to markdown"),
+                        ("history", "Show past plans"),
+                        ("new", "Create a new plan"),
+                    ],
+                )
             else:
-                choice = interactive_menu("PLAN", [
-                    ("new", "Create a new plan"),
-                    ("history", "Show past plans"),
-                ])
+                choice = interactive_menu(
+                    "PLAN",
+                    [
+                        ("new", "Create a new plan"),
+                        ("history", "Show past plans"),
+                    ],
+                )
             if choice is None:
                 return
 
@@ -1642,6 +1760,12 @@ class CommandRegistry:
             agent.process_message(step_prompt)
             pm.mark_step_complete(step_index)
 
+            try:
+                from .memory import Memory
+                Memory().project_mem.record_decision(f"Completed plan step: {step.description}")
+            except Exception:
+                pass
+
             print(f"\n  ✓ Step {step_index + 1} completed.")
             print(pm.get_status())
 
@@ -1660,7 +1784,9 @@ class CommandRegistry:
                     break
 
                 step_index, step = next_step
-                print(f"\n  ── Step {step_index + 1}/{len(pm.active_plan.steps)}: {step.description}")
+                print(
+                    f"\n  ── Step {step_index + 1}/{len(pm.active_plan.steps)}: {step.description}"
+                )
 
                 if step.checkpoint:
                     try:
@@ -1680,6 +1806,13 @@ class CommandRegistry:
                 )
                 agent.process_message(step_prompt)
                 pm.mark_step_complete(step_index)
+
+                try:
+                    from .memory import Memory
+                    Memory().project_mem.record_decision(f"Completed plan step: {step.description}")
+                except Exception:
+                    pass
+
                 print(f"  ✓ Step {step_index + 1} completed.")
 
             print(pm.get_status())
@@ -1711,7 +1844,9 @@ class CommandRegistry:
                     print(pm.show_plan())
                 else:
                     print("  ⚠ Could not parse plan from response.")
-                    print("  The response was displayed above. Try again with a clearer description.")
+                    print(
+                        "  The response was displayed above. Try again with a clearer description."
+                    )
             else:
                 print("  ⚠ No response from agent. Check your API key and provider.")
 
@@ -1724,18 +1859,24 @@ class CommandRegistry:
 
         if not args:
             if session.active:
-                choice = interactive_menu("PANNING", [
-                    ("end", "End session and generate synthesis"),
-                    ("file", "Add a file to the dump"),
-                    ("refine", "Refine the last synthesis"),
-                    ("bridge", "Bridge to /plan"),
-                ])
+                choice = interactive_menu(
+                    "PANNING",
+                    [
+                        ("end", "End session and generate synthesis"),
+                        ("file", "Add a file to the dump"),
+                        ("refine", "Refine the last synthesis"),
+                        ("bridge", "Bridge to /plan"),
+                    ],
+                )
             else:
-                choice = interactive_menu("PANNING", [
-                    ("start", "Start a new panning session"),
-                    ("text", "Process a one-shot brain dump"),
-                    ("file", "Process a text/transcript file"),
-                ])
+                choice = interactive_menu(
+                    "PANNING",
+                    [
+                        ("start", "Start a new panning session"),
+                        ("text", "Process a one-shot brain dump"),
+                        ("file", "Process a text/transcript file"),
+                    ],
+                )
             if choice is None:
                 return
 
@@ -1772,8 +1913,7 @@ class CommandRegistry:
             from .prompts import PANNING_SYSTEM_PROMPT
 
             panning_prompt = (
-                f"{PANNING_SYSTEM_PROMPT}\n\n"
-                f"Brain dump content:\n\n{session.get_all_dumps()}"
+                f"{PANNING_SYSTEM_PROMPT}\n\nBrain dump content:\n\n{session.get_all_dumps()}"
             )
             response = agent.process_message(panning_prompt)
 
@@ -1846,6 +1986,120 @@ class CommandRegistry:
             print(f"  ✓ Added to panning session ({len(session.dumps)} dump(s) collected)")
             print("  Keep dumping, or type '/panning end' to synthesise.")
 
+    def _cmd_background(self, agent, args=None):
+        """View and manage background sub-agent jobs."""
+        import time as _time
+
+        from .background import get_job_manager
+
+        manager = get_job_manager()
+        jobs = manager.list_jobs()
+
+        if not args:
+            # /bg — list all jobs
+            if not jobs:
+                print_info("No background jobs.")
+                return
+
+            print()
+            print("  ═══ BACKGROUND JOBS ═══")
+            print()
+            for job in jobs:
+                status_icon = {
+                    "running": "\033[33m...\033[0m",
+                    "completed": "\033[32m ok\033[0m",
+                    "failed": "\033[31m xx\033[0m",
+                    "cancelled": "\033[2m --\033[0m",
+                }.get(job.status.value, " ? ")
+                duration = f"{job.duration:.1f}s"
+                print(f"  [{status_icon}] #{job.job_id}  {job.model}  ({duration})")
+                # Show task description
+                print(f"        {job.description[:80]}")
+                # Show individual sub-tasks for parallel jobs
+                if job.sub_tasks:
+                    for i, st in enumerate(job.sub_tasks, 1):
+                        print(f"        {i}. {st[:70]}")
+                print()
+            print("  /bg <id> — view results  |  /bg cancel <id>  |  /bg clear")
+            print()
+            return
+
+        action = args[0].lower()
+
+        if action == "clear":
+            removed = manager.clear_finished()
+            print_info(f"Cleared {removed} finished job(s).")
+            return
+
+        if action == "cancel" and len(args) >= 2:
+            try:
+                job_id = int(args[1])
+            except ValueError:
+                print_error("Usage: /bg cancel <id>")
+                return
+
+            if manager.cancel_job(job_id):
+                print_success(f"Job #{job_id} cancelled.")
+            else:
+                print_error(f"Job #{job_id} not found or not running.")
+            return
+
+        # /bg <id> — show job details and full output
+        try:
+            job_id = int(action)
+        except ValueError:
+            print_error("Usage: /bg [<id> | cancel <id> | clear]")
+            return
+
+        job = manager.get_job(job_id)
+        if not job:
+            print_error(f"Job #{job_id} not found.")
+            return
+
+        print()
+        print(f"  ═══ BACKGROUND JOB #{job.job_id} ═══")
+        print()
+
+        # Status with color
+        status_display = {
+            "running": "\033[33mRUNNING\033[0m",
+            "completed": "\033[32mCOMPLETED\033[0m",
+            "failed": "\033[31mFAILED\033[0m",
+            "cancelled": "\033[2mCANCELLED\033[0m",
+        }.get(job.status.value, job.status.value)
+        print(f"  Status:   {status_display}")
+        print(f"  Model:    {job.model}")
+        print(f"  Tier:     {job.tier}")
+        duration = f"{job.duration:.1f}s"
+        print(f"  Duration: {duration}")
+        if job.input_tokens or job.output_tokens:
+            print(f"  Tokens:   {job.input_tokens} in / {job.output_tokens} out")
+        started = _time.strftime("%H:%M:%S", _time.localtime(job.started_at))
+        print(f"  Started:  {started}")
+        print(f"  Task:     {job.description}")
+
+        # Show individual sub-tasks for parallel jobs
+        if job.sub_tasks:
+            print()
+            print("  ─── Sub-tasks ───")
+            for i, st in enumerate(job.sub_tasks, 1):
+                print(f"    {i}. {st}")
+
+        print()
+
+        if job.error:
+            print_error(f"Error: {job.error}")
+        elif job.result_content:
+            print("  ─── Output ───")
+            print()
+            for line in job.result_content.splitlines():
+                print(f"  {line}")
+            print()
+        elif job.status.value == "running":
+            print_info("Still running...")
+        else:
+            print_info("No output.")
+
     def get_relevant_commands(self, context: str) -> list:
         """Get commands relevant to a context for hints.
 
@@ -1893,8 +2147,107 @@ class CommandRegistry:
         return command_hints.get(context, [])
 
 
-def print_error(msg):
-    # localized import to avoid circular dependency
-    from .output import print_error as pe
 
-    pe(msg)
+
+# ============================================================================
+# NATURAL LANGUAGE HELP DETECTION
+# ============================================================================
+
+# Patterns that indicate help intent: (prefix, topic_position)
+# topic_position is the word index (from the end of the prefix) where the topic starts
+_HELP_PATTERNS = [
+    # "how do I use <topic>"
+    ("how do i use ", 0),
+    ("how do you use ", 0),
+    ("how to use ", 0),
+    # "how does <topic> work"
+    ("how does ", 0),
+    # "what does <topic> do"
+    ("what does ", 0),
+    # "what is <topic>"
+    ("what is ", 0),
+    ("what's ", 0),
+    # "help with <topic>"
+    ("help with ", 0),
+    ("help me with ", 0),
+    ("i need help with ", 0),
+    # "tell me about <topic>"
+    ("tell me about ", 0),
+    # "explain <topic>"
+    ("explain ", 0),
+    # "how do I <topic>"
+    ("how do i ", 0),
+    # "how to <topic>"
+    ("how to ", 0),
+]
+
+# Trailing words to strip from extracted topics
+_TRAILING_NOISE = {
+    "work",
+    "do",
+    "works",
+    "does",
+    "mean",
+    "command",
+    "mode",
+    "feature",
+    "function",
+    "tool",
+    "in",
+    "radsim",
+    "?",
+}
+
+
+def detect_help_intent(user_input):
+    """Detect if user input is a natural language help query.
+
+    Returns the matched help topic string, or None if not a help query.
+
+    Args:
+        user_input: Raw user input text
+
+    Returns:
+        str or None: Matched topic key from HELP_DETAILS, or None
+    """
+    if not user_input:
+        return None
+
+    text = user_input.strip().lower()
+
+    # Skip if it starts with / (already a command) or is very long (likely a real prompt)
+    if text.startswith("/") or len(text) > 80:
+        return None
+
+    for prefix, _ in _HELP_PATTERNS:
+        if text.startswith(prefix):
+            remainder = text[len(prefix) :].strip()
+            if not remainder:
+                continue
+
+            # Strip trailing punctuation
+            remainder = remainder.rstrip("?.!")
+
+            # Extract candidate words
+            words = remainder.split()
+
+            # Strip trailing noise words
+            while words and words[-1] in _TRAILING_NOISE:
+                words.pop()
+
+            if not words:
+                continue
+
+            # Try the first word as a topic (most commands are single-word)
+            candidate = words[0].lstrip("/")
+            resolved = _resolve_help_topic(candidate)
+            if resolved:
+                return resolved
+
+            # Try the full remainder as a topic
+            full = " ".join(words).lstrip("/")
+            resolved = _resolve_help_topic(full)
+            if resolved:
+                return resolved
+
+    return None
