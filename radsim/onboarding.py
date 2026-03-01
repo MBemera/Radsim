@@ -231,21 +231,206 @@ def step_welcome() -> str:
     return name
 
 
+def step_user_profile(user_name: str):
+    """Gather user profile information for personalization."""
+    from .memory import save_memory
+
+    clear_screen()
+    print_header("Tell Me About Yourself")
+
+    print(f"  {user_name}, a few quick questions so I can tailor my help to you.")
+    print("  (All answers are optional — just press Enter to skip any question.)")
+    print()
+
+    # Question 1: Main focus area
+    print("  1. What's your main development focus?")
+    print()
+    print("     1) Web development (frontend/fullstack)")
+    print("     2) Data science / ML / AI")
+    print("     3) Backend / APIs")
+    print("     4) DevOps / Automation / scripting")
+    print("     5) Other")
+    print()
+
+    focus_map = {
+        "1": "web development",
+        "2": "data science / ML",
+        "3": "backend / APIs",
+        "4": "devops / automation",
+        "5": "other",
+    }
+
+    try:
+        focus_choice = input("  Enter 1-5 [skip]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\n  Setup cancelled.")
+        sys.exit(0)
+
+    focus = focus_map.get(focus_choice, "")
+    if focus:
+        save_memory("development_focus", focus, memory_type="preference")
+
+    # Question 2: Experience level
+    print()
+    print("  2. What's your experience level with coding?")
+    print()
+    print("     1) Beginner    — learning as I go")
+    print("     2) Intermediate — comfortable building projects")
+    print("     3) Advanced    — senior / architect level")
+    print()
+
+    level_map = {
+        "1": "beginner",
+        "2": "intermediate",
+        "3": "advanced",
+    }
+
+    try:
+        level_choice = input("  Enter 1-3 [skip]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\n  Setup cancelled.")
+        sys.exit(0)
+
+    level = level_map.get(level_choice, "")
+    if level:
+        save_memory("experience_level", level, memory_type="preference")
+
+    # Question 3: Languages
+    print()
+    print("  3. What languages do you mostly work in?")
+    print("     (comma-separated, e.g. Python, JavaScript, TypeScript)")
+    print()
+
+    try:
+        languages = input("  Languages [skip]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\n  Setup cancelled.")
+        sys.exit(0)
+
+    if languages:
+        save_memory("languages", languages, memory_type="preference")
+
+    # Question 4: Response style
+    print()
+    print("  4. How do you prefer RadSim to respond?")
+    print()
+    print("     1) Concise  — just the code, minimal explanation")
+    print("     2) Balanced — code with brief context")
+    print("     3) Detailed — explain what and why")
+    print()
+
+    style_map = {
+        "1": "concise",
+        "2": "balanced",
+        "3": "detailed",
+    }
+
+    try:
+        style_choice = input("  Enter 1-3 [skip]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\n  Setup cancelled.")
+        sys.exit(0)
+
+    style = style_map.get(style_choice, "")
+    if style:
+        save_memory("response_style", style, memory_type="preference")
+
+    # Question 5: Dev environment / OS
+    print()
+    print("  5. What's your primary development environment?")
+    print()
+    print("     1) macOS")
+    print("     2) Linux")
+    print("     3) Windows (WSL)")
+    print("     4) Windows (native)")
+    print("     5) Cloud IDE (Codespaces, Gitpod, etc.)")
+    print()
+
+    env_map = {
+        "1": "macOS",
+        "2": "Linux",
+        "3": "Windows (WSL)",
+        "4": "Windows (native)",
+        "5": "Cloud IDE",
+    }
+
+    try:
+        env_choice = input("  Enter 1-5 [skip]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\n  Setup cancelled.")
+        sys.exit(0)
+
+    env = env_map.get(env_choice, "")
+    if env:
+        save_memory("dev_environment", env, memory_type="preference")
+
+    # Question 6: Testing approach
+    print()
+    print("  6. How do you approach testing?")
+    print()
+    print("     1) I don't write tests yet")
+    print("     2) Light testing (happy path only)")
+    print("     3) Thorough testing (unit + integration)")
+    print("     4) TDD (test-driven development)")
+    print()
+
+    test_map = {
+        "1": "no tests yet",
+        "2": "light testing",
+        "3": "thorough testing",
+        "4": "TDD",
+    }
+
+    try:
+        test_choice = input("  Enter 1-4 [skip]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\n  Setup cancelled.")
+        sys.exit(0)
+
+    test = test_map.get(test_choice, "")
+    if test:
+        save_memory("testing_approach", test, memory_type="preference")
+
+    # Question 7: Current project (optional)
+    print()
+    print("  7. What are you building right now? (optional)")
+    print("     (e.g. a SaaS app, automation scripts, ML pipeline)")
+    print()
+
+    try:
+        project = input("  Current project [skip]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\n  Setup cancelled.")
+        sys.exit(0)
+
+    if project:
+        save_memory("current_project", project, memory_type="preference")
+
+    # Summary
+    answered = sum(1 for x in [focus, level, languages, style, env, test, project] if x)
+    print()
+    if answered > 0:
+        print(f"  Profile saved! ({answered} preference{'s' if answered != 1 else ''} recorded)")
+    else:
+        print("  No worries! You can update preferences anytime with /memory.")
+    pause()
+
+
 def step_provider_intro():
     """Step 2: Explain providers."""
     clear_screen()
-    print_header("Step 1 of 4: Choose Your AI Provider")
+    print_header("Step 1 of 5: Choose Your AI Provider")
 
     print("  RadSim works with multiple AI providers.")
     print("  Each has different strengths and pricing:")
     print()
 
     providers = [
-        ("Claude (Anthropic)", "Best for coding, reasoning, safety", "$3-15/M tokens"),
+        ("Claude (Anthropic)", "Great for coding, reasoning, safety", "$3-15/M tokens"),
         ("GPT-5 (OpenAI)", "Versatile, multimodal, fast", "$1-15/M tokens"),
         ("Gemini (Google)", "Huge context, good for docs", "$0.10-5/M tokens"),
         ("Vertex AI (Google Cloud)", "GCP-hosted Gemini + Claude models", "$0.80-15/M tokens"),
-        ("OpenRouter", "Access multiple models, cheapest", "$0.14-0.50/M tokens"),
+        ("OpenRouter", "Recommended - multiple models, cheapest", "$0.14-0.50/M tokens"),
     ]
 
     for name, desc, price in providers:
@@ -260,15 +445,15 @@ def step_provider_intro():
 def step_select_provider() -> tuple:
     """Step 3: Select provider and model."""
     clear_screen()
-    print_header("Step 2 of 4: Select Provider & Model")
+    print_header("Step 2 of 5: Select Provider & Model")
 
     print("  Choose your preferred AI provider:")
     print()
-    print("    1. Claude (Anthropic)       - Recommended for coding")
+    print("    1. Claude (Anthropic)       - Best for coding")
     print("    2. GPT-5 (OpenAI)           - Versatile & fast")
     print("    3. Gemini (Google)           - Large context window")
     print("    4. Vertex AI (Google Cloud)  - GCP-hosted models")
-    print("    5. OpenRouter               - Cheapest option")
+    print("    5. OpenRouter               - Recommended (cheapest, most models)")
     print()
 
     provider_map = {
@@ -281,7 +466,7 @@ def step_select_provider() -> tuple:
 
     while True:
         try:
-            choice = input("  Enter 1-5 [1]: ").strip() or "1"
+            choice = input("  Enter 1-5 [5]: ").strip() or "5"
         except (KeyboardInterrupt, EOFError):
             print("\n  Setup cancelled.")
             sys.exit(0)
@@ -330,7 +515,7 @@ def step_api_key(provider: str) -> str:
     from .config import PROVIDER_ENV_VARS
 
     clear_screen()
-    print_header("Step 3 of 4: API Key Setup")
+    print_header("Step 3 of 5: API Key Setup")
 
     provider_url = PROVIDER_URLS[provider]
 
@@ -575,7 +760,7 @@ def step_api_key(provider: str) -> str:
 def step_settings():
     """Step 5: Configure initial settings."""
     clear_screen()
-    print_header("Step 4 of 4: Preferences")
+    print_header("Step 4 of 5: Preferences")
 
     print("  Let's configure a few preferences:")
     print()
@@ -750,13 +935,16 @@ def run_onboarding() -> tuple:
     # Step 1: Welcome
     user_name = step_welcome()
 
-    # Step 2: Provider intro
+    # Step 2: User profile (personalization)
+    step_user_profile(user_name)
+
+    # Step 3: Provider intro
     step_provider_intro()
 
-    # Step 3: Select provider and model
+    # Step 4: Select provider and model
     provider, model = step_select_provider()
 
-    # Step 4: API key
+    # Step 5: API key
     api_key = step_api_key(provider)
 
     if not api_key:
@@ -766,13 +954,13 @@ def run_onboarding() -> tuple:
         print()
         return None, None, None
 
-    # Step 5: Settings
+    # Step 6: Settings
     step_settings()
 
-    # Step 6: Tutorial
+    # Step 7: Tutorial
     step_tutorial()
 
-    # Step 7: Complete
+    # Step 8: Complete
     step_complete(user_name, provider, model)
 
     # Save final config

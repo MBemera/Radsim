@@ -1,11 +1,7 @@
 # RadSim Windows Installer (PowerShell)
-# Usage: .\install.ps1 [-WithExtras <all|openai|browser|memory>]
+# Usage: .\install.ps1
 #
 # Requirements: Python 3.10 or higher
-
-param(
-    [string]$WithExtras = ""
-)
 
 $ErrorActionPreference = "Stop"
 
@@ -109,11 +105,7 @@ if (-not (Test-Path $pyprojectPath)) {
 # Step 4: Install radsim using pip
 Write-Info "Installing RadSim..."
 
-$installTarget = $scriptDir
-if ($WithExtras -and $WithExtras -ne "") {
-    $installTarget = "$scriptDir[$WithExtras]"
-    Write-Info "Including extras: $WithExtras"
-}
+$installTarget = "$scriptDir[all]"
 
 & $pythonCmd -m pip install "$installTarget" --quiet 2>&1 | Out-Null
 
