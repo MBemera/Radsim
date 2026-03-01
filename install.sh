@@ -1,23 +1,9 @@
 #!/bin/bash
 # RadSim Installer for macOS and Linux
 # Install: curl -fsSL https://raw.githubusercontent.com/MBemera/Radsim/main/install.sh | bash
-# Usage: ./install.sh [--extras all|openai|browser|memory]
+# Usage: ./install.sh
 
 set -e
-
-# Parse arguments
-EXTRAS=""
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --extras)
-            EXTRAS="$2"
-            shift 2
-            ;;
-        *)
-            shift
-            ;;
-    esac
-done
 
 # Display banner
 echo ""
@@ -139,11 +125,7 @@ fi
 # Install radsim using pip
 echo "[..] Installing RadSim..."
 
-INSTALL_TARGET="$SCRIPT_DIR"
-if [[ -n "$EXTRAS" ]]; then
-    INSTALL_TARGET="$SCRIPT_DIR[$EXTRAS]"
-    echo "[..] Including extras: $EXTRAS"
-fi
+INSTALL_TARGET="$SCRIPT_DIR[all]"
 
 $PIP_CMD install "$INSTALL_TARGET" --quiet
 

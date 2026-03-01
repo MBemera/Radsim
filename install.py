@@ -7,9 +7,6 @@ Requires Python 3.10 or higher.
 
 Usage:
     python install.py
-    python install.py --extras all
-    python install.py --extras openai,browser
-    python install.py --extras memory
 """
 
 import argparse
@@ -99,14 +96,11 @@ def detect_platform():
         return system
 
 
-def install_radsim(script_dir, extras):
-    """Install radsim and dependencies using pip."""
-    print_info("Installing RadSim...")
+def install_radsim(script_dir):
+    """Install radsim and all provider dependencies."""
+    print_info("Installing RadSim with all providers...")
 
-    install_target = str(script_dir)
-    if extras:
-        install_target = f"{script_dir}[{extras}]"
-        print_info(f"Including extras: {extras}")
+    install_target = f"{script_dir}[all]"
 
     result = subprocess.run(
         [sys.executable, "-m", "pip", "install", install_target, "--quiet"],
@@ -235,21 +229,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python install.py                    # Install with core dependencies
-  python install.py --extras all       # Install with all optional dependencies
-  python install.py --extras openai    # Install with OpenAI support
-  python install.py --extras browser   # Install with browser automation
-  python install.py --extras memory    # Install with ChromaDB for memory
-
-Available extras: all, openai, gemini, browser, memory
+  python install.py                    # Install RadSim with all providers
         """,
-    )
-
-    parser.add_argument(
-        "--extras",
-        type=str,
-        default="",
-        help="Optional dependencies to install (comma-separated or 'all')",
     )
 
     args = parser.parse_args()
@@ -276,7 +257,7 @@ Available extras: all, openai, gemini, browser, memory
         sys.exit(1)
 
     # Step 5: Install radsim via pip
-    if not install_radsim(script_dir, args.extras):
+    if not install_radsim(script_dir):
         sys.exit(1)
 
     # Step 6: Verify command and update PATH if needed

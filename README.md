@@ -140,26 +140,7 @@ cd radsim
 python install.py
 ```
 
-### With Optional Extras
-
-```bash
-# macOS / Linux
-./install.sh --extras all
-
-# Windows
-.\install.ps1 -WithExtras all
-
-# Python (all platforms)
-python install.py --extras all
-```
-
-| Extra | What it adds |
-|-------|-------------|
-| `openai` | OpenAI GPT models |
-| `gemini` | Google Gemini + Vertex AI |
-| `browser` | Browser automation (Playwright) |
-| `memory` | Vector memory (ChromaDB) |
-| `all` | Everything above |
+> **Note:** All provider packages (OpenAI, Gemini, Playwright, etc.) are installed automatically. No `--extras` flags needed.
 
 ### Verify Installation
 
@@ -189,10 +170,11 @@ radsim
 
 <img src="docs/screenshots/screenshot-2-setup.png" alt="RadSim setup wizard" width="680">
 
-1. Choose a provider (Claude, OpenAI, Gemini, Vertex AI, or OpenRouter)
-2. Pick a model
-3. Enter your API key — saved securely to `~/.radsim/.env` (chmod 600)
-4. Start coding
+1. Answer a few personalization questions
+2. Choose a provider (default: OpenRouter)
+3. Pick a model
+4. Enter your API key — saved securely to `~/.radsim/.env` (chmod 600)
+5. Start coding
 
 Re-run setup anytime: `radsim --setup`
 

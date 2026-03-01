@@ -18,16 +18,17 @@ It also follows a coding philosophy: code so simple that anyone (human or AI) ca
 # Install
 git clone https://github.com/MBemera/Radsim.git
 cd radsim
-pip install .
+pip install ".[all]"
 
 # Run (first launch starts the setup wizard)
 radsim
 ```
 
 The wizard walks you through:
-1. Choose a provider (Claude, OpenAI, Gemini, Vertex AI, or OpenRouter)
-2. Pick a model
-3. Enter your API key (saved securely)
+1. Answer a few personalization questions
+2. Choose a provider (default: OpenRouter)
+3. Pick a model
+4. Enter your API key (saved securely)
 
 ---
 
@@ -68,7 +69,7 @@ radsim
 | 2 | **GPT-5** (OpenAI) | Versatile, multimodal | $1-15/M tokens |
 | 3 | **Gemini** (Google) | Huge context, docs | $0.075-5/M tokens |
 | 4 | **Vertex AI** (Google Cloud) | GCP-hosted Gemini + Claude | $0.075-15/M tokens |
-| 5 | **OpenRouter** | Cheapest option | $0.14-0.50/M tokens |
+| 5 | **OpenRouter** | Recommended (cheapest, most models) | $0.14-0.50/M tokens |
 
 Switch anytime with `/switch` or `/free`.
 
