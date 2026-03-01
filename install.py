@@ -233,7 +233,7 @@ Examples:
         """,
     )
 
-    args = parser.parse_args()
+    parser.parse_args()
 
     # Display banner
     print_banner()
