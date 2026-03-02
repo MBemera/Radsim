@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/radsim/"><img src="https://img.shields.io/pypi/v/radsim?color=blue&label=version" alt="PyPI version"></a>
-  <a href="https://pypi.org/project/radsim/"><img src="https://img.shields.io/pypi/pyversions/radsim" alt="Python versions"></a>
+  <a href="https://pypi.org/project/radsimcli/"><img src="https://img.shields.io/pypi/v/radsimcli?color=blue&label=version" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/radsimcli/"><img src="https://img.shields.io/pypi/pyversions/radsimcli" alt="Python versions"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <a href="https://github.com/MBemera/Radsim/releases"><img src="https://img.shields.io/badge/version-1.2.1-blue" alt="Version"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="Platforms">
@@ -114,33 +114,13 @@ RadSim normalizes every provider's API into a common format. When you call a too
 
 **Requirements:** Python 3.10+
 
-### macOS / Linux
+### Install from PyPI (recommended)
 
 ```bash
-git clone https://github.com/MBemera/Radsim.git
-cd radsim
-./install.sh
+pip install radsimcli
 ```
 
-<img src="docs/screenshots/screenshot-1-install.png" alt="Linux install" width="680">
-
-### Windows (PowerShell)
-
-```powershell
-git clone https://github.com/MBemera/Radsim.git
-cd radsim
-.\install.ps1
-```
-
-<img src="docs/screenshots/screenshot-6-windows.png" alt="Windows install" width="680">
-
-### Cross-Platform (Python installer — works on all OS)
-
-```bash
-python install.py
-```
-
-> **Note:** All provider packages (OpenAI, Gemini, Playwright, etc.) are installed automatically. No `--extras` flags needed.
+All provider packages (OpenAI, Gemini, Playwright, etc.) are included automatically. No extras needed.
 
 ### Verify Installation
 
@@ -149,11 +129,18 @@ radsim --version
 # RadSim 1.2.1
 ```
 
+### Development Install (from source)
+
+```bash
+git clone https://github.com/MBemera/Radsim.git
+cd radsim
+pip install -e ".[dev]"
+```
+
 ### Uninstall
 
 ```bash
-./uninstall.sh        # macOS / Linux
-pip uninstall radsim  # All platforms
+pip uninstall radsimcli
 ```
 
 ---
@@ -378,6 +365,17 @@ Full template: [.env.example](.env.example)
 | `/telegram status` | Show connection status |
 | `/telegram test` | Send a test message |
 
+### Scheduling
+
+| Command | Description |
+|---------|-------------|
+| `/job` or `/job list` | Show all scheduled cron jobs |
+| `/job add` | Create a new scheduled job (interactive wizard) |
+| `/job remove <id>` | Delete a scheduled job |
+| `/job pause <id>` | Disable a job without deleting it |
+| `/job resume <id>` | Re-enable a paused job |
+| `/job run <id>` | Execute a job immediately |
+
 ### Session
 
 | Command | Description |
@@ -464,6 +462,7 @@ radsim/
 ├── telegram.py          # Telegram bot — send/receive, inline keyboards, polling
 ├── update_checker.py    # Startup version check against GitHub releases
 ├── background.py        # Background job manager for async sub-agent tasks
+├── jobs.py              # Cron job scheduler (/job — OS-level scheduled tasks)
 ├── sub_agent.py         # Sub-agent delegation with model tiers and tool subsets
 ├── memory.py            # 3-tier persistent memory (global, project, session)
 ├── safety.py            # Sandboxed file access, confirmation dialogs, self-mod guards
@@ -489,7 +488,7 @@ RadSim checks for new versions on startup by querying GitHub releases. If a newe
 
 ```
 📦 Update available: v1.2.0 → v1.2.1
-   Run 'git pull && pip install .' to update
+   Run 'pip install --upgrade radsimcli' to update
 ```
 
 - Checks are cached for 24 hours (no repeated network calls)

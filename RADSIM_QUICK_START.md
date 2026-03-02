@@ -16,9 +16,7 @@ It also follows a coding philosophy: code so simple that anyone (human or AI) ca
 
 ```bash
 # Install
-git clone https://github.com/MBemera/Radsim.git
-cd radsim
-pip install ".[all]"
+pip install radsimcli
 
 # Run (first launch starts the setup wizard)
 radsim

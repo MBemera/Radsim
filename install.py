@@ -96,14 +96,12 @@ def detect_platform():
         return system
 
 
-def install_radsim(script_dir):
-    """Install radsim and all provider dependencies."""
-    print_info("Installing RadSim with all providers...")
-
-    install_target = f"{script_dir}[all]"
+def install_radsim():
+    """Install radsim from PyPI."""
+    print_info("Installing RadSim from PyPI...")
 
     result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", install_target, "--quiet"],
+        [sys.executable, "-m", "pip", "install", "radsimcli", "--quiet"],
         capture_output=True,
         text=True,
     )
@@ -250,14 +248,8 @@ Examples:
     os_type = detect_platform()
     print_success(f"Platform: {os_type}")
 
-    # Step 4: Verify we're in the radsim repo
-    script_dir = Path(__file__).parent.resolve()
-    if not (script_dir / "pyproject.toml").exists():
-        print_error("Cannot find pyproject.toml. Run this from the radsim repo directory.")
-        sys.exit(1)
-
-    # Step 5: Install radsim via pip
-    if not install_radsim(script_dir):
+    # Step 4: Install radsim from PyPI
+    if not install_radsim():
         sys.exit(1)
 
     # Step 6: Verify command and update PATH if needed

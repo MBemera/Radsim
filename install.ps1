@@ -93,21 +93,10 @@ catch {
     exit 1
 }
 
-# Step 3: Verify we're in the radsim repo
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pyprojectPath = Join-Path $scriptDir "pyproject.toml"
+# Step 3: Install radsim from PyPI
+Write-Info "Installing RadSim from PyPI..."
 
-if (-not (Test-Path $pyprojectPath)) {
-    Write-ErrorMessage "Cannot find pyproject.toml. Run this from the radsim repo directory."
-    exit 1
-}
-
-# Step 4: Install radsim using pip
-Write-Info "Installing RadSim..."
-
-$installTarget = "$scriptDir[all]"
-
-& $pythonCmd -m pip install "$installTarget" --quiet 2>&1 | Out-Null
+& $pythonCmd -m pip install radsimcli --quiet 2>&1 | Out-Null
 
 if ($LASTEXITCODE -ne 0) {
     Write-ErrorMessage "Installation failed"

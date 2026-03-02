@@ -110,24 +110,10 @@ if [[ -d "$RADSIM_CONFIG_DIR" ]]; then
     fi
 fi
 
-# Determine script directory (where the repo was cloned)
-SCRIPT_DIR=""
-if [[ -n "${BASH_SOURCE[0]}" ]]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-fi
+# Install radsim from PyPI
+echo "[..] Installing RadSim from PyPI..."
 
-# Verify we're in the radsim repo
-if [[ -z "$SCRIPT_DIR" ]] || [[ ! -f "$SCRIPT_DIR/pyproject.toml" ]]; then
-    echo "[ERROR] Cannot find pyproject.toml. Run this from the radsim repo directory."
-    exit 1
-fi
-
-# Install radsim using pip
-echo "[..] Installing RadSim..."
-
-INSTALL_TARGET="$SCRIPT_DIR[all]"
-
-$PIP_CMD install "$INSTALL_TARGET" --quiet
+$PIP_CMD install radsimcli --quiet
 
 echo "[OK] RadSim installed"
 

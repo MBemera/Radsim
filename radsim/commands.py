@@ -205,6 +205,11 @@ class CommandRegistry:
             ["/background", "/bg"], self._cmd_background, "View/manage background sub-agent jobs"
         )
 
+        # Scheduled cron jobs
+        self.register(
+            ["/job", "/jobs", "/cron"], self._cmd_job, "Manage scheduled cron jobs"
+        )
+
     # --- Default Handlers ---
 
     def _cmd_help(self, agent, args=None):
@@ -2099,6 +2104,191 @@ class CommandRegistry:
             print_info("Still running...")
         else:
             print_info("No output.")
+
+    def _cmd_job(self, agent, args=None):
+        """Manage scheduled cron jobs."""
+        from .jobs import (
+            add_job,
+            describe_schedule,
+            disable_job,
+            enable_job,
+            list_jobs,
+            remove_job,
+            resolve_schedule,
+            run_job_now,
+        )
+        from .menu import interactive_menu, safe_input
+
+        if not args:
+            args = ["list"]
+
+        action = args[0].lower()
+
+        # --- /job list ---
+        if action in ("list", "ls"):
+            jobs = list_jobs()
+            if not jobs:
+                print_info("No scheduled jobs. Use '/job add' to create one.")
+                return
+
+            print()
+            print("  ═══ SCHEDULED JOBS ═══")
+            print()
+            for job in jobs:
+                status_icon = "\033[32m✓\033[0m" if job.enabled else "\033[33m⏸\033[0m"
+                schedule_desc = describe_schedule(job.schedule)
+                if job.is_radsim_task:
+                    cmd_display = f'radsim "{job.command[:50]}"'
+                else:
+                    cmd_display = job.command[:60]
+                print(f"  [{status_icon}] #{job.job_id}  {schedule_desc:<18} {cmd_display}")
+                if job.last_run:
+                    last = job.last_run[:19].replace("T", " ")
+                    print(f"        last run: {last}")
+            print()
+            print("  /job add | /job remove <id> | /job pause <id> | /job resume <id> | /job run <id>")
+            print()
+            return
+
+        # --- /job add ---
+        if action == "add":
+            # Step 1: Choose job type
+            job_type = interactive_menu(
+                "JOB TYPE",
+                [
+                    ("radsim", "RadSim task (e.g., 'run pytest and report results')"),
+                    ("shell", "Shell command (e.g., 'backup_db.sh')"),
+                ],
+            )
+            if job_type is None:
+                return
+
+            is_radsim_task = job_type == "radsim"
+
+            # Step 2: Enter command
+            if is_radsim_task:
+                command = safe_input("  Task for RadSim to run: ")
+            else:
+                command = safe_input("  Shell command: ")
+            if not command:
+                return
+
+            # Step 3: Choose schedule
+            schedule_choice = interactive_menu(
+                "SCHEDULE",
+                [
+                    ("hourly", "Every hour (at :00)"),
+                    ("daily", "Daily at 9:00 AM"),
+                    ("weekdays", "Weekdays at 9:00 AM"),
+                    ("weekly", "Weekly on Monday at 9:00 AM"),
+                    ("monthly", "Monthly on the 1st at 9:00 AM"),
+                    ("custom", "Custom cron expression or time"),
+                ],
+            )
+            if schedule_choice is None:
+                return
+
+            if schedule_choice == "custom":
+                print_info("Enter a cron expression (e.g., '0 9 * * *')")
+                print_info("  Or use presets: 'daily @14:30', 'weekdays @8:00'")
+                schedule_input = safe_input("  Schedule: ")
+                if not schedule_input:
+                    return
+            else:
+                schedule_input = schedule_choice
+
+            schedule = resolve_schedule(schedule_input)
+            if not schedule:
+                print_error(f"Invalid schedule: '{schedule_input}'")
+                return
+
+            # Step 4: Description
+            description = safe_input("  Short description: ")
+            if not description:
+                description = command[:50]
+
+            # Create the job
+            job = add_job(schedule, command, description, is_radsim_task)
+            schedule_desc = describe_schedule(job.schedule)
+            print_success(f"Job #{job.job_id} created: {schedule_desc} — {description}")
+            return
+
+        # --- /job remove <id> ---
+        if action in ("remove", "rm", "delete", "del"):
+            if len(args) < 2:
+                print_error("Usage: /job remove <id>")
+                return
+            try:
+                job_id = int(args[1])
+            except ValueError:
+                print_error("Job ID must be a number.")
+                return
+
+            if remove_job(job_id):
+                print_success(f"Job #{job_id} removed.")
+            else:
+                print_error(f"Job #{job_id} not found.")
+            return
+
+        # --- /job pause <id> ---
+        if action in ("pause", "disable"):
+            if len(args) < 2:
+                print_error("Usage: /job pause <id>")
+                return
+            try:
+                job_id = int(args[1])
+            except ValueError:
+                print_error("Job ID must be a number.")
+                return
+
+            if disable_job(job_id):
+                print_success(f"Job #{job_id} paused (removed from crontab).")
+            else:
+                print_error(f"Job #{job_id} not found.")
+            return
+
+        # --- /job resume <id> ---
+        if action in ("resume", "enable"):
+            if len(args) < 2:
+                print_error("Usage: /job resume <id>")
+                return
+            try:
+                job_id = int(args[1])
+            except ValueError:
+                print_error("Job ID must be a number.")
+                return
+
+            if enable_job(job_id):
+                print_success(f"Job #{job_id} resumed (added back to crontab).")
+            else:
+                print_error(f"Job #{job_id} not found.")
+            return
+
+        # --- /job run <id> ---
+        if action == "run":
+            if len(args) < 2:
+                print_error("Usage: /job run <id>")
+                return
+            try:
+                job_id = int(args[1])
+            except ValueError:
+                print_error("Job ID must be a number.")
+                return
+
+            print_info(f"Running job #{job_id}...")
+            success, output = run_job_now(job_id)
+            if success:
+                print_success(f"Job #{job_id} completed.")
+            else:
+                print_error(f"Job #{job_id} failed.")
+            print()
+            for line in output.splitlines()[:20]:
+                print(f"  {line}")
+            print()
+            return
+
+        print_error(f"Unknown subcommand: '{action}'")
+        print_info("Usage: /job [list | add | remove <id> | pause <id> | resume <id> | run <id>]")
 
     def get_relevant_commands(self, context: str) -> list:
         """Get commands relevant to a context for hints.
