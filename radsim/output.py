@@ -141,7 +141,7 @@ def print_boot_sequence(provider, model, animated=True):
     )
 
     # Version line
-    version_val = get_version("radsim")
+    version_val = get_version("radsimcli")
     version_padding = inner_width - 10 - len(version_val)
     print(
         colorize("  │", "dim")

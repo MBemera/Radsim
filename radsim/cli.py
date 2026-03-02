@@ -158,7 +158,7 @@ Environment variables:
         "--version",
         "-v",
         action="version",
-        version=f"RadSim {version('radsim')}",
+        version=f"RadSim {version('radsimcli')}",
     )
 
     parser.add_argument(
@@ -266,7 +266,7 @@ def main():
         from .update_checker import check_for_updates, format_update_notice
 
         try:
-            current_ver = version("radsim")
+            current_ver = version("radsimcli")
             latest_ver = check_for_updates(current_ver)
             if latest_ver:
                 print(format_update_notice(latest_ver, current_ver))
