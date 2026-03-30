@@ -138,6 +138,9 @@ class CommandRegistry:
         )
         self.register(["/switch", "/model"], self._cmd_switch, "Quick switch provider/model")
         self.register(["/free"], self._cmd_free, "Switch to free OpenRouter model")
+        self.register(
+            ["/ratelimit", "/rl", "/limit"], self._cmd_ratelimit, "Set API call limit per turn"
+        )
         self.register(["/exit", "/quit", "/q"], self._cmd_exit, "Exit RadSim")
         self.register(
             ["/kill", "/stop", "/abort"], self._cmd_kill, "EMERGENCY: Immediately stop agent"
@@ -209,6 +212,9 @@ class CommandRegistry:
         self.register(
             ["/job", "/jobs", "/cron"], self._cmd_job, "Manage scheduled cron jobs"
         )
+
+        # MCP (Model Context Protocol) servers
+        self.register(["/mcp"], self._cmd_mcp, "Manage MCP server connections")
 
     # --- Default Handlers ---
 
@@ -385,6 +391,57 @@ class CommandRegistry:
         print("  ✓ Switched to cheapest model: Kimi K2.5")
         print("    ($0.14 input / $0.28 output per 1M tokens)")
         print_header("openrouter", "moonshotai/kimi-k2.5")
+
+    def _cmd_ratelimit(self, agent, args=None):
+        """Set API call limit per turn (rate limiting tier)."""
+        from .config import (
+            DEFAULT_RATE_LIMIT_TIER,
+            RATE_LIMIT_TIERS,
+            load_settings_file,
+            save_rate_limit_tier,
+        )
+
+        current_tier = load_settings_file().get("rate_limit_tier", DEFAULT_RATE_LIMIT_TIER)
+
+        print()
+        print("  Rate Limit - API calls allowed per turn:")
+        print()
+
+        tier_keys = list(RATE_LIMIT_TIERS.keys())
+        for i, key in enumerate(tier_keys, 1):
+            tier = RATE_LIMIT_TIERS[key]
+            marker = " (current)" if key == current_tier else ""
+            print(f"    {i}. {tier['label']} - {tier['description']}{marker}")
+        print()
+
+        try:
+            choice = input(f"  Enter 1-{len(tier_keys)}: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\n  Cancelled.")
+            return
+
+        try:
+            index = int(choice) - 1
+            if 0 <= index < len(tier_keys):
+                selected_tier = tier_keys[index]
+            else:
+                print("  Invalid choice.")
+                return
+        except ValueError:
+            print("  Invalid choice.")
+            return
+
+        # Save to settings.json
+        save_rate_limit_tier(selected_tier)
+
+        # Update the running agent's protection manager
+        new_max = RATE_LIMIT_TIERS[selected_tier]["max_calls"]
+        agent.protection.rate_limiter.max_calls_per_turn = new_max
+        agent.config.max_api_calls_per_turn = new_max
+
+        print()
+        print(f"  ✓ Rate limit set to: {RATE_LIMIT_TIERS[selected_tier]['label']}")
+        print(f"    {new_max} API calls per turn (saved for future sessions)")
 
     # --- Learning Command Handlers ---
 
@@ -2289,6 +2346,194 @@ class CommandRegistry:
 
         print_error(f"Unknown subcommand: '{action}'")
         print_info("Usage: /job [list | add | remove <id> | pause <id> | resume <id> | run <id>]")
+
+    def _cmd_mcp(self, agent, args=None):
+        """Manage MCP (Model Context Protocol) server connections."""
+        from .mcp_client import get_mcp_manager, is_mcp_sdk_installed
+        from .output import print_error, print_info, print_success
+
+        if not is_mcp_sdk_installed():
+            print_info("MCP requires the MCP SDK which is not currently installed.")
+            from .menu import safe_input
+
+            answer = safe_input("  Install now? (pip install mcp) [Y/n]: ")
+            if answer is None or answer.lower() in ("n", "no"):
+                print_info("You can install later with: pip install radsimcli[mcp]")
+                return
+            import subprocess
+            import sys
+
+            print_info("Installing MCP SDK...")
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "mcp>=1.0.0"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                print_error(f"Installation failed: {result.stderr.strip()}")
+                return
+            print_success("MCP SDK installed successfully!")
+            print_info("Run /mcp again to get started.")
+            return
+
+        manager = get_mcp_manager()
+
+        if not args:
+            self._mcp_status(manager)
+            return
+
+        subcommand = args[0].lower()
+
+        if subcommand == "status":
+            self._mcp_status(manager)
+
+        elif subcommand == "list":
+            self._mcp_list(manager)
+
+        elif subcommand == "connect":
+            if len(args) < 2:
+                print_error("Usage: /mcp connect <server-name>")
+                return
+            name = args[1]
+            print_info(f"Connecting to '{name}'...")
+            if manager.connect(name):
+                conn = manager._connections.get(name)
+                tool_count = len(conn.tools) if conn else 0
+                print_success(f"Connected to '{name}' ({tool_count} tools)")
+            else:
+                conn = manager._connections.get(name)
+                error = conn.error if conn else "Unknown error"
+                print_error(f"Failed to connect to '{name}': {error}")
+
+        elif subcommand == "disconnect":
+            if len(args) < 2:
+                print_error("Usage: /mcp disconnect <server-name>")
+                return
+            name = args[1]
+            manager.disconnect(name)
+            print_success(f"Disconnected from '{name}'")
+
+        elif subcommand == "add":
+            self._mcp_add_interactive(manager)
+
+        elif subcommand == "remove":
+            if len(args) < 2:
+                print_error("Usage: /mcp remove <server-name>")
+                return
+            name = args[1]
+            if manager.remove_server_config(name):
+                print_success(f"Removed server '{name}'")
+            else:
+                print_error(f"No server named '{name}'")
+
+        else:
+            print_error(f"Unknown subcommand: '{subcommand}'")
+            print_info("Usage: /mcp [status | list | connect <name> | disconnect <name> | add | remove <name>]")
+
+    def _mcp_status(self, manager):
+        """Show MCP server connection status."""
+        from .output import print_info
+
+        statuses = manager.get_connection_status()
+        if not statuses:
+            print_info("No MCP servers configured. Use /mcp add to add one.")
+            return
+
+        print(f"\n MCP Servers ({len(statuses)}):")
+        print("-" * 50)
+        for s in statuses:
+            if s["connected"]:
+                state = "connected"
+                tools = f" ({s['tool_count']} tools)"
+            elif s["error"]:
+                state = "ERROR"
+                tools = f" — {s['error']}"
+            else:
+                state = "disconnected"
+                tools = ""
+
+            auto = " [auto]" if s["auto_connect"] else ""
+            print(f"  {s['name']} ({s['transport']}{auto}): {state}{tools}")
+        print()
+
+    def _mcp_list(self, manager):
+        """Show all tools from connected MCP servers."""
+        from .output import print_info
+
+        tools = manager.get_connected_tool_list()
+        if not tools:
+            print_info("No MCP tools available. Connect a server first with /mcp connect <name>.")
+            return
+
+        print(f"\n MCP Tools ({len(tools)}):")
+        print("-" * 50)
+        current_server = None
+        for tool in tools:
+            if tool["server"] != current_server:
+                current_server = tool["server"]
+                print(f"\n  {current_server}:")
+            desc = f" — {tool['description']}" if tool["description"] else ""
+            print(f"    {tool['namespaced']}{desc}")
+        print()
+
+    def _mcp_add_interactive(self, manager):
+        """Guided MCP server addition."""
+        from .mcp_client import MCPServerConfig
+        from .menu import interactive_menu, safe_input
+        from .output import print_error, print_info, print_success
+
+        print_info("Add a new MCP server")
+        print()
+
+        name = safe_input("  Server name: ")
+        if not name:
+            return
+
+        transport = interactive_menu(
+            "Transport",
+            [
+                ("stdio", "Local process (command + args)"),
+                ("sse", "Server-Sent Events (remote URL)"),
+                ("streamable_http", "Streamable HTTP (remote URL)"),
+            ],
+        )
+        if not transport:
+            return
+
+        config = MCPServerConfig(name=name, transport=transport)
+
+        if transport == "stdio":
+            command = safe_input("  Command (e.g. npx, python): ")
+            if not command:
+                return
+            config.command = command
+
+            args_str = safe_input("  Args (space-separated, or empty): ")
+            if args_str:
+                config.args = args_str.split()
+        else:
+            url = safe_input("  Server URL: ")
+            if not url:
+                return
+            config.url = url
+
+        auto_str = safe_input("  Auto-connect on startup? [Y/n]: ")
+        config.auto_connect = auto_str.lower() not in ("n", "no") if auto_str else True
+
+        manager.add_server_config(config)
+        print_success(f"Server '{name}' added to ~/.radsim/mcp.json")
+
+        connect_now = safe_input("  Connect now? [Y/n]: ")
+        if not connect_now or connect_now.lower() not in ("n", "no"):
+            print_info(f"Connecting to '{name}'...")
+            if manager.connect(name):
+                conn = manager._connections.get(name)
+                tool_count = len(conn.tools) if conn else 0
+                print_success(f"Connected ({tool_count} tools)")
+            else:
+                conn = manager._connections.get(name)
+                error = conn.error if conn else "Unknown error"
+                print_error(f"Connection failed: {error}")
 
     def get_relevant_commands(self, context: str) -> list:
         """Get commands relevant to a context for hints.

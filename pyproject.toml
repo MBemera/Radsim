@@ -40,6 +40,9 @@ dev = [
     "pytest>=8.0.0",
     "ruff>=0.4.0",
 ]
+mcp = [
+    "mcp>=1.0.0",
+]
 
 [project.scripts]
 radsim = "radsim.cli:main"

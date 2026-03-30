@@ -6,14 +6,12 @@ from importlib.metadata import version as get_version
 
 from .ui import (
     Spinner,
-    print_error,
-    print_hint,
-    print_info,
-    print_prompt,
-    print_success,
-    print_teach,
+    print_error,  # noqa: F401 — re-exported for use by agent.py, commands.py, cli.py
+    print_info,  # noqa: F401 — re-exported
+    print_prompt,  # noqa: F401 — re-exported
+    print_success,  # noqa: F401 — re-exported
     print_typewriter,
-    print_warning,
+    print_warning,  # noqa: F401 — re-exported
     show_error_panel,
     show_success_panel,
 )
@@ -845,6 +843,52 @@ HELP_DETAILS = {
         "related": ["/switch", "/config"],
         "tips": ["Great for quick tasks where you don't need a top-tier model."],
     },
+    "ratelimit": {
+        "title": "Rate Limit Settings",
+        "aliases": ["/rl", "/limit"],
+        "summary": "Set API call limit per turn to control agent throughput.",
+        "usage": ["/ratelimit"],
+        "details": (
+            "Choose how many API calls the agent can make per turn:\n"
+            "  Light (15)     - Conservative, good for simple tasks\n"
+            "  Standard (30)  - Balanced, recommended for most work\n"
+            "  Heavy (75)     - For complex multi-step tasks\n"
+            "  Intensive (100)- For large refactors and deep analysis\n"
+            "  Maximum (200)  - Maximum throughput, use with caution\n\n"
+            "Setting is saved and persists across sessions."
+        ),
+        "examples": ["/ratelimit", "/rl"],
+        "related": ["/switch", "/config", "/settings"],
+        "tips": ["Start with Standard and increase if you hit limits on complex tasks."],
+    },
+    "mcp": {
+        "title": "MCP Server Connections",
+        "aliases": [],
+        "summary": "Manage MCP (Model Context Protocol) server connections.",
+        "usage": ["/mcp", "/mcp status", "/mcp list", "/mcp add", "/mcp connect <name>",
+                  "/mcp disconnect <name>", "/mcp remove <name>"],
+        "details": (
+            "Connect to external MCP servers to extend RadSim with additional tools.\n"
+            "MCP is the same protocol used by Claude Desktop, Cursor, and other tools.\n\n"
+            "Subcommands:\n"
+            "  status     - Show all servers and connection state (default)\n"
+            "  list       - Show all tools from connected servers\n"
+            "  add        - Interactively add a new server\n"
+            "  connect    - Connect to a configured server\n"
+            "  disconnect - Disconnect from a server\n"
+            "  remove     - Remove a server configuration\n\n"
+            "Config file: ~/.radsim/mcp.json\n"
+            "Supports: stdio, SSE, and Streamable HTTP transports.\n"
+            "Install MCP SDK: pip install radsimcli[mcp]"
+        ),
+        "examples": ["/mcp", "/mcp add", "/mcp connect filesystem", "/mcp list"],
+        "related": ["/tools", "/config"],
+        "tips": [
+            "MCP tools appear alongside native tools in /tools output.",
+            "All MCP tools require confirmation unless auto_confirm is enabled.",
+            "Set autoConnect: true in config to connect on startup.",
+        ],
+    },
     "skill": {
         "title": "Custom Skills & Instructions",
         "aliases": ["/skills"],
@@ -1435,6 +1479,8 @@ def print_help(topic=None):
     print(colorize("    /switch    ", "cyan") + colorize("Quick switch provider/model", "dim"))
     print(colorize("    /config    ", "cyan") + colorize("Full configuration setup", "dim"))
     print(colorize("    /free      ", "cyan") + colorize("Switch to free model", "dim"))
+    print(colorize("    /ratelimit ", "cyan") + colorize("Set API call limit per turn", "dim"))
+    print(colorize("    /mcp       ", "cyan") + colorize("Manage MCP server connections", "dim"))
     print()
 
     print(colorize("  Customization:", "bright_cyan"))

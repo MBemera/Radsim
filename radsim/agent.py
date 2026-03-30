@@ -234,6 +234,23 @@ class RadSimAgent:
             ),
         )
 
+        # MCP client manager (optional — requires `pip install radsimcli[mcp]`)
+        self._mcp_manager = None
+        try:
+            from .mcp_client import get_mcp_manager, is_mcp_sdk_installed
+
+            if is_mcp_sdk_installed():
+                self._mcp_manager = get_mcp_manager()
+                connected = self._mcp_manager.connect_auto_servers()
+                if connected:
+                    from .output import print_info as _mcp_info
+
+                    _mcp_info(f"MCP: auto-connected to {', '.join(connected)}")
+            else:
+                logger.debug("MCP SDK not installed — MCP features disabled")
+        except Exception as exc:
+            logger.warning("MCP auto-connect failed: %s", exc)
+
         if context_file:
             self.load_initial_context(context_file)
 
@@ -654,6 +671,15 @@ class RadSimAgent:
 
         return result
 
+    def _get_all_tools(self):
+        """Return native tool definitions plus any MCP tools."""
+        tools = list(TOOL_DEFINITIONS)
+        if self._mcp_manager:
+            mcp_tools = self._mcp_manager.get_all_tools()
+            if mcp_tools:
+                tools.extend(mcp_tools)
+        return tools
+
     def _call_api(self):
         """Call the API with current messages."""
         # Check rate limiting before API call
@@ -672,10 +698,11 @@ class RadSimAgent:
                 first_chunk = True
 
                 # Use stream_chat and handle chunks
+                all_tools = self._get_all_tools()
                 stream = self.client.stream_chat(
                     messages=self.messages,
                     system_prompt=self.system_prompt,
-                    tools=TOOL_DEFINITIONS,
+                    tools=all_tools,
                 )
 
                 for chunk in stream:
@@ -703,10 +730,11 @@ class RadSimAgent:
 
             else:
                 # Non-streaming mode
+                all_tools = self._get_all_tools()
                 response = self.client.chat(
                     messages=self.messages,
                     system_prompt=self.system_prompt,
-                    tools=TOOL_DEFINITIONS,
+                    tools=all_tools,
                 )
                 spinner.stop()
 
@@ -1079,6 +1107,24 @@ class RadSimAgent:
         # Read-only tools - execute directly
         if tool_name in READ_ONLY_TOOLS:
             result = execute_tool(tool_name, tool_input)
+            self._print_tool_result(tool_name, tool_input, result)
+            return result
+
+        # MCP tools — route through MCP client manager
+        if self._mcp_manager and self._mcp_manager.is_mcp_tool(tool_name):
+            description = f"MCP tool: {tool_name}"
+            if not self.config.auto_confirm:
+                params_preview = json.dumps(tool_input, indent=2)[:200]
+                if not confirm_action(f"Execute {description}?\n  {params_preview}"):
+                    return {
+                        "success": False,
+                        "error": "STOPPED: User rejected MCP tool. Do NOT retry.",
+                    }
+            else:
+                print_info(f"Auto-executing: {description}")
+
+            print_tool_call(tool_name, tool_input)
+            result = self._mcp_manager.call_tool(tool_name, tool_input)
             self._print_tool_result(tool_name, tool_input, result)
             return result
 
@@ -2659,5 +2705,24 @@ def print_tools_list():
         print(f"\n  {category}:")
         for tool in tools:
             print(f"    - {tool}")
+
+    # Show MCP tools if any are connected
+    try:
+        from .mcp_client import get_mcp_manager
+
+        manager = get_mcp_manager()
+        mcp_tools = manager.get_connected_tool_list()
+        if mcp_tools:
+            # Group by server
+            by_server = {}
+            for tool in mcp_tools:
+                by_server.setdefault(tool["server"], []).append(tool)
+            for server, server_tools in by_server.items():
+                print(f"\n  MCP: {server}:")
+                for tool in server_tools:
+                    desc = f" — {tool['description']}" if tool["description"] else ""
+                    print(f"    - {tool['namespaced']}{desc}")
+    except ImportError:
+        pass
 
     print()
