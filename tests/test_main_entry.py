@@ -1,5 +1,6 @@
 """Tests for __main__.py and CLI entry point."""
 
+import importlib
 import subprocess
 import sys
 
@@ -83,3 +84,43 @@ class TestCLIParsing:
         sys.argv = ["radsim"]
         args = parse_arguments()
         assert args.prompt is None
+
+
+class TestCLIImportSideEffects:
+    """Test that CLI runtime hooks are deferred until main startup."""
+
+    def test_cli_import_does_not_install_runtime_hooks(self, monkeypatch):
+        import atexit
+        import signal
+        import warnings
+        import radsim.cli
+
+        signal_calls = []
+        atexit_calls = []
+        warning_calls = []
+
+        monkeypatch.setattr(signal, "signal", lambda *args, **kwargs: signal_calls.append(args))
+        monkeypatch.setattr(
+            atexit,
+            "register",
+            lambda *args, **kwargs: atexit_calls.append(args),
+        )
+        monkeypatch.setattr(
+            warnings,
+            "filterwarnings",
+            lambda *args, **kwargs: warning_calls.append(args),
+        )
+
+        cli_module = importlib.reload(radsim.cli)
+
+        assert signal_calls == []
+        assert atexit_calls == []
+        assert warning_calls == []
+
+        cli_module.configure_runtime_warnings()
+        cli_module.install_process_handlers()
+        cli_module.install_process_handlers()
+
+        assert len(signal_calls) == 1
+        assert len(atexit_calls) == 1
+        assert len(warning_calls) == 1

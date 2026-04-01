@@ -3,18 +3,38 @@
 RadSim Principle: One Function, One Purpose
 """
 
+import json
 import shlex
 from pathlib import Path
 
+from ..runtime_context import get_runtime_context
 from .shell import run_shell_command
 
 
-def detect_project_type():
-    """Detect project type based on config files present.
+def _build_project_detection_paths(cwd):
+    """Return the files that influence project detection results."""
+    return [
+        cwd / "pyproject.toml",
+        cwd / "setup.py",
+        cwd / "requirements.txt",
+        cwd / "Pipfile",
+        cwd / "poetry.lock",
+        cwd / "package.json",
+        cwd / "yarn.lock",
+        cwd / "pnpm-lock.yaml",
+        cwd / "bun.lockb",
+        cwd / ".eslintrc.js",
+        cwd / ".eslintrc.json",
+        cwd / ".prettierrc",
+        cwd / "prettier.config.js",
+        cwd / "tsconfig.json",
+        cwd / "go.mod",
+        cwd / "Cargo.toml",
+    ]
 
-    Returns:
-        dict with project_type, test_framework, lint_tool, format_tool
-    """
+
+def _detect_project_type_uncached():
+    """Detect project type based on config files present."""
     cwd = Path.cwd()
     result = {
         "project_type": "unknown",
@@ -25,7 +45,6 @@ def detect_project_type():
         "package_manager": None,
     }
 
-    # Python project detection
     if (cwd / "pyproject.toml").exists() or (cwd / "setup.py").exists():
         result["project_type"] = "python"
         result["test_framework"] = "pytest"
@@ -41,8 +60,9 @@ def detect_project_type():
         if (cwd / "poetry.lock").exists():
             result["package_manager"] = "poetry"
 
-    # Node.js project detection
-    elif (cwd / "package.json").exists():
+        return result
+
+    if (cwd / "package.json").exists():
         result["project_type"] = "node"
         result["package_manager"] = "npm"
 
@@ -53,60 +73,73 @@ def detect_project_type():
         if (cwd / "bun.lockb").exists():
             result["package_manager"] = "bun"
 
-        # Check package.json for test/lint scripts
         try:
-            import json
-
-            pkg = json.loads((cwd / "package.json").read_text())
-            scripts = pkg.get("scripts", {})
-
-            if "test" in scripts:
-                if "jest" in scripts["test"]:
-                    result["test_framework"] = "jest"
-                elif "vitest" in scripts["test"]:
-                    result["test_framework"] = "vitest"
-                elif "mocha" in scripts["test"]:
-                    result["test_framework"] = "mocha"
-                else:
-                    result["test_framework"] = "npm test"
-
-            if "lint" in scripts:
-                result["lint_tool"] = "npm run lint"
-            elif (cwd / ".eslintrc.js").exists() or (cwd / ".eslintrc.json").exists():
-                result["lint_tool"] = "eslint"
-
-            if "format" in scripts:
-                result["format_tool"] = "npm run format"
-            elif (cwd / ".prettierrc").exists() or (cwd / "prettier.config.js").exists():
-                result["format_tool"] = "prettier --write"
-
-            # TypeScript detection
-            if (cwd / "tsconfig.json").exists():
-                result["type_checker"] = "tsc --noEmit"
-
+            package_json = json.loads((cwd / "package.json").read_text(encoding="utf-8"))
         except Exception:
             result["test_framework"] = "npm test"
             result["lint_tool"] = "npm run lint"
+            return result
 
-    # Go project detection
-    elif (cwd / "go.mod").exists():
+        scripts = package_json.get("scripts", {})
+
+        if "test" in scripts:
+            if "jest" in scripts["test"]:
+                result["test_framework"] = "jest"
+            elif "vitest" in scripts["test"]:
+                result["test_framework"] = "vitest"
+            elif "mocha" in scripts["test"]:
+                result["test_framework"] = "mocha"
+            else:
+                result["test_framework"] = "npm test"
+
+        if "lint" in scripts:
+            result["lint_tool"] = "npm run lint"
+        elif (cwd / ".eslintrc.js").exists() or (cwd / ".eslintrc.json").exists():
+            result["lint_tool"] = "eslint"
+
+        if "format" in scripts:
+            result["format_tool"] = "npm run format"
+        elif (cwd / ".prettierrc").exists() or (cwd / "prettier.config.js").exists():
+            result["format_tool"] = "prettier --write"
+
+        if (cwd / "tsconfig.json").exists():
+            result["type_checker"] = "tsc --noEmit"
+
+        return result
+
+    if (cwd / "go.mod").exists():
         result["project_type"] = "go"
         result["test_framework"] = "go test ./..."
         result["lint_tool"] = "golangci-lint run"
         result["format_tool"] = "gofmt -w"
         result["type_checker"] = "go vet ./..."
         result["package_manager"] = "go"
+        return result
 
-    # Rust project detection
-    elif (cwd / "Cargo.toml").exists():
+    if (cwd / "Cargo.toml").exists():
         result["project_type"] = "rust"
         result["test_framework"] = "cargo test"
         result["lint_tool"] = "cargo clippy"
         result["format_tool"] = "cargo fmt"
         result["type_checker"] = "cargo check"
         result["package_manager"] = "cargo"
+        return result
 
     return result
+
+
+def detect_project_type():
+    """Detect project type based on config files present.
+
+    Returns:
+        dict with project_type, test_framework, lint_tool, format_tool
+    """
+    runtime_context = get_runtime_context()
+    return runtime_context.get_cached_project_detection(
+        "project_type",
+        _build_project_detection_paths(Path.cwd()),
+        _detect_project_type_uncached,
+    )
 
 
 def run_tests(test_command=None, test_path=None, verbose=False):

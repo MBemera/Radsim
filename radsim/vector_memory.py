@@ -1,9 +1,14 @@
-"""Vector-based long-term memory for RadSim Agent.
+"""Experimental vector-based long-term memory for RadSim Agent.
 
 Uses JSON-based storage with TF-IDF cosine similarity for semantic search
 across conversations, code patterns, user preferences, and project context.
 
 Pure Python — no native dependencies required. Works on all Python 3.10+ versions.
+
+Status:
+- Experimental: available for direct use and tests
+- Not wired into the main CLI memory flow
+- Also exposed via ``radsim.experimental.vector_memory``
 """
 
 import hashlib

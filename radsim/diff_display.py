@@ -5,7 +5,8 @@ RadSim Principle: Radical Simplicity - Clear, obvious code.
 
 import difflib
 import logging
-import sys
+
+from .terminal import colorize_ansi, supports_color
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +24,6 @@ DIFF_COLORS = {
     "red_bold": "\033[1;91m",  # Bold bright red
     "green_bold": "\033[1;92m",  # Bold bright green
 }
-
-
-def supports_color():
-    """Check if terminal supports colors."""
-    if not hasattr(sys.stdout, "isatty"):
-        return False
-    if not sys.stdout.isatty():
-        return False
-    return True
-
-
 def colorize(text, color):
     """Apply color to text if terminal supports it.
 
@@ -44,9 +34,7 @@ def colorize(text, color):
     Returns:
         Colorized string or plain text if no color support
     """
-    if not supports_color():
-        return text
-    return f"{DIFF_COLORS.get(color, '')}{text}{DIFF_COLORS['reset']}"
+    return colorize_ansi(text, color, DIFF_COLORS, supports_color_fn=supports_color)
 
 
 def count_changes(old_lines, new_lines):

@@ -6,8 +6,32 @@ RadSim Principle: Explicit Safety Checks
 import fnmatch
 import shlex
 from pathlib import Path
+from threading import RLock
 
 from .constants import PROTECTED_PATTERNS
+
+_PATH_CACHE = {
+    "cwd": None,
+    "resolved_cwd": None,
+}
+_PATH_CACHE_LOCK = RLock()
+
+
+def _get_resolved_cwd():
+    """Return the resolved current working directory with cache invalidation."""
+    with _PATH_CACHE_LOCK:
+        current_cwd = Path.cwd()
+        if _PATH_CACHE["cwd"] != current_cwd:
+            _PATH_CACHE["cwd"] = current_cwd
+            _PATH_CACHE["resolved_cwd"] = current_cwd.resolve()
+        return _PATH_CACHE["resolved_cwd"]
+
+
+def clear_path_validation_cache():
+    """Clear cached current working directory state."""
+    with _PATH_CACHE_LOCK:
+        _PATH_CACHE["cwd"] = None
+        _PATH_CACHE["resolved_cwd"] = None
 
 
 def validate_path(file_path, allow_outside=False):
@@ -20,12 +44,18 @@ def validate_path(file_path, allow_outside=False):
     Returns:
         Tuple of (is_safe, resolved_path, error_message)
     """
-    if not file_path:
+    if file_path is None:
         return False, None, "Path cannot be empty"
 
     try:
+        if not isinstance(file_path, str):
+            file_path = str(file_path)
+
+        if not file_path.strip():
+            return False, None, "Path cannot be empty"
+
         path = Path(file_path).resolve()
-        cwd = Path.cwd().resolve()
+        cwd = _get_resolved_cwd()
 
         # Check if path is inside cwd
         is_inside = path == cwd or cwd in path.parents

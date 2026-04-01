@@ -3,6 +3,7 @@
 One test, one thing. Use tmp_path for file system operations.
 """
 
+from unittest.mock import patch
 
 from radsim.tools.search import glob_files, grep_search
 
@@ -188,3 +189,51 @@ class TestGrepSearch:
 
         assert result["success"] is True
         assert result["files_searched"] == 2
+
+    def test_grep_skips_binary_like_extensions(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "visible.txt").write_text("needle\n")
+        (tmp_path / "image.svg").write_text("needle\n")
+
+        with patch("radsim.tools.search.shutil.which", return_value=None):
+            result = grep_search("needle", str(tmp_path))
+
+        assert result["success"] is True
+        matched_files = [match["file"] for match in result["matches"]]
+        assert "visible.txt" in matched_files
+        assert "image.svg" not in matched_files
+
+    def test_grep_skips_large_files_in_python_fallback(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "small.txt").write_text("needle\n")
+        (tmp_path / "large.txt").write_text("needle\n" + ("x" * 600_000))
+
+        with patch("radsim.tools.search.shutil.which", return_value=None):
+            result = grep_search("needle", str(tmp_path))
+
+        assert result["success"] is True
+        matched_files = [match["file"] for match in result["matches"]]
+        assert "small.txt" in matched_files
+        assert "large.txt" not in matched_files
+
+    def test_grep_uses_ripgrep_when_available(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        completed_process = type(
+            "CompletedProcess",
+            (),
+            {
+                "returncode": 0,
+                "stdout": "./code.py:3:target_value = 1\n",
+                "stderr": "",
+            },
+        )()
+
+        with patch("radsim.tools.search.shutil.which", return_value="/usr/bin/rg"):
+            with patch("radsim.tools.search.subprocess.run", return_value=completed_process) as mock_run:
+                result = grep_search("target_value", str(tmp_path))
+
+        assert result["success"] is True
+        assert result["matches"][0]["file"] == "code.py"
+        assert result["matches"][0]["line"] == 3
+        mock_run.assert_called_once()

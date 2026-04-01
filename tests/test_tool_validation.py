@@ -3,8 +3,10 @@
 One test, one thing. Clear names, obvious assertions.
 """
 
+import threading
 
 from radsim.tools.validation import (
+    clear_path_validation_cache,
     is_protected_path,
     validate_path,
     validate_shell_command,
@@ -17,6 +19,12 @@ from radsim.tools.validation import (
 
 class TestValidatePath:
     """Tests for validate_path function."""
+
+    def setup_method(self):
+        clear_path_validation_cache()
+
+    def teardown_method(self):
+        clear_path_validation_cache()
 
     def test_valid_path_inside_project(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -72,6 +80,38 @@ class TestValidatePath:
         is_safe, path, error = validate_path(str(tmp_path))
 
         assert is_safe is True
+
+    def test_cache_invalidates_after_chdir(self, tmp_path, monkeypatch):
+        first_project = tmp_path / "project_one"
+        second_project = tmp_path / "project_two"
+        first_project.mkdir()
+        second_project.mkdir()
+
+        monkeypatch.chdir(first_project)
+        first_result = validate_path("inside.txt")
+
+        monkeypatch.chdir(second_project)
+        second_result = validate_path("inside.txt")
+
+        assert first_result[0] is True
+        assert second_result[0] is True
+        assert second_result[1].parent == second_project.resolve()
+
+    def test_validate_path_cache_is_thread_safe(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        results = []
+
+        def validate_inside_project():
+            results.append(validate_path("inside.txt")[0])
+
+        threads = [threading.Thread(target=validate_inside_project) for _ in range(20)]
+
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert all(results)
 
 
 # =============================================================================

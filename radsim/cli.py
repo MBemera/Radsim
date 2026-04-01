@@ -12,20 +12,14 @@ import sys
 import warnings
 from importlib.metadata import version
 
-# Suppress Pydantic V1 compatibility warning on Python 3.14+
-# (triggered by openai SDK internals — harmless, cosmetic only)
-warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality", category=UserWarning)
-
-from .agent import run_interactive, run_single_shot
-from .config import load_config
-from .output import print_agent_response, print_error
-
 # Track Ctrl+C presses for emergency stop
 _interrupt_count = 0
 _last_interrupt = 0
 
 # Reference to active agent for soft cancel
 _active_agent = None
+_process_handlers_installed = False
+_runtime_warnings_configured = False
 
 
 def set_active_agent(agent):
@@ -68,27 +62,45 @@ def _emergency_stop_handler(signum, frame):
     raise KeyboardInterrupt
 
 
-# Install signal handler
-signal.signal(signal.SIGINT, _emergency_stop_handler)
-
-
 def _cleanup_on_exit():
     """Clean up background processes on exit."""
-    try:
-        from .modes import stop_caffeinate
+    modes_module = sys.modules.get("radsim.modes")
+    if modes_module is not None:
+        try:
+            modes_module.stop_caffeinate()
+        except Exception:
+            pass
 
-        stop_caffeinate()
-    except Exception:
-        pass
-    try:
-        from .telegram import stop_listening
+    telegram_module = sys.modules.get("radsim.telegram")
+    if telegram_module is not None:
+        try:
+            telegram_module.stop_listening()
+        except Exception:
+            pass
 
-        stop_listening()
-    except Exception:
-        pass
+def configure_runtime_warnings():
+    """Apply warning filters only when the CLI runtime starts."""
+    global _runtime_warnings_configured
+    if _runtime_warnings_configured:
+        return
+
+    warnings.filterwarnings(
+        "ignore",
+        message="Core Pydantic V1 functionality",
+        category=UserWarning,
+    )
+    _runtime_warnings_configured = True
 
 
-atexit.register(_cleanup_on_exit)
+def install_process_handlers():
+    """Install signal and exit handlers once per process."""
+    global _process_handlers_installed
+    if _process_handlers_installed:
+        return
+
+    signal.signal(signal.SIGINT, _emergency_stop_handler)
+    atexit.register(_cleanup_on_exit)
+    _process_handlers_installed = True
 
 
 def parse_arguments():
@@ -179,27 +191,43 @@ Environment variables:
         help="Skip the startup update check",
     )
 
-
-
     return parser.parse_args()
+
+
+def _run_single_shot_mode(config, prompt, context_file):
+    """Import the agent runtime only when single-shot mode is used."""
+    from .agent import run_single_shot
+    from .output import print_agent_response
+
+    response = run_single_shot(config, prompt, context_file)
+    if not config.stream:
+        print_agent_response(response)
+
+
+def _run_interactive_mode(config, context_file):
+    """Import the agent runtime only when interactive mode is used."""
+    from .agent import run_interactive
+
+    run_interactive(config, context_file)
 
 
 def main():
     """Main entry point."""
-    # Configure logging early, before anything else
     from .log_config import configure_logging
 
+    configure_runtime_warnings()
+    install_process_handlers()
     configure_logging()
 
     args = parse_arguments()
 
-    # T&C is shown only during onboarding (first-time setup), not every login
-    from .onboarding import (
-        run_onboarding,
-        should_run_onboarding,
-    )
+    from .access_control import check_access_on_startup
+    from .config import load_config
+    from .health import check_health, check_secret_expirations
+    from .onboarding import run_onboarding, should_run_onboarding
+    from .output import print_error
 
-    # Check if this is first run - show onboarding
+    # T&C is shown only during onboarding (first-time setup), not every login
 
     # Force re-run setup if --setup flag is passed
     if args.setup:
@@ -224,8 +252,6 @@ def main():
         args.api_key = api_key
 
     # Check access control first (if enabled)
-    from .access_control import check_access_on_startup
-
     if not check_access_on_startup():
         sys.exit(1)
 
@@ -243,8 +269,6 @@ def main():
         sys.exit(1)
 
     # Production Readiness: Run startup health checks
-    from .health import check_health, check_secret_expirations
-
     health_status = check_health(config)
     if not health_status.healthy:
         print_error("Health check failed:")
@@ -273,15 +297,10 @@ def main():
         except Exception:
             pass  # Never let update check break startup
 
-
-
     # Run in appropriate mode (CLI)
     if args.prompt:
-        # Single-shot mode
         try:
-            response = run_single_shot(config, args.prompt, args.context_file)
-            if not config.stream:
-                print_agent_response(response)
+            _run_single_shot_mode(config, args.prompt, args.context_file)
         except KeyboardInterrupt:
             print("\nCancelled.")
             sys.exit(130)
@@ -289,9 +308,8 @@ def main():
             print_error(str(error))
             sys.exit(1)
     else:
-        # Interactive mode
         try:
-            run_interactive(config, args.context_file)
+            _run_interactive_mode(config, args.context_file)
         except KeyboardInterrupt:
             print("\nGoodbye!")
             sys.exit(130)

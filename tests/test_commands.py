@@ -134,3 +134,38 @@ def test_detect_help_intent_empty():
 
     assert detect_help_intent("") is None
     assert detect_help_intent(None) is None
+
+
+def test_telegram_safe_command_metadata():
+    registry = CommandRegistry()
+
+    assert registry.is_telegram_safe("/help") is True
+    assert registry.is_telegram_safe("/config") is False
+
+    telegram_commands = registry.get_telegram_command_list()
+    command_names = [item["command"] for item in telegram_commands]
+
+    assert "help" in command_names
+    assert command_names == sorted(command_names)
+    assert registry.commands["/help"]["category"] == "navigation"
+    assert registry.commands["/help"]["accepts_args"] is True
+    assert registry.commands["/clear"]["accepts_args"] is False
+
+
+def test_background_compact_alias_routes_to_background_command(monkeypatch):
+    registry = CommandRegistry()
+    agent = MockAgent()
+    captured = {}
+
+    def fake_execute(command_name, current_agent, args):
+        captured["command_name"] = command_name
+        captured["args"] = args
+        return True
+
+    monkeypatch.setattr(registry, "_execute", fake_execute)
+
+    result = registry.handle_input("/bg12", agent)
+
+    assert result is True
+    assert captured["command_name"] == "/background"
+    assert captured["args"] == ["12"]

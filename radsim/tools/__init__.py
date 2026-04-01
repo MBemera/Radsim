@@ -1,435 +1,421 @@
-"""RadSim Tools Package - Modular tool implementation.
-
-RadSim Principle: Consistent Structure Everywhere
-
-This package provides all tools for the RadSim agent, organized into modules:
-- constants: Configuration and limits
-- validation: Path and command validation
-- file_ops: File read/write/edit operations
-- directory_ops: Directory listing and creation
-- search: Glob and grep search
-- shell: Shell command execution
-- web: Web fetching
-- git: Git operations
-- testing: Test, lint, format, type check
-- dependencies: Package management
-- code_intel: Code analysis and symbol search
-- advanced: Docker, database, refactoring, deployment
-- project: Batch operations, task planning, context
-- definitions: Tool definitions for API
-"""
+"""RadSim Tools Package - Modular tool implementation."""
 
 import logging
+from importlib import import_module
 
-# Try to import browser tools (optional dependency)
-try:
-    from ..browser import browser_click, browser_open, browser_screenshot, browser_type
-
-    HAS_BROWSER_TOOLS = True
-except ImportError:
-    HAS_BROWSER_TOOLS = False
-
-# Export constants (explicit re-export for package API)
-# Import all tool functions for execute_tool
-from .advanced import database_query, deploy, generate_tests, refactor_code, run_docker
-from .code_intel import analyze_code, find_definition, find_references
 from .constants import DESTRUCTIVE_COMMANDS as DESTRUCTIVE_COMMANDS
 from .constants import PROTECTED_PATTERNS as PROTECTED_PATTERNS
-
-# Export tool definitions
 from .definitions import TOOL_DEFINITIONS as TOOL_DEFINITIONS
-from .dependencies import (
-    add_dependency,
-    init_project,
-    install_system_tool,
-    list_dependencies,
-    npm_install,
-    pip_install,
-    remove_dependency,
-)
-from .directory_ops import create_directory, list_directory
-
-# Import all tool functions for execute_tool
-from .file_ops import (
-    delete_file,
-    multi_edit,
-    read_file,
-    read_many_files,
-    rename_file,
-    replace_in_file,
-    write_file,
-)
-from .git import (
-    git_add,
-    git_branch,
-    git_checkout,
-    git_commit,
-    git_diff,
-    git_log,
-    git_stash,
-    git_status,
-)
-from .project import (
-    batch_replace,
-    get_project_info,
-    load_context,
-    plan_task,
-    save_context,
-    submit_completion,
-)
-from .search import glob_files, grep_search, search_files
-from .shell import run_shell_command
-from .testing import detect_project_type, format_code, lint_code, run_tests, type_check
-from .web import web_fetch
 
 logger = logging.getLogger(__name__)
 
 
-def execute_tool(tool_name, tool_input):
-    """Execute a tool and return the result.
+def _run_tool_function(module_path, function_name, *args):
+    """Import a tool module only when the tool is executed."""
+    module = import_module(module_path, package=__package__)
+    function = getattr(module, function_name)
+    return function(*args)
 
-    This is the main entry point for tool execution, used by the agent.
-    """
-    # Strip _intent before dispatching (chain-of-thought, not a real parameter)
+
+def _build_tool_executor(module_path, function_name, *argument_specs):
+    """Create a lazy executor for a standard module function."""
+
+    def execute(tool_input):
+        arguments = []
+        for argument_name, default_value in argument_specs:
+            arguments.append(tool_input.get(argument_name, default_value))
+        return _run_tool_function(module_path, function_name, *arguments)
+
+    return execute
+
+
+def _execute_delegate_task(tool_input):
+    """Keep API compatibility for delegation handled in the agent loop."""
+    return {"success": False, "error": "delegate_task is handled directly by the agent loop"}
+
+
+def _execute_browser_tool(tool_name, tool_input):
+    """Load browser tooling only when a browser tool is executed."""
+    browser_handlers = {
+        "browser_open": ("browser_open", ("url", "")),
+        "browser_click": ("browser_click", ("selector", "")),
+        "browser_type": ("browser_type", ("selector", ""), ("text", "")),
+        "browser_screenshot": ("browser_screenshot", ("filename", None)),
+    }
+
+    if tool_name not in browser_handlers:
+        return {"success": False, "error": f"Unknown tool: {tool_name}"}
+
+    try:
+        browser_module = import_module("..browser", package=__package__)
+    except ImportError:
+        return {
+            "success": False,
+            "error": "Playwright not installed. Run: pip install playwright && playwright install chromium",
+        }
+
+    function_name, *argument_specs = browser_handlers[tool_name]
+    arguments = [
+        tool_input.get(argument_name, default_value)
+        for argument_name, default_value in argument_specs
+    ]
+    function = getattr(browser_module, function_name)
+    return function(*arguments)
+
+
+def _execute_list_skills(tool_input):
+    """Return the existing list_skills response shape."""
+    skills_module = import_module("..skills", package=__package__)
+    skills = skills_module.list_skills()
+    return {"success": True, "skills": skills, "count": len(skills)}
+
+
+def _execute_remove_skill(tool_input):
+    """Convert the 1-based API index into the internal 0-based value."""
+    index = tool_input.get("index", 0) - 1
+    return _run_tool_function("..skills", "remove_skill", index)
+
+
+def _execute_todo_read(tool_input):
+    """Call the todo tracker read method lazily."""
+    todo_module = import_module("..todo", package=__package__)
+    return todo_module.get_tracker().read()
+
+
+def _execute_todo_write(tool_input):
+    """Call the todo tracker write method lazily."""
+    todo_module = import_module("..todo", package=__package__)
+    return todo_module.get_tracker().write(tool_input.get("todos", []))
+
+
+_TOOL_REGISTRY = {
+    "install_system_tool": _build_tool_executor(
+        ".dependencies",
+        "install_system_tool",
+        ("tool_name", ""),
+    ),
+    "delegate_task": _execute_delegate_task,
+    "submit_completion": _build_tool_executor(
+        ".project",
+        "submit_completion",
+        ("summary", ""),
+        ("artifacts", None),
+    ),
+    "read_file": _build_tool_executor(
+        ".file_ops",
+        "read_file",
+        ("file_path", ""),
+        ("offset", 0),
+        ("limit", None),
+    ),
+    "read_many_files": _build_tool_executor(".file_ops", "read_many_files", ("file_paths", [])),
+    "write_file": _build_tool_executor(
+        ".file_ops",
+        "write_file",
+        ("file_path", ""),
+        ("content", ""),
+    ),
+    "replace_in_file": _build_tool_executor(
+        ".file_ops",
+        "replace_in_file",
+        ("file_path", ""),
+        ("old_string", ""),
+        ("new_string", ""),
+        ("replace_all", False),
+    ),
+    "rename_file": _build_tool_executor(
+        ".file_ops",
+        "rename_file",
+        ("old_path", ""),
+        ("new_path", ""),
+    ),
+    "delete_file": _build_tool_executor(".file_ops", "delete_file", ("file_path", "")),
+    "list_directory": _build_tool_executor(
+        ".directory_ops",
+        "list_directory",
+        ("directory_path", "."),
+        ("recursive", False),
+        ("max_depth", 3),
+    ),
+    "create_directory": _build_tool_executor(
+        ".directory_ops",
+        "create_directory",
+        ("directory_path", ""),
+    ),
+    "glob_files": _build_tool_executor(
+        ".search",
+        "glob_files",
+        ("pattern", ""),
+        ("directory_path", "."),
+    ),
+    "grep_search": _build_tool_executor(
+        ".search",
+        "grep_search",
+        ("pattern", ""),
+        ("directory_path", "."),
+        ("file_pattern", None),
+        ("ignore_case", False),
+        ("context_lines", 0),
+        ("output_mode", "content"),
+    ),
+    "search_files": _build_tool_executor(
+        ".search",
+        "search_files",
+        ("pattern", ""),
+        ("directory_path", "."),
+    ),
+    "run_shell_command": _build_tool_executor(
+        ".shell",
+        "run_shell_command",
+        ("command", ""),
+        ("timeout", 120),
+        ("working_dir", None),
+    ),
+    "web_fetch": _build_tool_executor(".web", "web_fetch", ("url", "")),
+    "git_status": _build_tool_executor(".git", "git_status"),
+    "git_diff": _build_tool_executor(
+        ".git",
+        "git_diff",
+        ("staged", False),
+        ("file_path", None),
+    ),
+    "git_log": _build_tool_executor(
+        ".git",
+        "git_log",
+        ("count", 10),
+        ("oneline", True),
+    ),
+    "git_branch": _build_tool_executor(".git", "git_branch"),
+    "find_definition": _build_tool_executor(
+        ".code_intel",
+        "find_definition",
+        ("symbol", ""),
+        ("directory_path", "."),
+    ),
+    "find_references": _build_tool_executor(
+        ".code_intel",
+        "find_references",
+        ("symbol", ""),
+        ("directory_path", "."),
+    ),
+    "run_tests": _build_tool_executor(
+        ".testing",
+        "run_tests",
+        ("test_command", None),
+        ("test_path", None),
+        ("verbose", False),
+    ),
+    "lint_code": _build_tool_executor(
+        ".testing",
+        "lint_code",
+        ("file_path", None),
+        ("fix", False),
+    ),
+    "format_code": _build_tool_executor(
+        ".testing",
+        "format_code",
+        ("file_path", None),
+        ("check_only", False),
+    ),
+    "type_check": _build_tool_executor(".testing", "type_check", ("file_path", None)),
+    "git_add": _build_tool_executor(
+        ".git",
+        "git_add",
+        ("file_paths", None),
+        ("all_files", False),
+    ),
+    "git_commit": _build_tool_executor(
+        ".git",
+        "git_commit",
+        ("message", ""),
+        ("amend", False),
+    ),
+    "git_checkout": _build_tool_executor(
+        ".git",
+        "git_checkout",
+        ("branch", None),
+        ("create", False),
+        ("file_path", None),
+    ),
+    "git_stash": _build_tool_executor(
+        ".git",
+        "git_stash",
+        ("action", "push"),
+        ("message", None),
+    ),
+    "list_dependencies": _build_tool_executor(".dependencies", "list_dependencies"),
+    "add_dependency": _build_tool_executor(
+        ".dependencies",
+        "add_dependency",
+        ("package", ""),
+        ("dev", False),
+    ),
+    "remove_dependency": _build_tool_executor(
+        ".dependencies",
+        "remove_dependency",
+        ("package", ""),
+    ),
+    "npm_install": _build_tool_executor(
+        ".dependencies",
+        "npm_install",
+        ("package", ""),
+        ("dev", False),
+        ("global_install", False),
+    ),
+    "pip_install": _build_tool_executor(
+        ".dependencies",
+        "pip_install",
+        ("package", ""),
+        ("upgrade", False),
+    ),
+    "init_project": _build_tool_executor(
+        ".dependencies",
+        "init_project",
+        ("project_type", ""),
+        ("name", None),
+        ("template", None),
+    ),
+    "detect_project_type": _build_tool_executor(".testing", "detect_project_type"),
+    "get_project_info": _build_tool_executor(".project", "get_project_info"),
+    "batch_replace": _build_tool_executor(
+        ".project",
+        "batch_replace",
+        ("pattern", ""),
+        ("replacement", ""),
+        ("file_pattern", "*"),
+        ("directory_path", "."),
+    ),
+    "plan_task": _build_tool_executor(
+        ".project",
+        "plan_task",
+        ("task_description", ""),
+        ("subtasks", None),
+    ),
+    "save_context": _build_tool_executor(
+        ".project",
+        "save_context",
+        ("context_data", {}),
+        ("filename", "radsim_context.json"),
+    ),
+    "load_context": _build_tool_executor(
+        ".project",
+        "load_context",
+        ("filename", "radsim_context.json"),
+    ),
+    "analyze_code": _build_tool_executor(
+        ".code_intel",
+        "analyze_code",
+        ("file_path", ""),
+        ("analysis_type", "full"),
+    ),
+    "run_docker": _build_tool_executor(
+        ".advanced",
+        "run_docker",
+        ("action", ""),
+        ("container", None),
+        ("image", None),
+        ("command", None),
+        ("options", None),
+    ),
+    "database_query": _build_tool_executor(
+        ".advanced",
+        "database_query",
+        ("query", ""),
+        ("database_path", "database.db"),
+        ("read_only", True),
+    ),
+    "generate_tests": _build_tool_executor(
+        ".advanced",
+        "generate_tests",
+        ("source_file", ""),
+        ("output_file", None),
+        ("framework", "pytest"),
+    ),
+    "refactor_code": _build_tool_executor(
+        ".advanced",
+        "refactor_code",
+        ("action", ""),
+        ("file_path", ""),
+        ("old_name", None),
+        ("new_name", None),
+        ("target_line", None),
+        ("new_function_name", None),
+    ),
+    "deploy": _build_tool_executor(
+        ".advanced",
+        "deploy",
+        ("platform", None),
+        ("check_only", False),
+        ("command", None),
+    ),
+    "save_memory": _build_tool_executor(
+        "..memory",
+        "save_memory",
+        ("key", ""),
+        ("value", ""),
+        ("memory_type", "preference"),
+    ),
+    "load_memory": _build_tool_executor(
+        "..memory",
+        "load_memory",
+        ("key", None),
+        ("memory_type", "preference"),
+    ),
+    "schedule_task": _build_tool_executor(
+        "..scheduler",
+        "schedule_task",
+        ("name", ""),
+        ("schedule", ""),
+        ("command", ""),
+        ("description", None),
+    ),
+    "list_schedules": _build_tool_executor("..scheduler", "list_schedules"),
+    "add_skill": _build_tool_executor(
+        "..skills",
+        "add_skill",
+        ("instruction", ""),
+        ("category", None),
+    ),
+    "remove_skill": _execute_remove_skill,
+    "list_skills": _execute_list_skills,
+    "send_telegram": _build_tool_executor(
+        "..telegram",
+        "send_telegram_message",
+        ("message", ""),
+    ),
+    "todo_read": _execute_todo_read,
+    "todo_write": _execute_todo_write,
+    "multi_edit": _build_tool_executor(
+        ".file_ops",
+        "multi_edit",
+        ("file_path", ""),
+        ("edits", []),
+    ),
+    "repo_map": _build_tool_executor(
+        "..repo_map",
+        "generate_repo_map",
+        ("directory_path", "."),
+        ("focus_files", None),
+        ("max_tokens", 4000),
+        ("language_filter", None),
+    ),
+    "apply_patch": _build_tool_executor("..patch", "apply_patch", ("patch", "")),
+}
+
+
+def execute_tool(tool_name, tool_input):
+    """Execute a tool and return the result."""
+    tool_input = dict(tool_input)
+
     intent = tool_input.pop("_intent", None)
     if intent:
         logger.debug("Tool intent [%s]: %s", tool_name, intent)
 
-    # Browser Tools
     if tool_name.startswith("browser_"):
-        if not HAS_BROWSER_TOOLS:
-            return {
-                "success": False,
-                "error": "Playwright not installed. Run: pip install playwright && playwright install chromium",
-            }
+        return _execute_browser_tool(tool_name, tool_input)
 
-        if tool_name == "browser_open":
-            return browser_open(tool_input.get("url", ""))
-        elif tool_name == "browser_click":
-            return browser_click(tool_input.get("selector", ""))
-        elif tool_name == "browser_type":
-            return browser_type(tool_input.get("selector", ""), tool_input.get("text", ""))
-        elif tool_name == "browser_screenshot":
-            return browser_screenshot(tool_input.get("filename"))
-
-    # System Tools
-    if tool_name == "install_system_tool":
-        return install_system_tool(tool_input.get("tool_name", ""))
-
-    # Agentic Delegation (handled by agent.py directly, but kept for API compatibility)
-    if tool_name == "delegate_task":
-        return {"success": False, "error": "delegate_task is handled directly by the agent loop"}
-
-    if tool_name == "submit_completion":
-        return submit_completion(tool_input.get("summary", ""), tool_input.get("artifacts"))
-
-    # File Operations
-    if tool_name == "read_file":
-        return read_file(
-            tool_input.get("file_path", ""), tool_input.get("offset", 0), tool_input.get("limit")
-        )
-
-    elif tool_name == "read_many_files":
-        return read_many_files(tool_input.get("file_paths", []))
-
-    elif tool_name == "write_file":
-        return write_file(tool_input.get("file_path", ""), tool_input.get("content", ""))
-
-    elif tool_name == "replace_in_file":
-        return replace_in_file(
-            tool_input.get("file_path", ""),
-            tool_input.get("old_string", ""),
-            tool_input.get("new_string", ""),
-            tool_input.get("replace_all", False),
-        )
-
-    elif tool_name == "rename_file":
-        return rename_file(tool_input.get("old_path", ""), tool_input.get("new_path", ""))
-
-    elif tool_name == "delete_file":
-        return delete_file(tool_input.get("file_path", ""))
-
-    # Directory Operations
-    elif tool_name == "list_directory":
-        return list_directory(
-            tool_input.get("directory_path", "."),
-            tool_input.get("recursive", False),
-            tool_input.get("max_depth", 3),
-        )
-
-    elif tool_name == "create_directory":
-        return create_directory(tool_input.get("directory_path", ""))
-
-    # Search Tools
-    elif tool_name == "glob_files":
-        return glob_files(tool_input.get("pattern", ""), tool_input.get("directory_path", "."))
-
-    elif tool_name == "grep_search":
-        return grep_search(
-            tool_input.get("pattern", ""),
-            tool_input.get("directory_path", "."),
-            tool_input.get("file_pattern"),
-            tool_input.get("ignore_case", False),
-            tool_input.get("context_lines", 0),
-            tool_input.get("output_mode", "content"),
-        )
-
-    elif tool_name == "search_files":
-        return search_files(tool_input.get("pattern", ""), tool_input.get("directory_path", "."))
-
-    # Shell Execution
-    elif tool_name == "run_shell_command":
-        return run_shell_command(
-            tool_input.get("command", ""),
-            tool_input.get("timeout", 120),
-            tool_input.get("working_dir"),
-        )
-
-    # Web Tools
-    elif tool_name == "web_fetch":
-        return web_fetch(tool_input.get("url", ""))
-
-    # Git Tools
-    elif tool_name == "git_status":
-        return git_status()
-
-    elif tool_name == "git_diff":
-        return git_diff(tool_input.get("staged", False), tool_input.get("file_path"))
-
-    elif tool_name == "git_log":
-        return git_log(tool_input.get("count", 10), tool_input.get("oneline", True))
-
-    elif tool_name == "git_branch":
-        return git_branch()
-
-    # Code Intelligence
-    elif tool_name == "find_definition":
-        return find_definition(tool_input.get("symbol", ""), tool_input.get("directory_path", "."))
-
-    elif tool_name == "find_references":
-        return find_references(tool_input.get("symbol", ""), tool_input.get("directory_path", "."))
-
-    # Testing & Validation
-    elif tool_name == "run_tests":
-        return run_tests(
-            tool_input.get("test_command"),
-            tool_input.get("test_path"),
-            tool_input.get("verbose", False),
-        )
-
-    elif tool_name == "lint_code":
-        return lint_code(tool_input.get("file_path"), tool_input.get("fix", False))
-
-    elif tool_name == "format_code":
-        return format_code(tool_input.get("file_path"), tool_input.get("check_only", False))
-
-    elif tool_name == "type_check":
-        return type_check(tool_input.get("file_path"))
-
-    # Git Write Operations
-    elif tool_name == "git_add":
-        return git_add(tool_input.get("file_paths"), tool_input.get("all_files", False))
-
-    elif tool_name == "git_commit":
-        return git_commit(tool_input.get("message", ""), tool_input.get("amend", False))
-
-    elif tool_name == "git_checkout":
-        return git_checkout(
-            tool_input.get("branch"), tool_input.get("create", False), tool_input.get("file_path")
-        )
-
-    elif tool_name == "git_stash":
-        return git_stash(tool_input.get("action", "push"), tool_input.get("message"))
-
-    # Dependency Management
-    elif tool_name == "list_dependencies":
-        return list_dependencies()
-
-    elif tool_name == "add_dependency":
-        return add_dependency(tool_input.get("package", ""), tool_input.get("dev", False))
-
-    elif tool_name == "remove_dependency":
-        return remove_dependency(tool_input.get("package", ""))
-
-    elif tool_name == "npm_install":
-        return npm_install(
-            tool_input.get("package", ""),
-            tool_input.get("dev", False),
-            tool_input.get("global_install", False),
-        )
-
-    elif tool_name == "pip_install":
-        return pip_install(
-            tool_input.get("package", ""),
-            tool_input.get("upgrade", False),
-        )
-
-    elif tool_name == "init_project":
-        return init_project(
-            tool_input.get("project_type", ""),
-            tool_input.get("name"),
-            tool_input.get("template"),
-        )
-
-    # Project Tools
-    elif tool_name == "detect_project_type":
-        return detect_project_type()
-
-    elif tool_name == "get_project_info":
-        return get_project_info()
-
-    elif tool_name == "batch_replace":
-        return batch_replace(
-            tool_input.get("pattern", ""),
-            tool_input.get("replacement", ""),
-            tool_input.get("file_pattern", "*"),
-            tool_input.get("directory_path", "."),
-        )
-
-    # Task Planning
-    elif tool_name == "plan_task":
-        return plan_task(tool_input.get("task_description", ""), tool_input.get("subtasks"))
-
-    elif tool_name == "save_context":
-        return save_context(
-            tool_input.get("context_data", {}), tool_input.get("filename", "radsim_context.json")
-        )
-
-    elif tool_name == "load_context":
-        return load_context(tool_input.get("filename", "radsim_context.json"))
-
-    # Advanced Skills
-    elif tool_name == "analyze_code":
-        return analyze_code(
-            tool_input.get("file_path", ""), tool_input.get("analysis_type", "full")
-        )
-
-    elif tool_name == "run_docker":
-        return run_docker(
-            tool_input.get("action", ""),
-            tool_input.get("container"),
-            tool_input.get("image"),
-            tool_input.get("command"),
-            tool_input.get("options"),
-        )
-
-    elif tool_name == "database_query":
-        return database_query(
-            tool_input.get("query", ""),
-            tool_input.get("database_path", "database.db"),
-            tool_input.get("read_only", True),
-        )
-
-    elif tool_name == "generate_tests":
-        return generate_tests(
-            tool_input.get("source_file", ""),
-            tool_input.get("output_file"),
-            tool_input.get("framework", "pytest"),
-        )
-
-    elif tool_name == "refactor_code":
-        return refactor_code(
-            tool_input.get("action", ""),
-            tool_input.get("file_path", ""),
-            tool_input.get("old_name"),
-            tool_input.get("new_name"),
-            tool_input.get("target_line"),
-            tool_input.get("new_function_name"),
-        )
-
-    elif tool_name == "deploy":
-        return deploy(
-            tool_input.get("platform"),
-            tool_input.get("check_only", False),
-            tool_input.get("command"),
-        )
-
-    # Memory & Scheduling
-    elif tool_name == "save_memory":
-        from ..memory import save_memory
-
-        return save_memory(
-            tool_input.get("key", ""),
-            tool_input.get("value", ""),
-            tool_input.get("memory_type", "preference"),
-        )
-
-    elif tool_name == "load_memory":
-        from ..memory import load_memory
-
-        return load_memory(tool_input.get("key"), tool_input.get("memory_type", "preference"))
-
-    elif tool_name == "schedule_task":
-        from ..scheduler import schedule_task
-
-        return schedule_task(
-            tool_input.get("name", ""),
-            tool_input.get("schedule", ""),
-            tool_input.get("command", ""),
-            tool_input.get("description"),
-        )
-
-    elif tool_name == "list_schedules":
-        from ..scheduler import list_schedules
-
-        return list_schedules()
-
-    elif tool_name == "add_skill":
-        from ..skills import add_skill
-
-        return add_skill(
-            tool_input.get("instruction", ""),
-            tool_input.get("category"),
-        )
-
-    elif tool_name == "remove_skill":
-        from ..skills import remove_skill
-
-        index = tool_input.get("index", 0) - 1  # Convert 1-based to 0-based
-        return remove_skill(index)
-
-    elif tool_name == "list_skills":
-        from ..skills import list_skills
-
-        skills = list_skills()
-        return {"success": True, "skills": skills, "count": len(skills)}
-
-    elif tool_name == "send_telegram":
-        from ..telegram import send_telegram_message
-
-        return send_telegram_message(tool_input.get("message", ""))
-
-    # Task Tracking
-    elif tool_name == "todo_read":
-        from ..todo import get_tracker
-
-        return get_tracker().read()
-
-    elif tool_name == "todo_write":
-        from ..todo import get_tracker
-
-        return get_tracker().write(tool_input.get("todos", []))
-
-    # Atomic Batch Edit
-    elif tool_name == "multi_edit":
-        return multi_edit(tool_input.get("file_path", ""), tool_input.get("edits", []))
-
-    # Codebase Structure
-    elif tool_name == "repo_map":
-        from ..repo_map import generate_repo_map
-
-        return generate_repo_map(
-            directory=tool_input.get("directory_path", "."),
-            focus_files=tool_input.get("focus_files"),
-            max_tokens=tool_input.get("max_tokens", 4000),
-            language_filter=tool_input.get("language_filter"),
-        )
-
-    # Multi-File Patch
-    elif tool_name == "apply_patch":
-        from ..patch import apply_patch
-
-        return apply_patch(tool_input.get("patch", ""))
-
-    else:
+    executor = _TOOL_REGISTRY.get(tool_name)
+    if executor is None:
         return {"success": False, "error": f"Unknown tool: {tool_name}"}
+
+    return executor(tool_input)

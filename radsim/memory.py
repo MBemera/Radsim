@@ -408,7 +408,9 @@ def save_memory(key, value, memory_type="preference"):
         dict with success status
     """
     try:
-        memory = Memory()
+        from .runtime_context import get_runtime_context
+
+        memory = get_runtime_context().get_memory()
 
         if memory_type == "preference":
             success = memory.set_preference(key, value)
@@ -440,7 +442,9 @@ def load_memory(key=None, memory_type="preference"):
         dict with success status and data
     """
     try:
-        memory = Memory()
+        from .runtime_context import get_runtime_context
+
+        memory = get_runtime_context().get_memory()
 
         if memory_type == "preference":
             if key:
@@ -470,7 +474,9 @@ def clear_memory(key=None, memory_type="context"):
         dict with success status
     """
     try:
-        memory = Memory()
+        from .runtime_context import get_runtime_context
+
+        memory = get_runtime_context().get_memory()
 
         if memory_type == "context":
             # Using current directory as project

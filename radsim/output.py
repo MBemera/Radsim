@@ -4,6 +4,7 @@ import sys
 import time
 from importlib.metadata import version as get_version
 
+from .terminal import colorize_ansi, supports_color
 from .ui import (
     Spinner,
     print_error,  # noqa: F401 — re-exported for use by agent.py, commands.py, cli.py
@@ -56,22 +57,9 @@ RADSIM_LOGO_LINES = [
 ]
 
 RADSIM_TAGLINE = "Radically Simple Code"
-
-
-def supports_color():
-    """Check if terminal supports colors."""
-    if not hasattr(sys.stdout, "isatty"):
-        return False
-    if not sys.stdout.isatty():
-        return False
-    return True
-
-
 def colorize(text, color):
     """Apply color to text if supported."""
-    if not supports_color():
-        return text
-    return f"{COLORS.get(color, '')}{text}{COLORS['reset']}"
+    return colorize_ansi(text, color, COLORS, supports_color_fn=supports_color)
 
 
 def print_boot_sequence(provider, model, animated=True):
