@@ -4,8 +4,18 @@ RadSim Principle: One Function, One Purpose
 """
 
 
+from ..runtime_context import get_runtime_context
 from .constants import MAX_FILE_SIZE, MAX_FILES_TO_READ, MAX_TRUNCATED_SIZE
 from .validation import is_protected_path, validate_path
+
+
+def _track_recent_file(path):
+    """Update recent file tracking without constructing fresh Memory objects."""
+    try:
+        memory = get_runtime_context().get_memory()
+        memory.project_mem.update_recent_file(str(path))
+    except Exception:
+        pass
 
 
 def read_file(file_path, offset=0, limit=None):
@@ -52,6 +62,8 @@ def read_file(file_path, offset=0, limit=None):
         if len(content) > MAX_TRUNCATED_SIZE:
             content = content[:MAX_TRUNCATED_SIZE]
             content += f"\n... [Truncated at {MAX_TRUNCATED_SIZE} chars, {total_lines} total lines]"
+
+        _track_recent_file(path)
 
         return {
             "success": True,
@@ -137,6 +149,8 @@ def write_file(file_path, content, show_diff=True):
 
             print_diff(old_content, content, str(path))
 
+        _track_recent_file(path)
+
         return {
             "success": True,
             "path": str(path),
@@ -205,6 +219,8 @@ def replace_in_file(file_path, old_string, new_string, replace_all=False, show_d
 
             print_diff(content, new_content, str(path))
 
+        _track_recent_file(path)
+
         return {"success": True, "path": str(path), "replacements_made": replacements}
     except Exception as error:
         return {"success": False, "error": str(error)}
@@ -239,6 +255,7 @@ def rename_file(old_path, new_path):
         path_new.parent.mkdir(parents=True, exist_ok=True)
 
         path_old.rename(path_new)
+        _track_recent_file(path_new)
 
         return {"success": True, "old_path": str(path_old), "new_path": str(path_new)}
     except Exception as error:

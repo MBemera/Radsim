@@ -28,6 +28,18 @@ class Config:
     circuit_breaker_threshold: int = 3
 
 
+# Rate limit tiers - user-selectable API call limits per turn
+RATE_LIMIT_TIERS = {
+    "light": {"max_calls": 15, "label": "Light (15 calls)", "description": "Conservative - good for simple tasks"},
+    "standard": {"max_calls": 30, "label": "Standard (30 calls)", "description": "Balanced - recommended for most work"},
+    "heavy": {"max_calls": 75, "label": "Heavy (75 calls)", "description": "For complex multi-step tasks"},
+    "intensive": {"max_calls": 100, "label": "Intensive (100 calls)", "description": "For large refactors and deep analysis"},
+    "unlimited": {"max_calls": 200, "label": "Maximum (200 calls)", "description": "Maximum throughput - use with caution"},
+}
+
+DEFAULT_RATE_LIMIT_TIER = "standard"
+
+
 # Available models for each provider (Updated Feb 2026)
 PROVIDER_MODELS = {
     "claude": [
@@ -36,11 +48,11 @@ PROVIDER_MODELS = {
         ("claude-haiku-4-5", "Claude Haiku 4.5 (Fast & cheap)"),
     ],
     "openai": [
+        ("gpt-5.4", "GPT-5.4 (Most capable)"),
+        ("gpt-5.3-codex", "GPT-5.3 Codex (Agentic coding)"),
         ("gpt-5.2", "GPT-5.2 (Recommended)"),
-        ("gpt-5.2-codex", "GPT-5.2 Codex (Agentic coding)"),
-        ("gpt-5-codex", "GPT-5 Codex (Coding optimized)"),
+        ("gpt-5.2-codex", "GPT-5.2 Codex (Cheap)"),
         ("gpt-5-mini", "GPT-5 Mini (Fast & cheap)"),
-        ("gpt-5.1", "GPT-5.1"),
     ],
     "gemini": [
         ("gemini-3-pro", "Gemini 3 Pro (Most capable)"),
@@ -59,7 +71,9 @@ PROVIDER_MODELS = {
         ("moonshotai/kimi-k2.5", "Kimi K2.5 (Recommended)"),
         ("anthropic/claude-opus-4.6", "Claude Opus 4.6 via OpenRouter"),
         ("anthropic/claude-sonnet-4.6", "Claude Sonnet 4.6 via OpenRouter"),
-        ("openai/gpt-5.2-codex", "GPT-5.2 Codex via OpenRouter"),
+        ("openai/gpt-5.4", "GPT-5.4 via OpenRouter"),
+        ("openai/gpt-5.3-codex", "GPT-5.3 Codex via OpenRouter"),
+        ("openai/gpt-5.2-codex", "GPT-5.2 Codex via OpenRouter (Cheap)"),
         ("minimax/minimax-m2.1", "Minimax M2.1 (Fast)"),
         ("z-ai/glm-4.7", "GLM 4.7 (Capable)"),
     ],
@@ -68,7 +82,7 @@ PROVIDER_MODELS = {
 # Default model for each provider (Updated Feb 2026)
 DEFAULT_MODELS = {
     "claude": "claude-sonnet-4-5",
-    "openai": "gpt-5.2",
+    "openai": "gpt-5.4",
     "gemini": "gemini-3-flash",
     "vertex": "gemini-2.5-pro",
     "openrouter": "moonshotai/kimi-k2.5",
@@ -98,8 +112,10 @@ FALLBACK_MODELS = {
         "claude-haiku-4-5",
     ],
     "openai": [
+        "gpt-5.4",
+        "gpt-5.3-codex",
         "gpt-5.2",
-        "gpt-5.1",
+        "gpt-5.2-codex",
         "gpt-5-mini",
     ],
     "gemini": [
@@ -115,6 +131,8 @@ FALLBACK_MODELS = {
         "moonshotai/kimi-k2.5",
         "anthropic/claude-opus-4.6",
         "anthropic/claude-sonnet-4.6",
+        "openai/gpt-5.4",
+        "openai/gpt-5.3-codex",
         "openai/gpt-5.2-codex",
         "minimax/minimax-m2.1",
         "z-ai/glm-4.7",
@@ -128,11 +146,11 @@ MODEL_PRICING = {
     "claude-sonnet-4-5": (3.00, 15.00),
     "claude-haiku-4-5": (0.80, 4.00),
     # OpenAI GPT-5 Series
-    "gpt-5.2": (5.00, 15.00),
-    "gpt-5.2-codex": (5.00, 15.00),
-    "gpt-5-codex": (5.00, 15.00),
+    "gpt-5.4": (5.00, 15.00),
+    "gpt-5.3-codex": (5.00, 15.00),
+    "gpt-5.2": (2.50, 10.00),
+    "gpt-5.2-codex": (2.50, 10.00),
     "gpt-5-mini": (1.00, 4.00),
-    "gpt-5.1": (5.00, 15.00),
     # Google Gemini 3 Series
     "gemini-3-pro": (1.25, 5.00),
     "gemini-3-flash": (0.10, 0.40),
@@ -142,6 +160,8 @@ MODEL_PRICING = {
     "moonshotai/kimi-k2.5": (0.14, 0.28),
     "anthropic/claude-opus-4.6": (5.00, 25.00),
     "anthropic/claude-sonnet-4.6": (3.00, 15.00),
+    "openai/gpt-5.4": (2.50, 15.00),
+    "openai/gpt-5.3-codex": (1.75, 14.00),
     "openai/gpt-5.2-codex": (0.60, 2.40),
     "minimax/minimax-m2.1": (0.20, 0.55),
     "z-ai/glm-4.7": (0.50, 0.50),
@@ -154,11 +174,11 @@ CONTEXT_LIMITS = {
     "claude-sonnet-4-5": 200000,
     "claude-haiku-4-5": 200000,
     # OpenAI GPT-5 Series
+    "gpt-5.4": 1050000,
+    "gpt-5.3-codex": 400000,
     "gpt-5.2": 256000,
     "gpt-5.2-codex": 256000,
-    "gpt-5-codex": 256000,
     "gpt-5-mini": 128000,
-    "gpt-5.1": 256000,
     # Google Gemini 3 Series
     "gemini-3-pro": 2000000,
     "gemini-3-flash": 1000000,
@@ -167,6 +187,8 @@ CONTEXT_LIMITS = {
     # OpenRouter models
     "anthropic/claude-opus-4.6": 1000000,
     "anthropic/claude-sonnet-4.6": 1000000,
+    "openai/gpt-5.4": 1050000,
+    "openai/gpt-5.3-codex": 400000,
     "openai/gpt-5.2-codex": 128000,
 }
 
@@ -196,6 +218,20 @@ MODEL_CAPABILITIES = {
         "max_output_tokens": 4096,
     },
     # GPT-5 Series - Multimodal with O-series reasoning
+    "gpt-5.4": {
+        "supports_tools": True,
+        "supports_streaming": True,
+        "supports_reasoning": True,
+        "supports_vision": True,
+        "max_output_tokens": 128000,
+    },
+    "gpt-5.3-codex": {
+        "supports_tools": True,
+        "supports_streaming": True,
+        "supports_reasoning": True,
+        "supports_vision": False,
+        "max_output_tokens": 16384,
+    },
     "gpt-5.2": {
         "supports_tools": True,
         "supports_streaming": True,
@@ -210,26 +246,12 @@ MODEL_CAPABILITIES = {
         "supports_vision": False,
         "max_output_tokens": 16384,
     },
-    "gpt-5-codex": {
-        "supports_tools": True,
-        "supports_streaming": True,
-        "supports_reasoning": True,
-        "supports_vision": False,
-        "max_output_tokens": 16384,
-    },
     "gpt-5-mini": {
         "supports_tools": True,
         "supports_streaming": True,
         "supports_reasoning": True,
         "supports_vision": True,
         "max_output_tokens": 8192,
-    },
-    "gpt-5.1": {
-        "supports_tools": True,
-        "supports_streaming": True,
-        "supports_reasoning": True,
-        "supports_vision": True,
-        "max_output_tokens": 16384,
     },
     # Gemini 3 Series - Enhanced multimodal
     "gemini-3-pro": {
@@ -272,6 +294,20 @@ MODEL_CAPABILITIES = {
         "supports_extended_thinking": True,
         "supports_vision": True,
         "max_output_tokens": 8192,
+    },
+    "openai/gpt-5.4": {
+        "supports_tools": True,
+        "supports_streaming": True,
+        "supports_reasoning": True,
+        "supports_vision": True,
+        "max_output_tokens": 128000,
+    },
+    "openai/gpt-5.3-codex": {
+        "supports_tools": True,
+        "supports_streaming": True,
+        "supports_reasoning": True,
+        "supports_vision": False,
+        "max_output_tokens": 16384,
     },
     "openai/gpt-5.2-codex": {
         "supports_tools": True,
@@ -426,6 +462,18 @@ def save_config(api_key, provider, model):
 
     ENV_FILE.write_text("\n".join(lines))
     ENV_FILE.chmod(0o600)  # Secure: owner read/write only
+
+
+def save_rate_limit_tier(tier_name):
+    """Save rate limit tier to settings.json.
+
+    Args:
+        tier_name: One of the keys from RATE_LIMIT_TIERS.
+    """
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    settings = load_settings_file()
+    settings["rate_limit_tier"] = tier_name
+    SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
 
 
 def setup_config(first_time=True):
@@ -681,6 +729,12 @@ def load_config(
     if not model:
         model = DEFAULT_MODELS[provider]
 
+    # Load rate limit tier from settings
+    rate_limit_tier = settings_config.get("rate_limit_tier", DEFAULT_RATE_LIMIT_TIER)
+    if rate_limit_tier not in RATE_LIMIT_TIERS:
+        rate_limit_tier = DEFAULT_RATE_LIMIT_TIER
+    max_api_calls = RATE_LIMIT_TIERS[rate_limit_tier]["max_calls"]
+
     return Config(
         provider=provider,
         api_key=api_key,
@@ -689,4 +743,5 @@ def load_config(
         verbose=final_verbose,
         stream=final_stream,
         agent_config=agent_config,
+        max_api_calls_per_turn=max_api_calls,
     )

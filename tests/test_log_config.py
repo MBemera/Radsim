@@ -34,3 +34,15 @@ class TestConfigureLogging:
 
         logger = logging.getLogger("radsim")
         assert logger.level == logging.DEBUG
+
+    def test_configure_logging_is_idempotent(self, tmp_path):
+        log_dir = tmp_path / "logs"
+        logger = logging.getLogger("radsim")
+
+        configure_logging(log_dir=log_dir)
+        handler_count_after_first_call = len(logger.handlers)
+
+        configure_logging(log_dir=log_dir)
+        handler_count_after_second_call = len(logger.handlers)
+
+        assert handler_count_after_second_call == handler_count_after_first_call

@@ -4,7 +4,6 @@ Provides unified visual style using the custom palette, smooth animations,
 progress bars, and status panels.
 """
 
-import sys
 import time
 
 from rich.console import Console, Group
@@ -21,6 +20,8 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
+
+from .terminal import supports_color
 
 # Define the unique RadSim color palette
 COLORS = {
@@ -44,14 +45,6 @@ radsim_theme = Theme({
     "info": COLORS["primary"],
     "prompt": COLORS["primary"],
 })
-
-def supports_color():
-    """Check if terminal supports colors."""
-    if not hasattr(sys.stdout, "isatty"):
-        return False
-    if not sys.stdout.isatty():
-        return False
-    return True
 
 # Initialize global console
 console = Console(theme=radsim_theme, force_terminal=True if supports_color() else False)
@@ -324,5 +317,4 @@ class TaskDashboard:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stop()
-
 

@@ -1,7 +1,12 @@
-"""Cost-Effective Model Routing - Graceful Degradation.
+"""Experimental cost-effective model routing with graceful degradation.
 
 RadSim Principle: Graceful Degradation
 Always define an explicit fallback chain. Never assume services are available.
+
+Status:
+- Experimental: available for direct use and tests
+- Not wired into the main agent loop yet
+- Also exposed via ``radsim.experimental.model_router``
 
 Features:
 - Automatic fallback when a model/provider is unavailable

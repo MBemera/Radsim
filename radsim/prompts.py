@@ -2,6 +2,8 @@
 
 import logging
 
+from .runtime_context import get_runtime_context
+
 logger = logging.getLogger(__name__)
 
 RADSIM_SYSTEM_PROMPT = """You are RadSim, an agentic coding assistant that generates radically simple code.
@@ -390,6 +392,7 @@ IMPORTANT:
 def get_system_prompt():
     """Get the RadSim system prompt."""
     prompt = RADSIM_SYSTEM_PROMPT
+    runtime_context = get_runtime_context()
 
     # Include active mode prompt additions (e.g., Teach Mode)
     try:
@@ -403,9 +406,14 @@ def get_system_prompt():
 
     # Include user-configured skills
     try:
+        from .config import SKILLS_FILE
         from .skills import get_skills_for_prompt
 
-        skills_section = get_skills_for_prompt()
+        skills_section = runtime_context.get_cached_prompt_fragment(
+            "skills_prompt",
+            [SKILLS_FILE],
+            get_skills_for_prompt,
+        )
         if skills_section:
             prompt += skills_section
     except Exception:
@@ -415,13 +423,18 @@ def get_system_prompt():
     try:
         from .config import CUSTOM_PROMPT_FILE
 
-        if CUSTOM_PROMPT_FILE.exists():
-            custom_text = CUSTOM_PROMPT_FILE.read_text(encoding="utf-8").strip()
-            if custom_text:
-                max_custom_size = 5000  # 5KB max
-                if len(custom_text) > max_custom_size:
-                    custom_text = custom_text[:max_custom_size] + "\n[custom_prompt.txt truncated]"
-                prompt += f"\n\n## Custom Instructions\n{custom_text}"
+        custom_text = runtime_context.get_cached_prompt_fragment(
+            "custom_prompt",
+            [CUSTOM_PROMPT_FILE],
+            lambda: CUSTOM_PROMPT_FILE.read_text(encoding="utf-8").strip()
+            if CUSTOM_PROMPT_FILE.exists()
+            else "",
+        )
+        if custom_text:
+            max_custom_size = 5000  # 5KB max
+            if len(custom_text) > max_custom_size:
+                custom_text = custom_text[:max_custom_size] + "\n[custom_prompt.txt truncated]"
+            prompt += f"\n\n## Custom Instructions\n{custom_text}"
     except Exception:
         logger.debug("Failed to load custom_prompt.txt")
 
@@ -439,28 +452,42 @@ def get_system_prompt():
 
     # Load Global Memory Preferences
     try:
-        from .memory import Memory
-        mem = Memory()
-        global_prefs = mem.global_mem.data.get("preferences", {})
-        if global_prefs:
-            prefs_str = "\n".join(f"- {k}: {v}" for k, v in global_prefs.items())
-            prompt += f"\n\n## Global User Preferences\n{prefs_str}"
-
-        # Check for local agents.md context
-        # WARNING: This loads content from the project directory - potential prompt injection vector
-        agents_content = mem.project_mem.read_agents_md()
-        if agents_content:
-            context = agents_content.strip()
-            if context:
-                # Limit size to prevent context stuffing attacks
-                max_context_size = 10000  # 10KB max
-                if len(context) > max_context_size:
-                    context = context[:max_context_size] + "\n\n[agents.md truncated for security]"
-                prompt += f"\n\n## Project Context & Agent Persona (from agents.md)\n{context}"
+        mem = runtime_context.get_memory()
+        memory_fragment = runtime_context.get_cached_prompt_fragment(
+            "memory_prompt",
+            [mem.global_mem.file_path, mem.project_mem.agents_file],
+            lambda: _build_memory_prompt_fragment(mem),
+        )
+        if memory_fragment:
+            prompt += memory_fragment
     except Exception:
         logger.debug("Failed to load memory context")
 
     return prompt
+
+
+def _build_memory_prompt_fragment(memory):
+    """Build the prompt fragment sourced from persistent memory files."""
+    prompt_parts = []
+    global_prefs = memory.global_mem.data.get("preferences", {})
+    if global_prefs:
+        prefs_str = "\n".join(f"- {key}: {value}" for key, value in global_prefs.items())
+        prompt_parts.append(f"\n\n## Global User Preferences\n{prefs_str}")
+
+    agents_content = memory.project_mem.read_agents_md()
+    if not agents_content:
+        return "".join(prompt_parts)
+
+    context = agents_content.strip()
+    if not context:
+        return "".join(prompt_parts)
+
+    max_context_size = 10000
+    if len(context) > max_context_size:
+        context = context[:max_context_size] + "\n\n[agents.md truncated for security]"
+
+    prompt_parts.append(f"\n\n## Project Context & Agent Persona (from agents.md)\n{context}")
+    return "".join(prompt_parts)
 
 
 def format_tool_result(tool_name, result):
