@@ -48,17 +48,17 @@ def _emergency_stop_handler(signum, frame):
     _last_interrupt = current_time
 
     if _interrupt_count >= 2:
-        print("\n\n  🛑 EMERGENCY STOP - Killing process immediately!")
+        print("\n\n  EMERGENCY STOP - Killing process immediately!")
         os._exit(1)
 
     # Soft cancel: if agent is actively processing, set interrupt flag
     if _active_agent and _active_agent._is_processing.is_set():
         _active_agent._interrupted.set()
-        print("\n\n  ⚠ Cancelling... (press Ctrl+C again to force kill)")
+        print("\n\n  warning: Cancelling... (press Ctrl+C again to force kill)")
         return
 
     # At prompt or no agent: raise KeyboardInterrupt
-    print("\n\n  ⚠ Interrupted. Press Ctrl+C again within 2 seconds to FORCE KILL.")
+    print("\n\n  warning: Interrupted. Press Ctrl+C again within 2 seconds to FORCE KILL.")
     raise KeyboardInterrupt
 
 

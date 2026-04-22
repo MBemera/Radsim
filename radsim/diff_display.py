@@ -7,6 +7,7 @@ import difflib
 import logging
 
 from .terminal import colorize_ansi, supports_color
+from .theme import glyph
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +78,8 @@ def format_diff_header(filename, additions, deletions):
     else:
         file_part = colorize("(unnamed)", "gray")
 
-    add_part = colorize(f"+{additions}", "green")
-    del_part = colorize(f"-{deletions}", "red")
+    add_part = colorize(f"{glyph('diff_add')}{additions}", "green")
+    del_part = colorize(f"{glyph('diff_del')}{deletions}", "red")
 
     header_line = f"  {file_part}  {add_part}  {del_part}"
     separator = colorize("─" * 60, "dim")
@@ -114,7 +115,7 @@ def format_diff_line(line, line_number=None):
     elif line.startswith("+"):
         # Added line - bright green with dark green background
         content = line[1:]  # Remove the + prefix
-        prefix = colorize("+ ", "green_bold")
+        prefix = colorize(f"{glyph('diff_add')} ", "green_bold")
         text = (
             f"{DIFF_COLORS['bg_green']}{DIFF_COLORS['green']}{content}{DIFF_COLORS['reset']}"
             if supports_color()
@@ -125,7 +126,7 @@ def format_diff_line(line, line_number=None):
     elif line.startswith("-"):
         # Removed line - bright red with dark red background
         content = line[1:]  # Remove the - prefix
-        prefix = colorize("- ", "red_bold")
+        prefix = colorize(f"{glyph('diff_del')} ", "red_bold")
         text = (
             f"{DIFF_COLORS['bg_red']}{DIFF_COLORS['red']}{content}{DIFF_COLORS['reset']}"
             if supports_color()
@@ -266,9 +267,9 @@ def get_diff_summary(old_content, new_content):
 
     parts = []
     if additions > 0:
-        parts.append(colorize(f"+{additions} lines", "green"))
+        parts.append(colorize(f"{glyph('diff_add')}{additions} lines", "green"))
     if deletions > 0:
-        parts.append(colorize(f"-{deletions} lines", "red"))
+        parts.append(colorize(f"{glyph('diff_del')}{deletions} lines", "red"))
 
     if not parts:
         return "No changes"

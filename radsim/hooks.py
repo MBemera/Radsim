@@ -215,10 +215,10 @@ def create_notification_hook(notify_func: Callable[[str], None]) -> HookFunction
         success = context.tool_result.get("success", False)
 
         if success:
-            notify_func(f"✓ {tool_name} completed successfully")
+            notify_func(f"ok {tool_name} completed successfully")
         else:
             error = context.tool_result.get("error", "Unknown error")
-            notify_func(f"✗ {tool_name} failed: {error}")
+            notify_func(f"fail {tool_name}: {error}")
 
         return context
 

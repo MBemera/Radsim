@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 
 from .agent_constants import READ_ONLY_TOOLS
 from .output import Spinner, print_error, print_info, print_success, print_warning
@@ -138,9 +139,7 @@ class AgentPolicyMixin:
         if tool_name == "schedule_task":
             return self._handle_schedule_task(tool_input)
         if tool_name in READ_ONLY_TOOLS:
-            result = execute_tool(tool_name, tool_input)
-            self._print_tool_result(tool_name, tool_input, result)
-            return result
+            return execute_tool(tool_name, tool_input)
         if self._mcp_manager and self._mcp_manager.is_mcp_tool(tool_name):
             description = f"MCP tool: {tool_name}"
             if not self.config.auto_confirm:
@@ -153,17 +152,17 @@ class AgentPolicyMixin:
             else:
                 print_info(f"Auto-executing: {description}")
 
-            from .output import print_tool_call
+            from .output import print_tool_call, print_tool_result_verbose
 
-            print_tool_call(tool_name, tool_input)
+            tool_handle = print_tool_call(tool_name, tool_input)
+            start_time = time.time()
             result = self._mcp_manager.call_tool(tool_name, tool_input)
-            self._print_tool_result(tool_name, tool_input, result)
+            duration_ms = (time.time() - start_time) * 1000
+            print_tool_result_verbose(tool_handle, tool_name, result, duration_ms)
             return result
 
         print_warning(f"Unknown tool: {tool_name}")
-        result = execute_tool(tool_name, tool_input)
-        self._print_tool_result(tool_name, tool_input, result)
-        return result
+        return execute_tool(tool_name, tool_input)
 
     def _print_tool_result(self, tool_name, tool_input, result):
         """Print the result of a tool execution."""

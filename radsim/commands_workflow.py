@@ -72,14 +72,14 @@ class WorkflowCommandHandlersMixin:
                 return
 
             save_budget(budget_value)
-            print(f"\n  ✓ Complexity budget set to {budget_value}")
+            print(f"\n  ok Complexity budget set to {budget_value}")
 
             result = check_budget(os.getcwd())
             score = result["score"]
             if result["within_budget"]:
-                print(f"  ✅ Currently within budget ({score}/{budget_value})")
+                print(f"  ok Currently within budget ({score}/{budget_value})")
             else:
-                print(f"  ⚠️  Currently OVER budget ({score}/{budget_value})")
+                print(f"  warning: Currently OVER budget ({score}/{budget_value})")
             print()
             return
 
@@ -212,14 +212,14 @@ class WorkflowCommandHandlersMixin:
             )
 
             if total_items == 0:
-                print("\n  Nothing to clean up! Codebase is tidy. ✅")
+                print("\n  Nothing to clean up. Codebase is tidy.")
                 print()
                 return
 
             for line in format_archaeology_report(results):
                 print(line)
 
-            print("  ⚠️  Cleanup is review-only. No files will be modified.")
+            print("  warning: Cleanup is review-only. No files will be modified.")
             print("  To remove items, edit the files manually after reviewing.")
             print("  This ensures you never accidentally delete needed code.")
             print()
@@ -307,7 +307,7 @@ class WorkflowCommandHandlersMixin:
 
             next_step = plan_manager.get_next_step()
             if not next_step:
-                print("  ✅ All steps completed!")
+                print("  ok All steps completed!")
                 return
 
             step_index, step = next_step
@@ -333,7 +333,7 @@ class WorkflowCommandHandlersMixin:
             except Exception:
                 pass
 
-            print(f"\n  ✓ Step {step_index + 1} completed.")
+            print(f"\n  ok Step {step_index + 1} completed.")
             print(plan_manager.get_status())
             return
 
@@ -348,7 +348,7 @@ class WorkflowCommandHandlersMixin:
             while True:
                 next_step = plan_manager.get_next_step()
                 if not next_step:
-                    print("\n  ✅ All steps completed!")
+                    print("\n  ok All steps completed!")
                     break
 
                 step_index, step = next_step
@@ -380,7 +380,7 @@ class WorkflowCommandHandlersMixin:
                 except Exception:
                     pass
 
-                print(f"  ✓ Step {step_index + 1} completed.")
+                print(f"  ok Step {step_index + 1} completed.")
 
             print(plan_manager.get_status())
             return
@@ -406,10 +406,10 @@ class WorkflowCommandHandlersMixin:
             if plan:
                 print(plan_manager.show_plan())
             else:
-                print("  ⚠ Could not parse plan from response.")
+                print("  warning: Could not parse plan from response.")
                 print("  The response was displayed above. Try again with a clearer description.")
         else:
-            print("  ⚠ No response from agent. Check your API key and provider.")
+            print("  warning: No response from agent. Check your API key and provider.")
 
     def _cmd_panning(self, agent, args=None):
         """Brain-dump processing & synthesis."""
@@ -487,9 +487,9 @@ class WorkflowCommandHandlersMixin:
                 if synthesis:
                     print(synthesis.format_display())
                 else:
-                    print("  ⚠ Could not parse synthesis. Response displayed above.")
+                    print("  warning: Could not parse synthesis. Response displayed above.")
             else:
-                print("  ⚠ No response from agent.")
+                print("  warning: No response from agent.")
 
             session.end()
             return
@@ -522,7 +522,7 @@ class WorkflowCommandHandlersMixin:
                 if new_synthesis:
                     print(new_synthesis.format_display())
                 else:
-                    print("  ⚠ Could not parse refined synthesis.")
+                    print("  warning: Could not parse refined synthesis.")
             return
 
         if action == "bridge":
@@ -545,7 +545,7 @@ class WorkflowCommandHandlersMixin:
             session = start_new_session()
             session.start()
         session.add_dump(" ".join(args))
-        print(f"  ✓ Added to panning session ({len(session.dumps)} dump(s) collected)")
+        print(f"  ok Added to panning session ({len(session.dumps)} dump(s) collected)")
         print("  Keep dumping, or type '/panning end' to synthesise.")
 
     def _cmd_background(self, agent, args=None):
@@ -684,7 +684,7 @@ class WorkflowCommandHandlersMixin:
             print("  ═══ SCHEDULED JOBS ═══")
             print()
             for job in jobs:
-                status_icon = "\033[32m✓\033[0m" if job.enabled else "\033[33m⏸\033[0m"
+                status_icon = "\033[32mok\033[0m" if job.enabled else "\033[33m⏸\033[0m"
                 schedule_desc = describe_schedule(job.schedule)
                 if job.is_radsim_task:
                     command_display = f'radsim "{job.command[:50]}"'

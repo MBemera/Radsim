@@ -106,14 +106,6 @@ def print_box(lines: list, title: str = None):
     print()
 
 
-def animate_text(text: str, delay: float = 0.02):
-    """Print text with a typing animation effect."""
-    for char in text:
-        print(char, end="", flush=True)
-        time.sleep(delay)
-    print()
-
-
 def step_terms_and_conditions() -> bool:
     """Show Terms & Conditions and require acceptance.
 
@@ -175,7 +167,7 @@ def step_terms_and_conditions() -> bool:
 
         if response in ("yes", "y"):
             print()
-            print("  ✓ Terms & Conditions accepted.")
+            print("  ok Terms & Conditions accepted.")
             return True
 
         if response in ("no", "n"):
@@ -203,8 +195,6 @@ def step_welcome() -> str:
     print("           Radically Simple Code Generator")
     print("  ─────────────────────────────────────────────────")
     print()
-
-    time.sleep(0.5)
 
     print("  Welcome! I'm RadSim, your AI coding assistant.")
     print()
@@ -419,7 +409,7 @@ def step_user_profile(user_name: str):
 def step_provider_intro():
     """Step 2: Explain providers."""
     clear_screen()
-    print_header("Step 1 of 5: Choose Your AI Provider")
+    print_header("Step 1 of 6: Choose Your AI Provider")
 
     print("  RadSim works with multiple AI providers.")
     print("  Each has different strengths and pricing:")
@@ -445,7 +435,7 @@ def step_provider_intro():
 def step_select_provider() -> tuple:
     """Step 3: Select provider and model."""
     clear_screen()
-    print_header("Step 2 of 5: Select Provider & Model")
+    print_header("Step 2 of 6: Select Provider & Model")
 
     print("  Choose your preferred AI provider:")
     print()
@@ -504,7 +494,7 @@ def step_select_provider() -> tuple:
         print(f"  Invalid choice. Please enter 1-{len(models)}.")
 
     print()
-    print(f"  ✓ Selected: {provider.title()} / {model_name}")
+    print(f"  ok Selected: {provider.title()} / {model_name}")
     pause()
 
     return provider, model
@@ -515,7 +505,7 @@ def step_api_key(provider: str) -> str:
     from .config import PROVIDER_ENV_VARS
 
     clear_screen()
-    print_header("Step 3 of 5: API Key Setup")
+    print_header("Step 3 of 6: API Key Setup")
 
     provider_url = PROVIDER_URLS[provider]
 
@@ -528,7 +518,7 @@ def step_api_key(provider: str) -> str:
             existing_project = env_config.get("keys", {}).get("GOOGLE_CLOUD_PROJECT")
 
         if existing_project and not existing_project.lower().startswith("paste_your"):
-            print(f"  ✓ Found existing GOOGLE_CLOUD_PROJECT: {existing_project}")
+            print(f"  ok Found existing GOOGLE_CLOUD_PROJECT: {existing_project}")
             print()
             print("  Your Vertex AI project is already configured!")
             location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
@@ -546,7 +536,7 @@ def step_api_key(provider: str) -> str:
         print(f"  1. A GCP project with Vertex AI enabled: {provider_url}")
         print("  2. Application Default Credentials (run: gcloud auth application-default login)")
         print()
-        print("  🔐 Enter your GCP project details:")
+        print("  [api key] Enter your GCP project details:")
         print()
 
         try:
@@ -600,7 +590,7 @@ def step_api_key(provider: str) -> str:
         ENV_FILE.chmod(0o600)
 
         print()
-        print("  ✓ Vertex AI config saved securely to ~/.radsim/.env")
+        print("  ok Vertex AI config saved securely to ~/.radsim/.env")
         pause()
         return f"{project_id}:{location}"
 
@@ -614,7 +604,7 @@ def step_api_key(provider: str) -> str:
         existing_key = env_config.get("keys", {}).get(env_var_name)
 
     if existing_key and not existing_key.lower().startswith("paste_your"):
-        print(f"  ✓ Found existing {env_var_name}")
+        print(f"  ok Found existing {env_var_name}")
         print()
         print("  Your API key is already configured!")
         pause()
@@ -627,7 +617,7 @@ def step_api_key(provider: str) -> str:
     print("  2. Create a new API key")
     print("  3. Copy the key")
     print()
-    print("  🔐 For security, you have three options:")
+    print("  [api key] For security, you have three options:")
     print()
     print("  Option A: Paste your key now (stored securely in ~/.radsim/.env)")
     print("  Option B: Create a blank .env file (you fill in the key yourself)")
@@ -676,7 +666,7 @@ def step_api_key(provider: str) -> str:
         ENV_FILE.chmod(0o600)  # Secure permissions
 
         print()
-        print("  ✓ Blank .env file created at:")
+        print("  ok Blank .env file created at:")
         print(f"    {ENV_FILE}")
         print()
         print("  Next steps:")
@@ -709,7 +699,7 @@ def step_api_key(provider: str) -> str:
         # Validate key format (basic check)
         if len(api_key_input) < 20:
             print()
-            print("  ⚠ That doesn't look like a valid API key.")
+            print("  warning: That doesn't look like a valid API key.")
             print("  You can add it later to ~/.radsim/.env")
             pause()
             return None
@@ -741,7 +731,7 @@ def step_api_key(provider: str) -> str:
         ENV_FILE.chmod(0o600)  # Secure permissions
 
         print()
-        print("  ✓ API key saved securely to ~/.radsim/.env")
+        print("  ok API key saved securely to ~/.radsim/.env")
         pause()
         return api_key_input
 
@@ -760,7 +750,7 @@ def step_api_key(provider: str) -> str:
 def step_settings():
     """Step 5: Configure initial settings."""
     clear_screen()
-    print_header("Step 4 of 5: Preferences")
+    print_header("Step 4 of 6: Preferences")
 
     print("  Let's configure a few preferences:")
     print()
@@ -828,16 +818,112 @@ def step_settings():
     SETTINGS_FILE.write_text(json.dumps(existing_settings, indent=2))
 
     print()
-    print("  ✓ Preferences saved!")
+    print("  ok Preferences saved!")
     pause()
 
     return settings
 
 
+def step_appearance():
+    """Step: Choose UI palette, font profile, and animation level."""
+    from .theme import (
+        ANIMATION_LEVELS,
+        FONT_PROFILES,
+        PALETTES,
+        save_animation_level,
+        save_font_profile_selection,
+        save_palette_selection,
+    )
+
+    clear_screen()
+    print_header("Step 5 of 6: Appearance")
+
+    print("  Pick a color palette for RadSim's terminal UI.")
+    print("  (You can change it anytime with /theme.)")
+    print()
+
+    palette_keys = list(PALETTES.keys())
+    for index, key in enumerate(palette_keys, 1):
+        palette = PALETTES[key]
+        print(f"    {index}. {palette['label']}")
+        print(f"       {palette['description']}")
+    print()
+
+    try:
+        raw = input(f"  Enter 1-{len(palette_keys)} [2 = Soft Neon]: ").strip() or "2"
+    except (KeyboardInterrupt, EOFError):
+        print("\n  Setup cancelled.")
+        sys.exit(0)
+
+    try:
+        index = int(raw) - 1
+        if 0 <= index < len(palette_keys):
+            save_palette_selection(palette_keys[index])
+            print(f"\n  ok Palette: {PALETTES[palette_keys[index]]['label']}")
+    except ValueError:
+        logger.debug("Non-numeric palette choice; keeping default")
+
+    print()
+    print("  Now pick a font/glyph profile.")
+    print("  Nerd Font = best visuals but requires a patched terminal font.")
+    print("  Unicode = safe default. ASCII = maximum compatibility.")
+    print("  (You can change it anytime with /font.)")
+    print()
+
+    profile_keys = list(FONT_PROFILES.keys())
+    for index, key in enumerate(profile_keys, 1):
+        profile = FONT_PROFILES[key]
+        print(f"    {index}. {profile['label']}")
+        print(f"       {profile['description']}")
+    print()
+
+    try:
+        raw = input(f"  Enter 1-{len(profile_keys)} [2 = Unicode]: ").strip() or "2"
+    except (KeyboardInterrupt, EOFError):
+        print("\n  Setup cancelled.")
+        sys.exit(0)
+
+    try:
+        index = int(raw) - 1
+        if 0 <= index < len(profile_keys):
+            save_font_profile_selection(profile_keys[index])
+            print(f"\n  ok Font profile: {FONT_PROFILES[profile_keys[index]]['label']}")
+    except ValueError:
+        logger.debug("Non-numeric font profile choice; keeping default")
+
+    print()
+    print("  Finally, pick an animation level.")
+    print("  Full = animated spinner and tool updates.")
+    print("  Subtle = static status line and in-place tool updates.")
+    print("  Off = final output only.")
+    print("  (You can change it anytime with /animations.)")
+    print()
+
+    for index, level in enumerate(ANIMATION_LEVELS, 1):
+        print(f"    {index}. {level}")
+    print()
+
+    try:
+        raw = input(f"  Enter 1-{len(ANIMATION_LEVELS)} [2 = subtle]: ").strip() or "2"
+    except (KeyboardInterrupt, EOFError):
+        print("\n  Setup cancelled.")
+        sys.exit(0)
+
+    try:
+        index = int(raw) - 1
+        if 0 <= index < len(ANIMATION_LEVELS):
+            save_animation_level(ANIMATION_LEVELS[index])
+            print(f"\n  ok Animation level: {ANIMATION_LEVELS[index]}")
+    except ValueError:
+        logger.debug("Non-numeric animation choice; keeping default")
+
+    pause()
+
+
 def step_tutorial():
     """Step 6: Quick tutorial."""
     clear_screen()
-    print_header("Quick Start Guide")
+    print_header("Step 6 of 6: Quick Start Guide")
 
     print("  Here's how to use RadSim:")
     print()
@@ -957,7 +1043,10 @@ def run_onboarding() -> tuple:
     # Step 6: Settings
     step_settings()
 
-    # Step 7: Tutorial
+    # Step 7: Appearance (palette + font profile)
+    step_appearance()
+
+    # Step 8: Tutorial
     step_tutorial()
 
     # Step 8: Complete

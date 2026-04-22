@@ -135,7 +135,7 @@ class EscapeListener:
                         if self._agent._is_processing.is_set():
                             self._agent._interrupted.set()
                             sys.stdout.write(
-                                "\n\n  \x1b[33m⚠ Cancelling... (Esc pressed)\x1b[0m\n"
+                                "\n\n  \x1b[33mwarning: Cancelling... (Esc pressed)\x1b[0m\n"
                             )
                             sys.stdout.flush()
                             return

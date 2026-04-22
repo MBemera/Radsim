@@ -442,43 +442,43 @@ def format_archaeology_report(results):
 
     # Dead functions
     dead = results["dead_functions"]
-    lines.append(f"  🦴 Dead Functions: {summary['dead_function_count']}")
+    lines.append(f"  Dead Functions: {summary['dead_function_count']}")
     if dead:
         for defn in dead[:10]:
             lines.append(f"    - {defn['basename']}:{defn['function']}()  (L{defn['line']})")
         if len(dead) > 10:
             lines.append(f"    ... and {len(dead) - 10} more")
     else:
-        lines.append("    None found ✅")
+        lines.append("    None found")
     lines.append("")
 
     # Orphaned files
     orphaned = results["orphaned_files"]
-    lines.append(f"  📦 Orphaned Files: {summary['orphaned_file_count']}")
+    lines.append(f"  Orphaned Files: {summary['orphaned_file_count']}")
     if orphaned:
         for entry in orphaned[:10]:
             lines.append(f"    - {entry['basename']}  (0 references)")
         if len(orphaned) > 10:
             lines.append(f"    ... and {len(orphaned) - 10} more")
     else:
-        lines.append("    None found ✅")
+        lines.append("    None found")
     lines.append("")
 
     # Zombie dependencies
     zombies = results["zombie_deps"]
-    lines.append(f"  🧟 Zombie Dependencies: {summary['zombie_dep_count']}")
+    lines.append(f"  Zombie Dependencies: {summary['zombie_dep_count']}")
     if zombies:
         for dep in zombies[:10]:
             lines.append(f"    - {dep['package']}  (in {dep['source']}, never imported)")
         if len(zombies) > 10:
             lines.append(f"    ... and {len(zombies) - 10} more")
     else:
-        lines.append("    None found ✅")
+        lines.append("    None found")
     lines.append("")
 
     # Unused imports
     imports = results["unused_imports"]
-    lines.append(f"  📎 Unused Imports: {summary['unused_import_count']}")
+    lines.append(f"  Unused Imports: {summary['unused_import_count']}")
     if imports:
         for file_result in imports[:10]:
             fname = file_result["basename"]
@@ -490,7 +490,7 @@ def format_archaeology_report(results):
         if len(imports) > 10:
             lines.append(f"    ... and {len(imports) - 10} more files")
     else:
-        lines.append("    None found ✅")
+        lines.append("    None found")
     lines.append("")
 
     # Summary
@@ -523,7 +523,7 @@ def format_imports_report(import_results):
     lines.append("")
 
     if not import_results:
-        lines.append("  No unused imports found ✅")
+        lines.append("  No unused imports found ok")
         lines.append("")
         return lines
 
@@ -533,7 +533,7 @@ def format_imports_report(import_results):
 
     for file_result in import_results:
         fname = file_result["basename"]
-        lines.append(f"  📄 {fname}")
+        lines.append(f"  File: {fname}")
         for imp in file_result["unused_imports"]:
             lines.append(f"    L{imp['line']:>4}: {imp['full_line']}")
         lines.append("")
@@ -556,7 +556,7 @@ def format_deps_report(zombie_deps):
     lines.append("")
 
     if not zombie_deps:
-        lines.append("  No zombie dependencies found ✅")
+        lines.append("  No zombie dependencies found ok")
         lines.append("")
         return lines
 
@@ -564,7 +564,7 @@ def format_deps_report(zombie_deps):
     lines.append("")
 
     for dep in zombie_deps:
-        lines.append(f"    🧟 {dep['package']:<30} (in {dep['source']})")
+        lines.append(f"    zombie {dep['package']:<24} (in {dep['source']})")
     lines.append("")
     lines.append("  Note: Some packages may be used indirectly (plugins, CLI tools).")
     lines.append("  Review before removing.")

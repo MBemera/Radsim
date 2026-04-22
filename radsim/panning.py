@@ -81,8 +81,8 @@ class PanningSynthesis:
             for item in self.action_items:
                 task = item.get("task", "")[:width - 12]
                 priority = item.get("priority", "medium")
-                icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(priority, "⚪")
-                lines.append(f"  │  {icon} [ ] {task:<{width - 12}}│")
+                icon = {"high": "[high]", "medium": "[med]", "low": "[low]"}.get(priority, "[?]")
+                lines.append(f"  │  {icon:<6} [ ] {task:<{width - 17}}│")
             lines.append(f"  │{' ' * width}│")
 
         # Priorities
@@ -160,7 +160,7 @@ class PanningSession:
         """Start an interactive panning session."""
         self.active = True
         return (
-            "\n  🍳 Panning session started!\n"
+            "\n  Panning session started.\n"
             "  Dump your thoughts freely — rambling encouraged.\n"
             "  Type '/panning end' when done to generate synthesis.\n"
         )
@@ -175,14 +175,14 @@ class PanningSession:
         try:
             file_path = Path(path).expanduser()
             if not file_path.exists():
-                return f"  ⚠ File not found: {path}"
+                return f"  warning: File not found: {path}"
 
             content = file_path.read_text(encoding="utf-8")
             self.dumps.append(content)
             self._save()
-            return f"  ✓ Added {len(content)} characters from {file_path.name}"
+            return f"  ok Added {len(content)} characters from {file_path.name}"
         except Exception as e:
-            return f"  ⚠ Error reading file: {e}"
+            return f"  warning: Error reading file: {e}"
 
     def get_all_dumps(self) -> str:
         """Get all dumps concatenated for synthesis."""

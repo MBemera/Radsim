@@ -56,7 +56,7 @@ class TodoTracker:
         for item in pending:
             lines.append(f"⬚ PENDING: {item.description} (#{item.id})")
         for item in completed:
-            lines.append(f"✓ DONE: {item.description} (#{item.id})")
+            lines.append(f"ok DONE: {item.description} (#{item.id})")
 
         return {
             "success": True,

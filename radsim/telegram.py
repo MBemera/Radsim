@@ -558,34 +558,34 @@ def create_command_keyboard(command: str, args: list = None) -> list:
     """Create context-aware keyboard for command."""
     keyboards = {
         "/skill": [
-            {"text": "📚 List Skills", "callback_data": "skill_list"},
-            {"text": "➕ Learn Skill", "callback_data": "skill_learn"},
-            {"text": "🗑️ Clear Skill", "callback_data": "skill_clear"},
-            {"text": "❓ Help", "callback_data": "skill_help"},
+            {"text": "List Skills", "callback_data": "skill_list"},
+            {"text": "Learn Skill", "callback_data": "skill_learn"},
+            {"text": "Clear Skill", "callback_data": "skill_clear"},
+            {"text": "Help", "callback_data": "skill_help"},
         ],
         "/memory": [
-            {"text": "💾 Show All", "callback_data": "memory_show"},
-            {"text": "🔍 Search", "callback_data": "memory_search"},
-            {"text": "🧹 Clear All", "callback_data": "memory_clear"},
+            {"text": "Show All", "callback_data": "memory_show"},
+            {"text": "Search", "callback_data": "memory_search"},
+            {"text": "Clear All", "callback_data": "memory_clear"},
         ],
         "/tools": [
-            {"text": "🔧 Core Tools", "callback_data": "tools_core"},
-            {"text": "📁 File Ops", "callback_data": "tools_file"},
-            {"text": "🌐 Web Tools", "callback_data": "tools_web"},
+            {"text": "Core Tools", "callback_data": "tools_core"},
+            {"text": "File Ops", "callback_data": "tools_file"},
+            {"text": "Web Tools", "callback_data": "tools_web"},
         ],
         "/commands": [
-            {"text": "⚡ Quick Actions", "callback_data": "cmds_quick"},
-            {"text": "⚙️ Settings", "callback_data": "cmds_settings"},
-            {"text": "📊 Status", "callback_data": "cmds_status"},
+            {"text": "Quick Actions", "callback_data": "cmds_quick"},
+            {"text": "Settings", "callback_data": "cmds_settings"},
+            {"text": "Status", "callback_data": "cmds_status"},
         ],
     }
 
     if args and args[0] in ["learn", "list", "clear", "core", "file", "web", "show", "search"]:
-        return [{"text": "⬅️ Back to Menu", "callback_data": f"menu_{command.lstrip('/')}"}]
+        return [{"text": "Back to Menu", "callback_data": f"menu_{command.lstrip('/')}"}]
 
     return keyboards.get(command, [
-        {"text": "📖 Help", "callback_data": "help"},
-        {"text": "🔄 Refresh", "callback_data": f"refresh_{command.lstrip('/')}"},
+        {"text": "Help", "callback_data": "help"},
+        {"text": "Refresh", "callback_data": f"refresh_{command.lstrip('/')}"},
     ])
 
 def handle_callback_query(update: dict) -> dict:

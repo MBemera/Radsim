@@ -441,24 +441,24 @@ def format_stress_report(results):
     sev = results["severity"]
 
     lines.append(f"  Functions tested: {funcs}")
-    lines.append(f"  Passed:           {passed} ✅")
+    lines.append(f"  Passed:           {passed} ok")
     if total > 0:
         lines.append(f"  Issues found:     {total}")
-        lines.append(f"    High:   {sev.get('high', 0)} 🔴")
-        lines.append(f"    Medium: {sev.get('medium', 0)} 🟡")
-        lines.append(f"    Low:    {sev.get('low', 0)} 🔵")
+        lines.append(f"    High:   {sev.get('high', 0)}")
+        lines.append(f"    Medium: {sev.get('medium', 0)}")
+        lines.append(f"    Low:    {sev.get('low', 0)}")
     else:
-        lines.append("  Issues found:     0 — all clear! 🎉")
+        lines.append("  Issues found:     0 — all clear")
     lines.append("")
 
     # Per-file details (top 10)
     for file_result in results["files"][:10]:
         fname = file_result["basename"]
         issue_count = len(file_result["issues"])
-        lines.append(f"  📄 {fname} — {issue_count} issue(s)")
+        lines.append(f"  File: {fname} — {issue_count} issue(s)")
 
         for issue in file_result["issues"][:5]:
-            sev_icon = {"high": "🔴", "medium": "🟡", "low": "🔵"}[issue["severity"]]
+            sev_icon = f"[{issue['severity'].upper()}]"
             lines.append(f"    {sev_icon} L{issue['line']:>4} {issue['function']}(): {issue['message']}")
 
         remaining = len(file_result["issues"]) - 5
@@ -490,22 +490,22 @@ def _format_single_file_report(result):
 
     # Show passed functions
     for func in result.get("passed_functions", []):
-        lines.append(f"    ✅ {func}()")
+        lines.append(f"    ok {func}()")
 
     # Show failed functions with details
     for func in result.get("failed_functions", []):
         func_issues = [i for i in result["issues"] if i["function"] == func]
-        lines.append(f"    ⚠️  {func}() — {len(func_issues)} issue(s)")
+        lines.append(f"    warning:  {func}() — {len(func_issues)} issue(s)")
 
         for issue in func_issues:
-            sev_icon = {"high": "🔴", "medium": "🟡", "low": "🔵"}[issue["severity"]]
+            sev_icon = f"[{issue['severity'].upper()}]"
             lines.append(f"       {sev_icon} L{issue['line']}: {issue['message']}")
             lines.append(f"          → {issue['suggestion']}")
 
     lines.append("")
 
     if not result["issues"]:
-        lines.append("  All clear! No issues found. 🎉")
+        lines.append("  All clear. No issues found.")
         lines.append("")
 
     return lines

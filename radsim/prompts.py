@@ -284,7 +284,7 @@ You: "I found 5 skills in this file. Let me confirm each one:"
 You: "1. Always use type hints in Python function signatures"
 You: "   Save this skill? [y/n]"
 User: y
-You: "✓ Saved. 2. Use pytest fixtures instead of setUp/tearDown"
+You: "ok Saved. 2. Use pytest fixtures instead of setUp/tearDown"
 You: "   Save this skill? [y/n]"
 ...
 ```

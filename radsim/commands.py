@@ -3,7 +3,7 @@
 import re
 
 from .commands_core import CoreCommandHandlersMixin
-from .commands_help import detect_help_intent
+from .commands_help import detect_help_intent  # noqa: F401 - re-exported for compatibility
 from .commands_learning import LearningCommandHandlersMixin
 from .commands_metadata import COMMAND_HINTS, DEFAULT_COMMAND_SPECS, TELEGRAM_SAFE_COMMANDS
 from .commands_workflow import WorkflowCommandHandlersMixin

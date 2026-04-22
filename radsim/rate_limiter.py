@@ -249,7 +249,7 @@ class BudgetGuard:
             if self._input_tokens >= input_warn_at and not self._input_warned:
                 self._input_warned = True
                 pct = (self._input_tokens / self.max_input_tokens) * 100
-                warnings.append(f"⚠️  Input token usage at {pct:.0f}%")
+                warnings.append(f"warning:  Input token usage at {pct:.0f}%")
 
         # Warn if approaching output limit (skip if unlimited)
         if self.max_output_tokens > 0:
@@ -257,7 +257,7 @@ class BudgetGuard:
             if self._output_tokens >= output_warn_at and not self._output_warned:
                 self._output_warned = True
                 pct = (self._output_tokens / self.max_output_tokens) * 100
-                warnings.append(f"⚠️  Output token usage at {pct:.0f}%")
+                warnings.append(f"warning:  Output token usage at {pct:.0f}%")
 
         return " | ".join(warnings) if warnings else None
 

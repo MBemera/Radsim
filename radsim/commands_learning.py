@@ -107,7 +107,7 @@ class LearningCommandHandlersMixin:
         if category == "budget":
             if hasattr(agent, "protection"):
                 agent.protection.reset_all()
-                print_info("✓ Token budget reset. Session limits cleared.")
+                print_info("ok Token budget reset. Session limits cleared.")
                 print_info(f"  Input tokens: 0 / {agent.config.max_session_input_tokens or '∞'}")
                 print_info(
                     f"  Output tokens: 0 / {agent.config.max_session_output_tokens or '∞'}"
@@ -118,7 +118,7 @@ class LearningCommandHandlersMixin:
 
         if category == "all" and hasattr(agent, "protection"):
             agent.protection.reset_all()
-            print_info("✓ Token budget reset.")
+            print_info("ok Token budget reset.")
 
         result = reset_learning_category(category)
 
@@ -434,7 +434,7 @@ class LearningCommandHandlersMixin:
             instruction = " ".join(args[1:])
             result = add_skill(instruction)
             if result["success"]:
-                print_info(f"✓ Skill added: {instruction[:50]}...")
+                print_info(f"ok Skill added: {instruction[:50]}...")
                 print_info("This will be included in future conversations.")
             else:
                 print_error(result.get("error", "Failed to add skill"))
@@ -469,7 +469,7 @@ class LearningCommandHandlersMixin:
 
             result = remove_skill(index)
             if result["success"]:
-                print_info(f"✓ Removed skill: {result.get('removed', '')[:50]}...")
+                print_info(f"ok Removed skill: {result.get('removed', '')[:50]}...")
             else:
                 print_error(result.get("error", "Failed to remove skill"))
             return
@@ -543,7 +543,7 @@ class LearningCommandHandlersMixin:
                 if response in ["y", "yes"] or save_all:
                     save_result = confirm_and_save_skill(instruction, source="markdown")
                     if save_result["success"]:
-                        print_info("     ✓ Saved")
+                        print_info("     ok Saved")
                         saved_count += 1
                     else:
                         print_error(f"     {save_result.get('error', 'Failed')}")
@@ -552,7 +552,7 @@ class LearningCommandHandlersMixin:
                         for remaining in skills_found[index:]:
                             save_result = confirm_and_save_skill(remaining, source="markdown")
                             if save_result["success"]:
-                                print_info(f"     ✓ {remaining[:50]}...")
+                                print_info(f"     ok {remaining[:50]}...")
                                 saved_count += 1
                         break
                 else:
@@ -570,7 +570,7 @@ class LearningCommandHandlersMixin:
         if action == "clear":
             result = clear_skills()
             if result["success"]:
-                print_info("✓ All skills cleared")
+                print_info("ok All skills cleared")
             else:
                 print_error(result.get("error", "Failed to clear skills"))
             return
@@ -836,7 +836,7 @@ class LearningCommandHandlersMixin:
                 result = start_listening()
                 if result["success"]:
                     print()
-                    print("  ✓ Telegram listener: ON")
+                    print("  ok Telegram listener: ON")
                     print("  Receiving messages from your Telegram bot.")
                     print("  Messages will appear in your RadSim session.")
                     print("  Use /telegram listen off to stop.")
@@ -846,7 +846,7 @@ class LearningCommandHandlersMixin:
             elif toggle == "off":
                 stop_listening()
                 print()
-                print("  ✓ Telegram listener: OFF")
+                print("  ok Telegram listener: OFF")
                 print("  No longer receiving Telegram messages.")
                 print()
             else:
