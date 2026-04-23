@@ -2,7 +2,6 @@
 
 from .commands import CommandRegistry, detect_help_intent
 from .output import print_agent_response, print_error, print_warning
-from .prompts import get_system_prompt
 from .rate_limiter import BudgetExceeded, CircuitBreakerOpen, RateLimitExceeded
 from .runtime_context import get_runtime_context
 
@@ -88,11 +87,9 @@ def run_interactive(config, context_file=None):
                 print_info(f"✓ {message} - teaching in ALL responses enabled")
             else:
                 print_info(f"✓ {message}")
-            agent.system_prompt = get_system_prompt()
             continue
 
         if registry.handle_input(user_input, agent):
-            agent.system_prompt = get_system_prompt()
             continue
 
         help_topic = detect_help_intent(user_input)

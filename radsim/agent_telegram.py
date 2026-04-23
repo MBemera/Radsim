@@ -5,7 +5,6 @@ import threading
 import time
 
 from .output import print_info
-from .prompts import get_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +75,6 @@ def _process_telegram_message(message, registry, agent, set_telegram_confirm):
         with agent._processing_lock:
             if registry.handle_input(text, agent):
                 send_telegram_message(f"Command executed: {text}")
-                agent.system_prompt = get_system_prompt()
                 return
 
     set_telegram_confirm(_telegram_confirm)
@@ -143,7 +141,6 @@ def _process_callback_query(callback, registry, agent, set_telegram_confirm):
         with agent._processing_lock:
             if registry.handle_input(command_string, agent):
                 send_telegram_message(f"Executed: {command_string}")
-                agent.system_prompt = get_system_prompt()
     elif action["action"] == "show_help":
         send_telegram_message(action["response_text"])
 

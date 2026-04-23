@@ -50,7 +50,7 @@ class AgentApiMixin:
                 all_tools = self._get_all_tools()
                 stream = self.client.stream_chat(
                     messages=self.messages,
-                    system_prompt=self.system_prompt,
+                    system_prompt=self.build_system_prompt(),
                     tools=all_tools,
                 )
 
@@ -79,7 +79,7 @@ class AgentApiMixin:
                 all_tools = self._get_all_tools()
                 response = self.client.chat(
                     messages=self.messages,
-                    system_prompt=self.system_prompt,
+                    system_prompt=self.build_system_prompt(),
                     tools=all_tools,
                 )
                 spinner.stop()

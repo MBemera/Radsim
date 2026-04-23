@@ -82,6 +82,14 @@ DEFAULT_COMMAND_SPECS = [
         "telegram_safe": True,
     },
     {
+        "names": ["/reload"],
+        "handler_name": "_cmd_reload",
+        "description": "Reload runtime (soft | restart | auto)",
+        "category": "session",
+        "accepts_args": True,
+        "telegram_safe": False,
+    },
+    {
         "names": ["/setup", "/onboarding"],
         "handler_name": "_cmd_setup",
         "description": "Re-run the setup wizard",

@@ -41,6 +41,7 @@ from .rate_limiter import (
     ProtectionManager,
     RateLimitExceeded,
 )
+from .runtime_context import get_runtime_context
 from .safety import confirm_action, confirm_write, is_path_safe
 from .tools import DESTRUCTIVE_COMMANDS, TOOL_DEFINITIONS, execute_tool
 
@@ -102,8 +103,13 @@ class RadSimAgent(
             config.model,
         )
         self.messages = []
-        self.system_prompt = get_system_prompt()
         self.usage_stats = {"input_tokens": 0, "output_tokens": 0}
+
+        # Runtime reload state — see build_system_prompt / refresh_runtime_state.
+        # The system prompt is built per API call, so no snapshot is stored.
+        self._runtime_dirty = False
+        self._restart_required = False
+        self._restart_reason = None
 
         # Learning system attributes
         self._last_response = ""  # For feedback commands (/good, /improve)
@@ -170,6 +176,60 @@ class RadSimAgent(
 
         if context_file:
             self.load_initial_context(context_file)
+
+    def build_system_prompt(self):
+        """Build the system prompt fresh for this API call.
+
+        Prompt fragments (skills, custom prompt, memory) are cached inside
+        the runtime context and only rebuilt when their source files change.
+        """
+        return get_system_prompt()
+
+    def refresh_runtime_state(self):
+        """Clear runtime caches so the next turn rebuilds prompt fragments.
+
+        Safe to call more than once. Does not touch conversation history
+        or configuration.
+        """
+        get_runtime_context().clear_all()
+        self._runtime_dirty = False
+
+    def _mark_runtime_change(self, file_path):
+        """Classify a just-written file as soft-refresh, restart, or no-op.
+
+        Returns one of: "soft", "restart", "none".
+        """
+        from .config import CUSTOM_PROMPT_FILE, PACKAGE_DIR
+
+        try:
+            target = Path(file_path).resolve()
+        except Exception:
+            return "none"
+
+        try:
+            custom_prompt_path = Path(CUSTOM_PROMPT_FILE).resolve()
+            if target == custom_prompt_path:
+                self._runtime_dirty = True
+                return "soft"
+        except Exception:
+            pass
+
+        try:
+            package_dir = Path(PACKAGE_DIR).resolve()
+        except Exception:
+            return "none"
+
+        inside_package = str(target).startswith(str(package_dir))
+        if not inside_package:
+            return "none"
+
+        if target.suffix == ".py":
+            self._restart_required = True
+            self._restart_reason = f"Core Python source changed: {target}"
+            return "restart"
+
+        self._runtime_dirty = True
+        return "soft"
 
     def start_telegram_processor(self):
         """Start a background thread that auto-processes incoming Telegram messages."""
@@ -539,6 +599,22 @@ class RadSimAgent(
                 )
                 result["verification_hint"] = verification_hint
 
+                # Classify the change so the agent knows whether a soft
+                # refresh is enough or a process restart is required.
+                change_kind = self._mark_runtime_change(file_path)
+                if change_kind == "soft":
+                    self.refresh_runtime_state()
+                    result["reload_hint"] = (
+                        "Runtime caches cleared. The next turn will use the "
+                        "updated prompt/skill/custom instruction content."
+                    )
+                elif change_kind == "restart":
+                    result["reload_hint"] = (
+                        "Core RadSim Python source changed. "
+                        "Run /reload restart to apply the new code — "
+                        "the live process is still running the old version."
+                    )
+
                 # Code quality check against RadSim rules
                 try:
                     from .code_quality import check_code_quality, format_quality_warnings
@@ -644,6 +720,20 @@ class RadSimAgent(
                     "[Verification reminder: Code was modified. "
                     "Run run_tests and lint_code to verify correctness.]"
                 )
+
+                change_kind = self._mark_runtime_change(file_path)
+                if change_kind == "soft":
+                    self.refresh_runtime_state()
+                    result["reload_hint"] = (
+                        "Runtime caches cleared. The next turn will use the "
+                        "updated prompt/skill/custom instruction content."
+                    )
+                elif change_kind == "restart":
+                    result["reload_hint"] = (
+                        "Core RadSim Python source changed. "
+                        "Run /reload restart to apply the new code — "
+                        "the live process is still running the old version."
+                    )
             else:
                 print_error(result.get("error", "Failed to modify file"))
             return result

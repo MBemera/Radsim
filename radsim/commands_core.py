@@ -1,9 +1,10 @@
 """Core slash-command handlers."""
 
+import os
 import sys
 
 from .config import setup_config
-from .output import print_error, print_help, print_info
+from .output import print_error, print_help, print_info, print_warning
 
 
 class CoreCommandHandlersMixin:
@@ -64,6 +65,33 @@ class CoreCommandHandlersMixin:
 
         clear_session_files()
         print_info("Started new conversation with fresh context.")
+
+    def _cmd_reload(self, agent, args=None):
+        """Reload runtime state.
+
+        Forms:
+          /reload            -> auto (restart if required, else soft)
+          /reload auto       -> auto
+          /reload soft       -> clear runtime caches only
+          /reload restart    -> re-exec the process
+          /reload hard       -> alias of restart
+        """
+        mode = (args[0].lower() if args else "auto")
+
+        if mode not in {"auto", "soft", "restart", "hard"}:
+            print_error(
+                "Unknown /reload mode. Use: /reload [auto|soft|restart|hard]"
+            )
+            return
+
+        if mode == "auto":
+            mode = "restart" if getattr(agent, "_restart_required", False) else "soft"
+
+        if mode == "soft":
+            _reload_soft(agent)
+            return
+
+        _reload_restart(agent)
 
     def _cmd_setup(self, agent):
         """Re-run the setup wizard."""
@@ -401,3 +429,36 @@ class CoreCommandHandlersMixin:
             highlight_teach=has_teach,
         )
         print()
+
+
+def _reload_soft(agent):
+    """Clear runtime caches so the next turn rebuilds prompt fragments."""
+    if hasattr(agent, "refresh_runtime_state"):
+        agent.refresh_runtime_state()
+
+    if getattr(agent, "_restart_required", False):
+        reason = getattr(agent, "_restart_reason", None) or "core Python source changed"
+        print_warning(
+            "Soft reload done, but a restart is still required "
+            f"({reason}). Run /reload restart to apply Python source changes."
+        )
+        return
+
+    print_info(
+        "Runtime caches cleared. Updated prompt, skills, memory, and custom "
+        "instructions will apply on the next turn."
+    )
+
+
+def _reload_restart(agent):
+    """Re-exec the current RadSim process cleanly."""
+    if hasattr(agent, "refresh_runtime_state"):
+        agent.refresh_runtime_state()
+
+    print_info("Restarting RadSim...")
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    python = sys.executable
+    argv = [python] + sys.argv
+    os.execv(python, argv)
