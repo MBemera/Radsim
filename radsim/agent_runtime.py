@@ -66,7 +66,7 @@ def run_interactive(config, context_file=None):
     while True:
         try:
             active_modes = get_active_modes()
-            user_input = print_prompt(active_modes)
+            user_input = print_prompt(active_modes, registry=registry)
         except (KeyboardInterrupt, EOFError):
             print("\nGoodbye!")
             break

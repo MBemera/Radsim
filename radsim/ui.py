@@ -4,6 +4,7 @@ Provides unified visual style using the custom palette, smooth animations,
 progress bars, and status panels.
 """
 
+import sys
 import time
 
 from rich.console import Console, Group
@@ -22,6 +23,17 @@ from rich.text import Text
 from rich.theme import Theme
 
 from .terminal import supports_color
+
+try:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.formatted_text import ANSI
+    from prompt_toolkit.patch_stdout import patch_stdout
+
+    _PTK_AVAILABLE = True
+except ImportError:
+    _PTK_AVAILABLE = False
+
+_prompt_session = None
 
 # Define the unique RadSim color palette
 COLORS = {
@@ -165,8 +177,13 @@ def show_error_panel(title, content):
     console.print(panel)
 
 
-def print_prompt(active_modes: list = None) -> str:
+def print_prompt(active_modes: list = None, registry=None) -> str:
     """Print the distinctive RadSim prompt and capture input.
+
+    When a CommandRegistry is supplied and prompt_toolkit is available on
+    a TTY, an inline dropdown of registered slash commands appears as soon
+    as the user types `/`, filtering alphabetically as more characters are
+    typed (Codex / Claude Code CLI style).
 
     Returns:
         The user's string input.
@@ -177,6 +194,25 @@ def print_prompt(active_modes: list = None) -> str:
         mode_prefix = f"[accent]{mode_tags}[/accent] "
 
     prompt = mode_prefix + "[primary]▶[/primary] "
+
+    if _PTK_AVAILABLE and registry is not None and sys.stdin.isatty():
+        from .command_completer import build_completer
+
+        global _prompt_session
+        if _prompt_session is None:
+            _prompt_session = PromptSession()
+
+        with console.capture() as cap:
+            console.print(prompt, end="")
+        ansi_prompt = ANSI(cap.get().rstrip("\n"))
+
+        with patch_stdout(raw=True):
+            return _prompt_session.prompt(
+                ansi_prompt,
+                completer=build_completer(registry),
+                complete_while_typing=True,
+            )
+
     return console.input(prompt)
 
 
