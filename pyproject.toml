@@ -33,6 +33,7 @@ dependencies = [
     "tree-sitter-python>=0.21.0",
     "tree-sitter-javascript>=0.21.0",
     "tree-sitter-typescript>=0.21.0",
+    "prompt_toolkit>=3.0.36",
 ]
 
 [project.optional-dependencies]

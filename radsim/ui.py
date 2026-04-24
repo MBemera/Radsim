@@ -30,6 +30,17 @@ from .theme import (
 
 logger = logging.getLogger(__name__)
 
+try:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.formatted_text import ANSI
+    from prompt_toolkit.patch_stdout import patch_stdout
+
+    _PTK_AVAILABLE = True
+except ImportError:
+    _PTK_AVAILABLE = False
+
+_prompt_session = None
+
 # RadSim palette — sourced from ~/.radsim/settings.json (user-selectable).
 # Falls back to DEFAULT_PALETTE ("soft-neon") on first run.
 COLORS = dict(load_active_palette()["colors"])
@@ -330,14 +341,43 @@ def show_error_panel(title, content):
     console.print(panel)
 
 
-def print_prompt(active_modes=None):
-    """Print the distinctive RadSim prompt and capture input."""
+def print_prompt(active_modes: list = None, registry=None) -> str:
+    """Print the distinctive RadSim prompt and capture input.
+
+    When a CommandRegistry is supplied and prompt_toolkit is available on
+    a TTY, an inline dropdown of registered slash commands appears as soon
+    as the user types `/`, filtering alphabetically as more characters are
+    typed (Codex / Claude Code CLI style).
+
+    Returns:
+        The user's string input.
+    """
     mode_prefix = ""
     if active_modes:
         mode_tags = " ".join(f"[{mode}]" for mode in active_modes)
         mode_prefix = f"[accent]{mode_tags}[/accent] "
 
     prompt = mode_prefix + f"[primary]{glyph('prompt')}[/primary] "
+
+    if _PTK_AVAILABLE and registry is not None and sys.stdin.isatty():
+        from .command_completer import build_completer
+
+        global _prompt_session
+        if _prompt_session is None:
+            _prompt_session = PromptSession()
+
+        with console.capture() as cap:
+            console.print(prompt, end="")
+        ansi_prompt = ANSI(cap.get().rstrip("\n"))
+
+        with patch_stdout(raw=True):
+            return _prompt_session.prompt(
+                ansi_prompt,
+                completer=build_completer(registry),
+                complete_while_typing=True,
+            )
+
+
     return console.input(prompt)
 
 
