@@ -93,6 +93,7 @@ class TestCLIImportSideEffects:
         import atexit
         import signal
         import warnings
+
         import radsim.cli
 
         signal_calls = []

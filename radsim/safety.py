@@ -24,7 +24,7 @@ def set_telegram_confirm(fn):
 
 def _emergency_stop():
     """Immediately terminate the process."""
-    print("\n  🛑 EMERGENCY STOP - Terminating immediately!")
+    print("\n  EMERGENCY STOP EMERGENCY STOP - Terminating immediately!")
     os._exit(1)
 
 
@@ -143,7 +143,7 @@ def confirm_write(file_path, content, config=None):
     # Check safety first, even in auto mode
     safe, reason = is_path_safe(file_path)
     if not safe:
-        print(f"\n⚠️  BLOCKED: {reason}")
+        print(f"\nwarning:  BLOCKED: {reason}")
         return False
 
     if config and config.auto_confirm:
@@ -159,7 +159,7 @@ def confirm_write(file_path, content, config=None):
     # Check extension
     ext_safe, ext_reason = is_extension_safe(file_path)
     if not ext_safe:
-        print(f"\n⚠️  Warning: {ext_reason}")
+        print(f"\nwarning:  Warning: {ext_reason}")
 
     # Show preview - use teach-aware display when teach mode is active
     teach_active = False
@@ -180,7 +180,7 @@ def confirm_write(file_path, content, config=None):
             highlight_teach=True,
         )
     else:
-        print(f"\n📄 File: {file_path}")
+        print(f"\nFile: {file_path}")
         print("-" * 50)
 
         # Show content preview (first 30 lines)
@@ -195,7 +195,7 @@ def confirm_write(file_path, content, config=None):
 
     # Check if file exists
     if Path(file_path).exists():
-        print("⚠️  This will OVERWRITE the existing file!")
+        print("warning: This will OVERWRITE the existing file!")
 
     # Ask for confirmation - loop to allow 's' to show full code first
     # Pause the escape listener so input() works in normal line-buffered mode
@@ -246,7 +246,7 @@ def confirm_write(file_path, content, config=None):
             if response_lower in ["a", "all", "always"]:
                 if config:
                     config.auto_confirm = True
-                    print("  ✓ Auto-confirm enabled (dangerous actions will still prompt)")
+                    print("  ok Auto-confirm enabled (dangerous actions will still prompt)")
                 return True
 
             return False
@@ -289,7 +289,7 @@ def confirm_action(message, config=None):
         if response in ["a", "all", "always"]:
             if config:
                 config.auto_confirm = True
-                print("  ✓ Auto-confirm enabled (dangerous actions will still prompt)")
+                print("  ok Auto-confirm enabled (dangerous actions will still prompt)")
             return True
 
         return False

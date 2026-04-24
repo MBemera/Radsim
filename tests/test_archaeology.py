@@ -222,4 +222,4 @@ class TestFormatting:
     def test_empty_report(self, tmp_path):
         results = run_full_archaeology(tmp_path)
         lines = format_archaeology_report(results)
-        assert any("✅" in line for line in lines)
+        assert any("None found" in line for line in lines)

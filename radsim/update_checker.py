@@ -139,6 +139,6 @@ def format_update_notice(latest_version: str, current_version: str) -> str:
         Formatted string for display.
     """
     return (
-        f"  📦 Update available: v{current_version} → v{latest_version}\n"
+        f"  Update available: v{current_version} -> v{latest_version}\n"
         f"     Run 'pip install --upgrade radsimcli' to update\n"
     )

@@ -209,9 +209,10 @@ class AgentApiMixin:
                 continue
 
             tool_start_time = time.time()
+            tool_handle = None
 
             if self.config.verbose or tool_name in READ_ONLY_TOOLS:
-                print_tool_call(tool_name, tool_input, style="compact")
+                tool_handle = print_tool_call(tool_name, tool_input, style="compact")
 
             if tool_name in READ_ONLY_TOOLS:
                 spinner = Spinner("Executing...")
@@ -231,7 +232,7 @@ class AgentApiMixin:
                 user_rejected = True
 
             if self.config.verbose or tool_name in READ_ONLY_TOOLS:
-                print_tool_result_verbose(tool_name, result, duration_ms)
+                print_tool_result_verbose(tool_handle, tool_name, result, duration_ms)
 
             try:
                 track_tool_execution(
@@ -250,8 +251,8 @@ class AgentApiMixin:
                 try:
                     from .telegram import send_telegram_message
 
-                    icon = "+" if tool_success else "x"
-                    send_telegram_message(f"[{icon}] {tool_name}")
+                    status = "ok" if tool_success else "fail"
+                    send_telegram_message(f"[{status}] {tool_name}")
                 except Exception:
                     pass
 

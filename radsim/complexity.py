@@ -349,9 +349,9 @@ def format_complexity_report(scan_results, budget=None):
 
     if budget is not None:
         if total <= budget:
-            lines.append(f"  ✅ Within budget ({total}/{budget})")
+            lines.append(f"  ok Within budget ({total}/{budget})")
         else:
-            lines.append(f"  ⚠️  OVER BUDGET by {total - budget} points ({total}/{budget})")
+            lines.append(f"  warning:  OVER BUDGET by {total - budget} points ({total}/{budget})")
     lines.append("")
 
     # Hotspots

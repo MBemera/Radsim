@@ -175,7 +175,7 @@ class FewShotAssembler:
         formatted = "\n\n## Similar Past Tasks (Learn from these):\n"
 
         for i, example in enumerate(examples, 1):
-            success_icon = "✓" if example.get("success") else "✗"
+            success_icon = "ok" if example.get("success") else "fail"
             tools = ", ".join(example.get("tools_used", [])) or "various"
 
             formatted += f"""

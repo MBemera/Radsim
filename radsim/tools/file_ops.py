@@ -3,6 +3,7 @@
 RadSim Principle: One Function, One Purpose
 """
 
+import difflib
 
 from ..runtime_context import get_runtime_context
 from .constants import MAX_FILE_SIZE, MAX_FILES_TO_READ, MAX_TRUNCATED_SIZE
@@ -16,6 +17,24 @@ def _track_recent_file(path):
         memory.project_mem.update_recent_file(str(path))
     except Exception:
         pass
+
+
+def _count_changed_lines(old_content, new_content):
+    """Return added and removed line counts for two text blobs."""
+    old_lines = old_content.splitlines()
+    new_lines = new_content.splitlines()
+    additions = 0
+    deletions = 0
+
+    for line in difflib.unified_diff(old_lines, new_lines, lineterm=""):
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+"):
+            additions += 1
+        elif line.startswith("-"):
+            deletions += 1
+
+    return additions, deletions
 
 
 def read_file(file_path, offset=0, limit=None):
@@ -149,6 +168,15 @@ def write_file(file_path, content, show_diff=True):
 
             print_diff(old_content, content, str(path))
 
+        if is_new_file:
+            added_lines = len(content.splitlines())
+            removed_lines = 0
+        elif old_content is not None:
+            added_lines, removed_lines = _count_changed_lines(old_content, content)
+        else:
+            added_lines = None
+            removed_lines = None
+
         _track_recent_file(path)
 
         return {
@@ -156,6 +184,8 @@ def write_file(file_path, content, show_diff=True):
             "path": str(path),
             "bytes_written": len(content.encode("utf-8")),
             "is_new_file": is_new_file,
+            "added_lines": added_lines,
+            "removed_lines": removed_lines,
         }
     except PermissionError:
         return {"success": False, "error": f"Permission denied: {file_path}"}
@@ -219,9 +249,17 @@ def replace_in_file(file_path, old_string, new_string, replace_all=False, show_d
 
             print_diff(content, new_content, str(path))
 
+        added_lines, removed_lines = _count_changed_lines(content, new_content)
+
         _track_recent_file(path)
 
-        return {"success": True, "path": str(path), "replacements_made": replacements}
+        return {
+            "success": True,
+            "path": str(path),
+            "replacements_made": replacements,
+            "added_lines": added_lines,
+            "removed_lines": removed_lines,
+        }
     except Exception as error:
         return {"success": False, "error": str(error)}
 

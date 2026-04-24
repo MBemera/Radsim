@@ -71,17 +71,17 @@ def prompt_for_access() -> bool:
     max_attempts = 3
     for attempt in range(max_attempts):
         try:
-            code = getpass.getpass("🔐 Enter access code: ")
+            code = getpass.getpass("Enter access code: ")
             if verify_access_code(code):
                 return True
             remaining = max_attempts - attempt - 1
             if remaining > 0:
-                print(f"  ❌ Invalid code. {remaining} attempts remaining.")
+                print(f"  error: Invalid code. {remaining} attempts remaining.")
         except (KeyboardInterrupt, EOFError):
             print("\n  Access cancelled.")
             return False
 
-    print("  ❌ Access denied.")
+    print("  error: Access denied.")
     return False
 
 

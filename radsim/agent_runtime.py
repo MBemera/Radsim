@@ -85,9 +85,9 @@ def run_interactive(config, context_file=None):
         if hotkey_mode:
             is_active, message = toggle_mode(hotkey_mode)
             if is_active:
-                print_info(f"✓ {message} - teaching in ALL responses enabled")
+                print_info(f"ok {message} - teaching in ALL responses enabled")
             else:
-                print_info(f"✓ {message}")
+                print_info(f"ok {message}")
             agent.system_prompt = get_system_prompt()
             continue
 
@@ -124,13 +124,13 @@ def run_interactive(config, context_file=None):
             )
 
         except RateLimitExceeded as error:
-            print_error(f"\n🛑 LOOP PROTECTION: {error}")
+            print_error(f"\nEMERGENCY STOP LOOP PROTECTION: {error}")
             print_warning("The AI was making too many consecutive calls. Try a simpler request.")
         except CircuitBreakerOpen as error:
-            print_error(f"\n🛑 ERROR PROTECTION: {error}")
+            print_error(f"\nEMERGENCY STOP ERROR PROTECTION: {error}")
             print_warning("Too many consecutive errors. Please wait before retrying.")
         except BudgetExceeded as error:
-            print_error(f"\n🛑 BUDGET PROTECTION: {error}")
+            print_error(f"\nEMERGENCY STOP BUDGET PROTECTION: {error}")
             print_warning("Session token limit reached. Start a new session with 'radsim'.")
         except Exception as error:
             print_error(str(error))

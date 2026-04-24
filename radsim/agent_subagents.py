@@ -153,7 +153,7 @@ class AgentSubAgentMixin:
                 chunk = next(generator)
                 chunk_type = chunk.get("type", "")
                 if chunk_type == "tool_status":
-                    sys.stdout.write(f"\n{cyan}  ⚙ {chunk.get('text', '')}{reset}\n")
+                    sys.stdout.write(f"\n{cyan}  sub-agent {chunk.get('text', '')}{reset}\n")
                     sys.stdout.flush()
                 else:
                     text = chunk.get("text", "")
@@ -170,9 +170,8 @@ class AgentSubAgentMixin:
         """Handle delegation to a sub-agent with model selection and parallel support."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        from .sub_agent import HAIKU_MODEL, SubAgentResult
+        from .sub_agent import HAIKU_MODEL, SubAgentResult, resolve_task_config
         from .sub_agent import delegate_task as subagent_delegate
-        from .sub_agent import resolve_task_config
 
         task_desc = tool_input.get("task_description", "")
         context = tool_input.get("context", "")
@@ -246,7 +245,7 @@ class AgentSubAgentMixin:
 
                 combined_content = f"Parallel delegation complete: {success_count}/{len(results)} succeeded\n\n"
                 for index, result in enumerate(results):
-                    status = "✅" if result.get("success") else "❌"
+                    status = "ok" if result.get("success") else "fail"
                     combined_content += f"--- Task {index + 1} ({status}) ---\n"
                     if result.get("success"):
                         combined_content += result.get("content", "") + "\n\n"

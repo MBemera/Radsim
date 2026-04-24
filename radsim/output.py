@@ -1,20 +1,20 @@
 """Terminal output formatting for RadSim Agent."""
 
+import shutil
 import sys
 import time
 from importlib.metadata import version as get_version
 
 from .terminal import colorize_ansi, supports_color
+from .theme import glyph, load_active_animation_level
 from .ui import (
-    Spinner,
+    Spinner,  # noqa: F401 — re-exported for use by agent.py, commands.py, cli.py
     print_error,  # noqa: F401 — re-exported for use by agent.py, commands.py, cli.py
     print_info,  # noqa: F401 — re-exported
     print_prompt,  # noqa: F401 — re-exported
     print_success,  # noqa: F401 — re-exported
-    print_typewriter,
     print_warning,  # noqa: F401 — re-exported
-    show_error_panel,
-    show_success_panel,
+    tool_event,
 )
 
 # ANSI color codes
@@ -39,14 +39,6 @@ COLORS = {
     "gray": "\033[90m",
 }
 
-# Spinner style definitions
-SPINNER_STYLES = {
-    "dots": ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
-    "braille": ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"],
-    "moon": ["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"],
-    "arrows": ["←", "↖", "↑", "↗", "→", "↘", "↓", "↙"],
-}
-
 # RadSim ASCII Logo (Option B - Blocky)
 RADSIM_LOGO_LINES = [
     "  ██████   █████  ██████  ███████ ██ ███    ███",
@@ -57,6 +49,8 @@ RADSIM_LOGO_LINES = [
 ]
 
 RADSIM_TAGLINE = "Radically Simple Code"
+
+
 def colorize(text, color):
     """Apply color to text if supported."""
     return colorize_ansi(text, color, COLORS, supports_color_fn=supports_color)
@@ -64,47 +58,29 @@ def colorize(text, color):
 
 def print_boot_sequence(provider, model, animated=True):
     """Print the RadSim boot-up sequence with logo and animation."""
-    if not supports_color():
-        animated = False
+    animation_level = load_active_animation_level()
+    animated = animated and animation_level == "full"
 
     # Clear some space
     print()
 
     if animated:
-        # Animated logo reveal (line by line)
         for line in RADSIM_LOGO_LINES:
             print(colorize(line, "bright_cyan"))
-            time.sleep(0.06)
+            time.sleep(0.01)
     else:
         for line in RADSIM_LOGO_LINES:
             print(colorize(line, "bright_cyan"))
 
-    # Tagline with style
     print()
-    tagline_styled = f"  ⚡ {RADSIM_TAGLINE} ⚡"
-    print(colorize(tagline_styled, "cyan"))
+    print(colorize(f"  {RADSIM_TAGLINE}", "cyan"))
 
-    # Animated loading bar
-    if animated:
-        print()
-        loading_width = 40
-        sys.stdout.write("  ")
-        sys.stdout.write(colorize("[", "dim"))
-        for _ in range(loading_width):
-            sys.stdout.write(colorize("█", "bright_cyan"))
-            sys.stdout.flush()
-            time.sleep(0.015)
-        sys.stdout.write(colorize("]", "dim"))
-        sys.stdout.write(colorize(" Ready!\n", "green"))
-
-    # System info box
     print()
     box_width = 47
-    inner_width = box_width - 4  # Account for "  │" and "│"
+    inner_width = box_width - 4
 
     print(colorize("  ┌" + "─" * (box_width - 2) + "┐", "dim"))
 
-    # Provider line
     provider_val = provider.upper()
     provider_padding = inner_width - 10 - len(provider_val)
     print(
@@ -140,25 +116,10 @@ def print_boot_sequence(provider, model, animated=True):
     print(colorize("  └" + "─" * (box_width - 2) + "┘", "dim"))
     print()
 
-    # Quick tips
     print(colorize("  Type your request or use commands:", "dim"))
-    if animated:
-        sys.stdout.write("    ")
-        sys.stdout.flush()
-        print_typewriter("/help", delay=0.03, style="cyan", end="")
-        print(colorize(" - Show all commands", "dim"))
-        sys.stdout.write("    ")
-        sys.stdout.flush()
-        print_typewriter("/tools", delay=0.03, style="cyan", end="")
-        print(colorize(" - List available tools (35 total)", "dim"))
-        sys.stdout.write("    ")
-        sys.stdout.flush()
-        print_typewriter("/exit", delay=0.03, style="cyan", end="")
-        print(colorize(" - Quit RadSim", "dim"))
-    else:
-        print(colorize("    /help", "cyan") + colorize(" - Show all commands", "dim"))
-        print(colorize("    /tools", "cyan") + colorize(" - List available tools (35 total)", "dim"))
-        print(colorize("    /exit", "cyan") + colorize(" - Quit RadSim", "dim"))
+    print(colorize("    /help", "cyan") + colorize(" - Show all commands", "dim"))
+    print(colorize("    /tools", "cyan") + colorize(" - List available tools (35 total)", "dim"))
+    print(colorize("    /exit", "cyan") + colorize(" - Quit RadSim", "dim"))
     print()
 
 
@@ -216,30 +177,31 @@ def print_code(code, language=None):
         print(colorize("```", "dim"))
     print()
 
-class ThinkingIndicator(Spinner):
-    """Animated thinking indicator (alias for Spinner)."""
-    pass
-
-def print_thinking():
-    """Print thinking indicator (legacy)."""
-    pass
-
-def clear_thinking():
-    """Clear the thinking indicator (legacy)."""
-    pass
-
-
 # Teach comment prefix pattern for inline teaching annotations
-# Matches: # 🎓, // 🎓, -- 🎓, /* 🎓 */, <!-- 🎓 -->
-TEACH_COMMENT_PREFIXES = ("# 🎓", "// 🎓", "-- 🎓")
-TEACH_COMMENT_WRAPPED = ("/* 🎓", "<!-- 🎓")
+LEGACY_TEACH_MARKER = "\U0001F393"
+
+# Accept both the current [teach] marker and the legacy graduation-cap marker.
+TEACH_COMMENT_PREFIXES = (
+    "# [teach]",
+    f"# {LEGACY_TEACH_MARKER}",
+    "// [teach]",
+    f"// {LEGACY_TEACH_MARKER}",
+    "-- [teach]",
+    f"-- {LEGACY_TEACH_MARKER}",
+)
+TEACH_COMMENT_WRAPPED = (
+    "/* [teach]",
+    f"/* {LEGACY_TEACH_MARKER}",
+    "<!-- [teach]",
+    f"<!-- {LEGACY_TEACH_MARKER}",
+)
 
 
 def is_teach_comment(line):
     """Check if a line is a teaching comment.
 
     Returns True for lines that are inline teaching annotations
-    (prefixed with # 🎓, // 🎓, etc.)
+    (prefixed with # [teach], // [teach], etc.)
     """
     stripped = line.strip()
     if any(stripped.startswith(prefix) for prefix in TEACH_COMMENT_PREFIXES):
@@ -252,7 +214,7 @@ def is_teach_comment(line):
 def strip_teach_comments(content):
     """Remove all teaching comment lines from code content.
 
-    Strips lines prefixed with # 🎓, // 🎓, etc. so the file
+    Strips lines prefixed with # [teach], // [teach], etc. so the file
     written to disk contains only clean code.
 
     Args:
@@ -284,7 +246,7 @@ _stream_line_buffer = ""
 def print_stream_chunk(text):
     """Print a chunk of streamed text with teach mode magenta styling.
 
-    Buffers partial lines so teach comment lines (containing 🎓) can be
+    Buffers partial lines so teach comment lines (containing [teach]) can be
     detected and colorized in bright_magenta as complete lines arrive.
     """
     global _stream_line_buffer
@@ -333,9 +295,9 @@ def reset_stream_state():
 def style_teach_content(text):
     """Style inline teach comments in text for display.
 
-    Highlights lines containing 🎓 in magenta.
+    Highlights lines containing [teach] in magenta.
     """
-    if "🎓" not in text:
+    if "[teach]" not in text and LEGACY_TEACH_MARKER not in text:
         return text
 
     lines = text.split("\n")
@@ -356,180 +318,190 @@ def print_agent_response(text):
     print()
 
 
-# ============================================================================
-# CLAUDE CODE INSPIRED TRANSPARENT OUTPUT
-# ============================================================================
+def _truncate_text(value, max_width):
+    text = str(value).strip()
+    if not text:
+        return ""
+    if len(text) <= max_width:
+        return text
+    ellipsis = glyph("ellipsis")
+    trim_width = max(max_width - len(ellipsis), 0)
+    return f"{text[:trim_width]}{ellipsis}"
+
+
+def _format_duration(ms):
+    if ms is None:
+        return ""
+    if ms < 1000:
+        return f"{ms:.0f}ms"
+    return f"{ms / 1000:.1f}s"
+
+
+def _summarize_argument(tool_name, tool_input):
+    if not isinstance(tool_input, dict):
+        return _truncate_text(tool_input or "-", 50)
+
+    if tool_name in {"read_file", "write_file", "replace_in_file", "delete_file"}:
+        summary = tool_input.get("file_path", "-")
+    elif tool_name == "read_many_files":
+        count = len(tool_input.get("file_paths", []))
+        summary = f"{count} files"
+    elif tool_name == "rename_file":
+        old_path = tool_input.get("old_path", "")
+        new_path = tool_input.get("new_path", "")
+        summary = f"{old_path} -> {new_path}"
+    elif tool_name == "run_shell_command":
+        summary = tool_input.get("command", "-")
+    elif tool_name in {"list_directory", "create_directory"}:
+        summary = tool_input.get("directory_path", ".")
+    elif tool_name == "glob_files":
+        summary = tool_input.get("pattern", "-")
+    elif tool_name in {"grep_search", "search_files"}:
+        pattern = tool_input.get("pattern", "")
+        directory = tool_input.get("directory_path", ".")
+        summary = f'"{pattern}" in {directory}'
+    elif tool_name in {"run_tests", "lint_code", "format_code", "type_check"}:
+        summary = (
+            tool_input.get("test_command")
+            or tool_input.get("test_path")
+            or tool_input.get("file_path")
+            or "project"
+        )
+    elif tool_name.startswith("git_"):
+        summary = (
+            tool_input.get("branch")
+            or tool_input.get("file_path")
+            or tool_input.get("message")
+            or "git"
+        )
+    elif tool_name == "web_fetch":
+        summary = tool_input.get("url", "-")
+    elif tool_name.startswith("browser_"):
+        summary = (
+            tool_input.get("url")
+            or tool_input.get("selector")
+            or tool_input.get("path")
+            or "browser"
+        )
+    elif tool_name in {"multi_edit", "batch_replace"}:
+        summary = tool_input.get("file_path") or tool_input.get("file_pattern") or "edit"
+    else:
+        visible_items = [
+            f"{key}={value}"
+            for key, value in tool_input.items()
+            if not str(key).startswith("_")
+        ]
+        summary = visible_items[0] if visible_items else "-"
+
+    terminal_width = shutil.get_terminal_size((80, 24)).columns
+    max_width = max(20, terminal_width - 30)
+    return _truncate_text(summary, max_width)
+
+
+def _result_summary(tool_name, result):
+    success = result.get("success", False)
+
+    if not success:
+        return f"exit {result['returncode']}" if "returncode" in result else ""
+
+    if tool_name == "read_file":
+        return f"{result.get('line_count', 0)} lines"
+    if tool_name == "read_many_files":
+        return f"{result.get('count', 0)} files"
+    if tool_name == "write_file":
+        added_lines = result.get("added_lines")
+        removed_lines = result.get("removed_lines")
+        if added_lines is not None and removed_lines is not None:
+            return f"{glyph('diff_add')}{added_lines} {glyph('diff_del')}{removed_lines}"
+        return "file written"
+    if tool_name == "replace_in_file":
+        added_lines = result.get("added_lines")
+        removed_lines = result.get("removed_lines")
+        if added_lines is not None and removed_lines is not None:
+            return f"{glyph('diff_add')}{added_lines} {glyph('diff_del')}{removed_lines}"
+        return f"{result.get('replacements_made', 0)} changes"
+    if tool_name == "run_shell_command":
+        return f"exit {result.get('returncode', 0)}"
+    if tool_name == "list_directory":
+        return f"{result.get('count', 0)} items"
+    if tool_name == "glob_files":
+        return f"{result.get('count', 0)} files"
+    if tool_name in {"grep_search", "search_files"}:
+        return f"{result.get('count', 0)} matches"
+    if tool_name == "run_tests":
+        return f"exit {result.get('returncode', 0)}"
+    if tool_name == "git_add":
+        return f"{len(result.get('staged_files', []))} staged"
+    if tool_name == "git_commit":
+        commit_hash = result.get("commit_hash", "")[:7]
+        return commit_hash or "committed"
+    if tool_name == "rename_file":
+        return "renamed"
+    if tool_name == "delete_file":
+        return "deleted"
+    if tool_name == "create_directory":
+        return "created"
+    if tool_name == "web_fetch":
+        return "fetched"
+    return "ok"
+
+
+def _extract_error_text(result):
+    error_text = result.get("error") or result.get("stderr") or ""
+    if not error_text:
+        return None
+    first_line = error_text.strip().splitlines()[0]
+    return _truncate_text(first_line, 140)
 
 
 def print_tool_call(tool_name, tool_input, style="full", show_code=False):
-    """Print a tool call in Claude Code style - transparent, visible.
+    """Create a single-line tool event handle."""
+    handle = tool_event(tool_name, _summarize_argument(tool_name, tool_input))
 
-    Args:
-        tool_name: Name of the tool being called
-        tool_input: Dictionary of tool parameters
-        style: 'full' shows all params, 'compact' shows summary
-        show_code: If True and tool is write_file, show the code content
-    """
-    # Tool icon mapping
-    icons = {
-        "read_file": "📄",
-        "write_file": "✏️",
-        "replace_in_file": "🔄",
-        "run_shell_command": "⚡",
-        "list_directory": "📁",
-        "glob_files": "🔍",
-        "grep_search": "🔎",
-        "git_status": "📊",
-        "git_commit": "💾",
-        "git_add": "➕",
-        "web_fetch": "🌐",
-        "run_tests": "🧪",
-        "browser_open": "🌍",
-    }
-    icon = icons.get(tool_name, "🔧")
-
-    print()
-    print(colorize(f"  ┌─ {icon} ", "dim") + colorize(tool_name, "bright_cyan"))
-
-    # Show intent if present (chain-of-thought for destructive tools)
-    intent = tool_input.get("_intent") if tool_input else None
-    if intent:
-        print(colorize("  │  intent: ", "dim") + colorize(str(intent), "yellow"))
-
-    # For write_file, show file path prominently and optionally show code
-    if tool_name == "write_file" and tool_input:
+    if tool_name == "write_file" and isinstance(tool_input, dict):
         file_path = tool_input.get("file_path", "")
         content = tool_input.get("content", "")
-        line_count = len(content.split("\n")) if content else 0
-
-        print(colorize("  │  path: ", "dim") + colorize(file_path, "white"))
-        print(colorize("  │  lines: ", "dim") + colorize(str(line_count), "white"))
-        print(colorize("  └─", "dim"))
-
-        # Store for /show command
         if content:
             set_last_written_file(file_path, content)
-
-        # Show code content if requested (e.g., in Teach Mode)
         if show_code and content:
             print()
             print_code_content(content, file_path, max_lines=40, collapsed=False)
 
-    elif style == "full" and tool_input:
-        for key, value in tool_input.items():
-            if key.startswith("_"):
-                continue
-            # Truncate long values
-            val_str = str(value)
-            if len(val_str) > 60:
-                val_str = val_str[:57] + "..."
-            print(colorize(f"  │  {key}: ", "dim") + colorize(val_str, "white"))
-        print(colorize("  └─", "dim"))
-
-    elif style == "compact" and tool_input:
-        # Show just the main parameter
-        main_keys = ["file_path", "command", "url", "pattern", "directory_path"]
-        for key in main_keys:
-            if key in tool_input:
-                val_str = str(tool_input[key])
-                if len(val_str) > 50:
-                    val_str = val_str[:47] + "..."
-                print(colorize("  │  ", "dim") + colorize(val_str, "white"))
-                break
-        print(colorize("  └─", "dim"))
-
-    else:
-        print(colorize("  └─", "dim"))
+    return handle
 
 
-def print_tool_result_verbose(tool_name, result, duration_ms=None):
-    """Print tool result using rich Status Panels."""
-    success = result.get("success", False)
-
-    # Duration string
-    duration_str = ""
-    if duration_ms is not None:
-        if duration_ms < 1000:
-            duration_str = f"{duration_ms:.0f}ms"
-        else:
-            duration_str = f"{duration_ms / 1000:.1f}s"
-
-    # Result summary based on tool
-    message = ""
-    if tool_name == "read_file":
-        lines = result.get("line_count", 0)
-        message = f"Read {lines} lines"
-    elif tool_name == "write_file":
-        message = "File written"
-    elif tool_name == "run_shell_command":
-        code = result.get("returncode", 0)
-        if success:
-            message = f"Exit code: {code}"
-        else:
-            message = f"Failed (exit {code})"
-    elif tool_name == "list_directory":
-        count = result.get("count", 0)
-        message = f"Found {count} items"
-    elif tool_name == "glob_files":
-        count = result.get("count", 0)
-        message = f"Matched {count} files"
-    elif tool_name == "grep_search":
-        count = result.get("count", 0)
-        files = result.get("files_searched", 0)
-        message = f"{count} matches in {files} files"
-    else:
-        if success:
-            message = "Done"
-        else:
-            message = result.get("error", "Unknown error")[:100]
-
-    title = f"{tool_name} Result"
-    content = f"[primary]{message}[/primary]"
-    if duration_str:
-        content += f"\n[muted]Duration: {duration_str}[/muted]"
-
-    if success:
-        show_success_panel(title, content)
-    else:
-        show_error_panel(title, content)
+def print_tool_result_verbose(handle, tool_name, result, duration_ms=None):
+    """Render the final tool result on the tool event line."""
+    handle.finish(
+        result.get("success", False),
+        _result_summary(tool_name, result),
+        duration_ms,
+        error=_extract_error_text(result),
+    )
 
 
-def print_shell_output(stdout, stderr=None, max_lines=20):
-    """Print shell command output in a visible panel.
-
-    Args:
-        stdout: Standard output string
-        stderr: Standard error string (optional)
-        max_lines: Maximum lines to show before truncating
-    """
-    if not stdout and not stderr:
-        return
-
-    print(colorize("  ┌─ Output ─────────────────────────────────────", "dim"))
+def print_shell_output(stdout, stderr=None, max_lines=3):
+    """Print shell command output as a plain indented block."""
+    output_lines = []
 
     if stdout:
-        lines = stdout.strip().split("\n")
-        shown_lines = lines[:max_lines]
-        for line in shown_lines:
-            # Truncate very long lines
-            if len(line) > 80:
-                line = line[:77] + "..."
-            print(colorize("  │ ", "dim") + line)
-
-        if len(lines) > max_lines:
-            remaining = len(lines) - max_lines
-            print(colorize(f"  │ ... ({remaining} more lines)", "dim"))
+        output_lines.extend(stdout.strip().splitlines())
 
     if stderr:
-        print(colorize("  │", "dim"))
-        print(colorize("  │ stderr:", "yellow"))
-        lines = stderr.strip().split("\n")[:5]
-        for line in lines:
-            if len(line) > 80:
-                line = line[:77] + "..."
-            print(colorize("  │ ", "dim") + colorize(line, "yellow"))
+        for line in stderr.strip().splitlines():
+            output_lines.append(f"stderr: {line}")
 
-    print(colorize("  └──────────────────────────────────────────────", "dim"))
+    output_lines = [line for line in output_lines if line.strip()]
+    if not output_lines:
+        return
+
+    shown_lines = output_lines[:max_lines]
+    for line in shown_lines:
+        print(f"    {_truncate_text(line, 120)}")
+
+    remaining = len(output_lines) - len(shown_lines)
+    if remaining > 0:
+        print(f"    {glyph('ellipsis')}({remaining} more lines)")
 
 
 # Track last written file for /show command
@@ -643,11 +615,9 @@ def print_code_content(
 
     # Header
     if file_path:
-        header = colorize(f"  ┌─ 📝 {file_path} ", "dim") + colorize(
-            f"({total_lines} lines)", "dim"
-        )
+        header = colorize(f"  ┌─ {file_path} ", "dim") + colorize(f"({total_lines} lines)", "dim")
         if highlight_teach:
-            header += colorize("  🎓 teaching annotations shown in magenta", "bright_magenta")
+            header += colorize("  [teach] annotations shown in magenta", "bright_magenta")
         print(header)
     else:
         print(colorize("  ┌─ Code Content ", "dim") + colorize(f"({total_lines} lines)", "dim"))
@@ -658,7 +628,7 @@ def print_code_content(
         # Wider limit for teach annotations (educational prose needs more room)
         max_width = 120 if (highlight_teach and is_teach_comment(line_text)) else 80
         if len(line_text) > max_width:
-            line_text = line_text[: max_width - 3] + "..."
+            line_text = _truncate_text(line_text, max_width)
         if highlight_teach and is_teach_comment(line_text):
             return line_num_str + colorize(line_text, "bright_magenta")
         return line_num_str + line_text
@@ -667,7 +637,10 @@ def print_code_content(
         for i, line in enumerate(lines[:5], 1):
             print(format_line(i, line))
 
-        print(colorize("  │  ... │ ", "dim") + colorize(f"({total_lines - 8} more lines)", "gray"))
+        print(
+            colorize("  │  ... │ ", "dim")
+            + colorize(f"({total_lines - 8} more lines)", "gray")
+        )
 
         for i, line in enumerate(lines[-3:], total_lines - 2):
             print(format_line(i, line))
@@ -936,7 +909,7 @@ HELP_DETAILS = {
         "summary": "Toggle teach mode — adds explanations to every response.",
         "usage": ["/teach", "/t"],
         "details": (
-            "When teach mode is ON, RadSim adds 🎓 inline annotations explaining\n"
+            "When teach mode is ON, RadSim adds [teach] inline annotations explaining\n"
             "what each piece of code does and why. Great for learning new\n"
             "languages, frameworks, or understanding unfamiliar codebases.\n\n"
             "Annotations appear in magenta and are automatically stripped\n"
@@ -1403,7 +1376,7 @@ def print_help_detail(topic):
     if tips:
         print(colorize("  Tips:", "yellow"))
         for tip in tips:
-            print(colorize(f"    💡 {tip}", "dim"))
+            print(colorize(f"    Tip: {tip}", "dim"))
         print()
 
     # Related

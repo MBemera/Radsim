@@ -4,45 +4,38 @@
 
 """Main agent loop for RadSim."""
 
-import json
 import logging
 import threading
 import time
 from pathlib import Path
 
-from .api_client import create_client
 from .agent_api import AgentApiMixin
-from .agent_constants import CONFIRMATION_TOOLS, LIGHT_CONFIRM_TOOLS, READ_ONLY_TOOLS
+from .agent_constants import (  # noqa: F401 - re-exported for compatibility
+    CONFIRMATION_TOOLS,
+    LIGHT_CONFIRM_TOOLS,
+    READ_ONLY_TOOLS,
+)
 from .agent_conversation import AgentConversationMixin
 from .agent_policy import AgentPolicyMixin
 from .agent_subagents import AgentSubAgentMixin
-from .learning import (
-    get_reflection_engine,
-    get_tool_optimizer,
-    record_error,
-    track_tool_execution,
-)
+from .agent_subtasks import SubAgentMixin
+from .api_client import create_client
 from .output import (
     Spinner,
     print_error,
     print_info,
     print_shell_output,
-    print_stream_chunk,
     print_success,
     print_tool_call,
     print_tool_result_verbose,
     print_warning,
-    reset_stream_state,
 )
 from .prompts import get_system_prompt
 from .rate_limiter import (
-    BudgetExceeded,
-    CircuitBreakerOpen,
     ProtectionManager,
-    RateLimitExceeded,
 )
 from .safety import confirm_action, confirm_write, is_path_safe
-from .tools import DESTRUCTIVE_COMMANDS, TOOL_DEFINITIONS, execute_tool
+from .tools import DESTRUCTIVE_COMMANDS, execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -400,7 +393,6 @@ class RadSimAgent(
 
     def _handle_write_file(self, tool_input):
         """Handle write_file tool with confirmation."""
-        from pathlib import Path
 
         from .modes import is_mode_active
         from .output import strip_teach_comments
@@ -432,15 +424,15 @@ class RadSimAgent(
                 if not getattr(self, "_teach_retry_attempted", False):
                     self._teach_retry_attempted = True
                     print_warning(
-                        "Teach mode is ON but no 🎓 annotations found. "
+                        "Teach mode is ON but no [teach] annotations found. "
                         "Requesting the model to regenerate with annotations..."
                     )
                     return {
                         "success": False,
                         "error": (
                             "REJECTED: Teach mode is active but your code contains ZERO "
-                            "🎓 annotations. This is NOT acceptable. You MUST re-generate "
-                            "the SAME code with inline `# 🎓 ` teaching annotations above "
+                            "[teach] annotations. This is NOT acceptable. You MUST re-generate "
+                            "the SAME code with inline `# [teach] ` teaching annotations above "
                             "every function, class, import, and significant construct. "
                             "Each annotation block must be 3-6 lines. "
                             "Re-call write_file with the annotated version NOW."
@@ -450,7 +442,7 @@ class RadSimAgent(
                     # Already retried once — warn but proceed to avoid infinite loop
                     self._teach_retry_attempted = False
                     print_warning(
-                        "⚠ Teach mode is ON but this model still didn't generate 🎓 annotations. "
+                        "Teach mode is ON but this model still didn't generate [teach] annotations. "
                         "Some models don't follow teach-mode formatting. "
                         "Try a different model (Claude, GPT-4) for richer annotations."
                     )
@@ -726,8 +718,8 @@ class RadSimAgent(
             confirmed = confirm_action(f"Execute: '{command}'?", config=cfg_to_pass)
 
         if confirmed:
-            # Show command being run (Claude Code style)
-            print_tool_call("run_shell_command", {"command": command}, style="full")
+            tool_start_time = time.time()
+            tool_handle = print_tool_call("run_shell_command", {"command": command}, style="full")
 
             spinner = Spinner("Executing...")
             spinner.start()
@@ -736,14 +728,11 @@ class RadSimAgent(
             finally:
                 spinner.stop()
 
-            # Show output in visible panel
-            if result.get("stdout") or result.get("stderr"):
-                print_shell_output(result.get("stdout", ""), result.get("stderr", ""), max_lines=30)
+            duration_ms = (time.time() - tool_start_time) * 1000
+            print_tool_result_verbose(tool_handle, "run_shell_command", result, duration_ms)
 
-            if result["success"]:
-                print_success(f"Exit code: {result.get('returncode', 0)}")
-            else:
-                print_error(f"Command failed (exit {result.get('returncode', '?')})")
+            if result.get("stdout") or result.get("stderr"):
+                print_shell_output(result.get("stdout", ""), result.get("stderr", ""))
 
             return result
         else:
@@ -1192,9 +1181,6 @@ def print_tools_list():
     from .agent_runtime import print_tools_list as print_tools_list_runtime
 
     return print_tools_list_runtime()
-
-
-from .agent_subtasks import SubAgentMixin, TaskCompleted
 
 
 class SubAgent(SubAgentMixin, RadSimAgent):

@@ -150,6 +150,7 @@ def test_telegram_safe_command_metadata():
     assert registry.commands["/help"]["category"] == "navigation"
     assert registry.commands["/help"]["accepts_args"] is True
     assert registry.commands["/clear"]["accepts_args"] is False
+    assert registry.commands["/animations"]["category"] == "appearance"
 
 
 def test_background_compact_alias_routes_to_background_command(monkeypatch):

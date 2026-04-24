@@ -65,7 +65,7 @@ def _process_telegram_message(message, registry, agent, set_telegram_confirm):
 
         if not registry.is_telegram_safe(command):
             send_telegram_message(
-                f"⚠️ *'{command}' requires terminal interaction*\n\n"
+                f"warning: *'{command}' requires terminal interaction*\n\n"
                 f"This command needs direct access to your terminal. "
                 f"Please run it in the RadSim terminal session.\n\n"
                 f"Use /help to see commands available from Telegram.",
@@ -120,7 +120,7 @@ def _process_callback_query(callback, registry, agent, set_telegram_confirm):
 
         if not registry.is_telegram_safe(command):
             send_telegram_message(
-                f"⚠️ '{command}' requires terminal interaction. "
+                f"warning: '{command}' requires terminal interaction. "
                 f"Run it in the RadSim terminal session."
             )
             return

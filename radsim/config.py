@@ -487,7 +487,7 @@ def setup_config(first_time=True):
         print("  │      RadSim - First Time Setup      │")
         print("  ╰─────────────────────────────────────╯")
         print()
-        print("  🔐 For security, API keys must be set in the .env file.")
+        print("  [api key] For security, API keys must be set in the .env file.")
         print()
         print("  Edit your .env file:")
         print("    Local:  ./.env")
@@ -568,7 +568,7 @@ def setup_config(first_time=True):
 
         if existing_project and not existing_project.startswith("PASTE_YOUR"):
             print()
-            print(f"  ✓ Found GOOGLE_CLOUD_PROJECT: {existing_project}")
+            print(f"  ok Found GOOGLE_CLOUD_PROJECT: {existing_project}")
             location = os.getenv("GOOGLE_CLOUD_LOCATION")
             if not location:
                 env_config = env_config if "env_config" in dir() else load_env_file()
@@ -578,9 +578,9 @@ def setup_config(first_time=True):
             api_key = f"{existing_project}:{location}"
         else:
             print()
-            print("  ⚠ No Google Cloud project configured for Vertex AI.")
+            print("  warning: No Google Cloud project configured for Vertex AI.")
             print()
-            print("  🔐 Add to your .env file:")
+            print("  [api key] Add to your .env file:")
             print(f"     ./.env  OR  {ENV_FILE}")
             print()
             print('     GOOGLE_CLOUD_PROJECT="your-gcp-project-id"')
@@ -603,13 +603,13 @@ def setup_config(first_time=True):
 
         if existing_key and not existing_key.startswith("PASTE_YOUR"):
             print()
-            print(f"  ✓ Found {env_var_name} configured.")
+            print(f"  ok Found {env_var_name} configured.")
             api_key = existing_key
         else:
             print()
-            print(f"  ⚠ No API key found for {provider}.")
+            print(f"  warning: No API key found for {provider}.")
             print()
-            print("  🔐 For security, please edit your .env file directly:")
+            print("  [api key] For security, please edit your .env file directly:")
             print(f"     ./.env  OR  {ENV_FILE}")
             print()
             print(f'     Add: {env_var_name}="your-api-key"')
@@ -622,7 +622,7 @@ def setup_config(first_time=True):
     # Save provider and model preferences
     save_config(api_key, provider, model)
     print()
-    print(f"  ✓ Preferences saved to {ENV_FILE}")
+    print(f"  ok Preferences saved to {ENV_FILE}")
     print()
 
     return api_key, provider, model

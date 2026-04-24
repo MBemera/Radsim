@@ -3,7 +3,7 @@
 import sys
 
 from .config import setup_config
-from .output import print_error, print_help, print_info
+from .output import print_help, print_info
 
 
 class CoreCommandHandlersMixin:
@@ -48,7 +48,7 @@ class CoreCommandHandlersMixin:
         import os
 
         print()
-        print("  🛑 EMERGENCY STOP")
+        print("  EMERGENCY STOP")
         print("  Terminating all agent operations immediately...")
         print()
         os._exit(1)
@@ -117,7 +117,7 @@ class CoreCommandHandlersMixin:
         if provider == "vertex":
             project_id = env_config.get("keys", {}).get("GOOGLE_CLOUD_PROJECT")
             if not project_id or project_id.lower().startswith("paste_your"):
-                print("  ⚠ No GOOGLE_CLOUD_PROJECT found. Add it to .env first.")
+                print("  warning: No GOOGLE_CLOUD_PROJECT found. Add it to .env first.")
                 return
             location = env_config.get("keys", {}).get("GOOGLE_CLOUD_LOCATION", "us-central1")
             api_key = f"{project_id}:{location}"
@@ -126,7 +126,7 @@ class CoreCommandHandlersMixin:
             api_key = env_config.get("keys", {}).get(env_var)
 
             if not api_key or api_key.lower().startswith("paste_your"):
-                print(f"  ⚠ No API key found for {provider}. Add it to .env first.")
+                print(f"  warning: No API key found for {provider}. Add it to .env first.")
                 return
 
         print()
@@ -153,7 +153,7 @@ class CoreCommandHandlersMixin:
 
         agent.update_config(provider, api_key, model)
         print()
-        print(f"  ✓ Switched to {provider} / {model}")
+        print(f"  ok Switched to {provider} / {model}")
         print_header(provider, model)
 
     def _cmd_free(self, agent):
@@ -165,13 +165,13 @@ class CoreCommandHandlersMixin:
         api_key = env_config.get("keys", {}).get("OPENROUTER_API_KEY")
 
         if not api_key or api_key.lower().startswith("paste_your"):
-            print("  ⚠ No OpenRouter API key found. Add OPENROUTER_API_KEY to .env")
+            print("  warning: No OpenRouter API key found. Add OPENROUTER_API_KEY to .env")
             print("  Get key at: https://openrouter.ai/keys")
             return
 
         agent.update_config("openrouter", api_key, "moonshotai/kimi-k2.5")
         print()
-        print("  ✓ Switched to cheapest model: Kimi K2.5")
+        print("  ok Switched to cheapest model: Kimi K2.5")
         print("    ($0.14 input / $0.28 output per 1M tokens)")
         print_header("openrouter", "moonshotai/kimi-k2.5")
 
@@ -221,8 +221,170 @@ class CoreCommandHandlersMixin:
         agent.config.max_api_calls_per_turn = new_max
 
         print()
-        print(f"  ✓ Rate limit set to: {RATE_LIMIT_TIERS[selected_tier]['label']}")
+        print(f"  ok Rate limit set to: {RATE_LIMIT_TIERS[selected_tier]['label']}")
         print(f"    {new_max} API calls per turn (saved for future sessions)")
+
+    def _cmd_theme(self, agent, args=None):
+        """Pick and persist the UI color palette."""
+        from . import ui
+        from .theme import (
+            PALETTES,
+            load_active_palette_name,
+            save_palette_selection,
+        )
+
+        current = load_active_palette_name()
+        palette_keys = list(PALETTES.keys())
+
+        print()
+        print("  UI Palette:")
+        print()
+        for index, key in enumerate(palette_keys, 1):
+            palette = PALETTES[key]
+            marker = " (current)" if key == current else ""
+            print(f"    {index}. {palette['label']}{marker}")
+            print(f"       {palette['description']}")
+            print(f"       {_render_palette_swatch(palette['colors'])}")
+            print()
+
+        try:
+            raw = input(f"  Enter 1-{len(palette_keys)} (p=preview tool calls): ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print("\n  Cancelled.")
+            return
+
+        if raw == "p":
+            _preview_all_palettes()
+            return
+
+        try:
+            index = int(raw) - 1
+            if not 0 <= index < len(palette_keys):
+                print("  Invalid choice.")
+                return
+            selected_key = palette_keys[index]
+        except ValueError:
+            print("  Invalid choice.")
+            return
+
+        save_palette_selection(selected_key)
+        ui.reload_theme()
+
+        print()
+        print(f"  ok Palette set to: {PALETTES[selected_key]['label']}")
+        print("    (saved — applies now and on future launches)")
+
+    def _cmd_font(self, agent, args=None):
+        """Pick and persist the font/glyph profile."""
+        from .theme import (
+            FONT_PROFILES,
+            RECOMMENDED_FONTS,
+            load_active_font_profile_name,
+            save_font_profile_selection,
+        )
+
+        current = load_active_font_profile_name()
+        profile_keys = list(FONT_PROFILES.keys())
+
+        print()
+        print("  Font / Glyph Profile:")
+        print("  (This controls which text glyphs RadSim uses — your terminal")
+        print("   font controls how they render.)")
+        print()
+        for index, key in enumerate(profile_keys, 1):
+            profile = FONT_PROFILES[key]
+            marker = " (current)" if key == current else ""
+            glyphs = profile["glyphs"]
+            sample = (
+                f"{glyphs['prompt']} prompt  "
+                f"{glyphs['diff_add']} add  "
+                f"{glyphs['diff_del']} del  "
+                f"{glyphs['ellipsis']} ellipsis"
+            )
+            print(f"    {index}. {profile['label']}{marker}")
+            print(f"       {profile['description']}")
+            print(f"       Sample: {sample}")
+            print()
+
+        try:
+            raw = input(f"  Enter 1-{len(profile_keys)} (f=recommended fonts): ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print("\n  Cancelled.")
+            return
+
+        if raw == "f":
+            print()
+            print("  Recommended terminal fonts:")
+            print()
+            for name, desc in RECOMMENDED_FONTS:
+                print(f"    • {name}")
+                print(f"      {desc}")
+            print()
+            print("  Install one and set it in your terminal preferences,")
+            print("  then run /font again and pick the 'Nerd Font' profile.")
+            return
+
+        try:
+            index = int(raw) - 1
+            if not 0 <= index < len(profile_keys):
+                print("  Invalid choice.")
+                return
+            selected_key = profile_keys[index]
+        except ValueError:
+            print("  Invalid choice.")
+            return
+
+        save_font_profile_selection(selected_key)
+
+        print()
+        print(f"  ok Font profile set to: {FONT_PROFILES[selected_key]['label']}")
+        print("    (saved — applies on future launches)")
+
+    def _cmd_animations(self, agent, args=None):
+        """Pick and persist the animation level."""
+        from .theme import (
+            ANIMATION_LEVELS,
+            load_active_animation_level,
+            save_animation_level,
+        )
+
+        current = load_active_animation_level()
+        descriptions = {
+            "full": "Animated spinner + in-place tool updates",
+            "subtle": "Static spinner label + in-place tool updates",
+            "off": "No spinner output, final tool line only",
+        }
+
+        print()
+        print("  Animation Level:")
+        print()
+        for index, level in enumerate(ANIMATION_LEVELS, 1):
+            marker = " (current)" if level == current else ""
+            print(f"    {index}. {level}{marker}")
+            print(f"       {descriptions[level]}")
+        print()
+
+        try:
+            raw = input(f"  Enter 1-{len(ANIMATION_LEVELS)} [2 = subtle]: ").strip() or "2"
+        except (KeyboardInterrupt, EOFError):
+            print("\n  Cancelled.")
+            return
+
+        try:
+            index = int(raw) - 1
+            if not 0 <= index < len(ANIMATION_LEVELS):
+                print("  Invalid choice.")
+                return
+            selected_level = ANIMATION_LEVELS[index]
+        except ValueError:
+            print("  Invalid choice.")
+            return
+
+        save_animation_level(selected_level)
+
+        print()
+        print(f"  ok Animation level set to: {selected_level}")
+        print("    (saved — applies now and on future launches)")
 
     def _cmd_commands(self, agent):
         """List all available commands."""
@@ -240,6 +402,11 @@ class CoreCommandHandlersMixin:
                 ("/switch", "Quick switch provider/model"),
                 ("/config", "Full configuration setup"),
                 ("/free", "Switch to free model"),
+            ],
+            "Appearance": [
+                ("/theme", "Pick UI color palette"),
+                ("/font", "Pick font / glyph profile"),
+                ("/animations", "Set animation level"),
             ],
             "Conversation": [
                 ("/clear", "Clear conversation history"),
@@ -320,13 +487,13 @@ class CoreCommandHandlersMixin:
         is_active, message = toggle_mode("teach")
         print()
         if is_active:
-            print("  ✓ " + message)
+            print("  ok " + message)
             print("  The agent will now teach in EVERY response — text and code.")
-            print("  🎓 annotations explain HOW and WHY in all responses.")
+            print("  [teach] annotations explain HOW and WHY in all responses.")
             print("  Code annotations appear as inline magenta comments.")
             print("  Use /teach again to turn off.")
         else:
-            print("  ✓ " + message)
+            print("  ok " + message)
             print("  Back to normal execution mode.")
         print()
 
@@ -343,12 +510,12 @@ class CoreCommandHandlersMixin:
         is_active, message = toggle_mode("awake")
         print()
         if is_active:
-            print("  ✓ " + message)
+            print("  ok " + message)
             print("  macOS sleep prevention is active (display, idle, system).")
             print("  Your Mac will stay awake while RadSim is running.")
             print("  Use /awake again to turn off.")
         else:
-            print("  ✓ " + message)
+            print("  ok " + message)
             print("  macOS can now sleep normally.")
         print()
 
@@ -401,3 +568,80 @@ class CoreCommandHandlersMixin:
             highlight_teach=has_teach,
         )
         print()
+
+
+def _hex_to_rgb(hex_color):
+    h = hex_color.lstrip("#")
+    return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def _bg_swatch(hex_color, width=4):
+    """Return a true-color background swatch string."""
+    r, g, b = _hex_to_rgb(hex_color)
+    return f"\033[48;2;{r};{g};{b}m{' ' * width}\033[0m"
+
+
+def _render_palette_swatch(colors):
+    """One-line swatch showing all 7 palette colors."""
+    order = ["primary", "accent", "success", "warning", "error", "muted", "subtle"]
+    return "".join(_bg_swatch(colors[name]) for name in order)
+
+
+def _preview_all_palettes():
+    """Print a tool-call sample rendered in every palette for comparison."""
+    from .theme import PALETTES
+
+    print()
+    print("  Preview — same tool-call list rendered in each palette:")
+    print()
+    for _key, palette in PALETTES.items():
+        colors = palette["colors"]
+        print(f"    {palette['label']}")
+        print(f"    {_render_palette_swatch(colors)}")
+        _print_sample_tool_calls(colors)
+        print()
+
+
+def _print_sample_tool_calls(colors):
+    """Print a few mock tool-call lines in the given palette."""
+    from .terminal import supports_color
+    from .theme import glyph
+
+    if not supports_color():
+        print("      (colors not supported in this terminal)")
+        return
+
+    def fg(hex_color):
+        r, g, b = _hex_to_rgb(hex_color)
+        return f"\033[38;2;{r};{g};{b}m"
+
+    reset = "\033[0m"
+    dim = "\033[2m"
+
+    rows = [
+        (colors["primary"], "read", "src/auth.py", f"142 lines{dim}    34ms{reset}"),
+        (colors["primary"], "grep", '"TODO" in radsim/**', f"8 matches{dim}    12ms{reset}"),
+        (
+            colors["accent"],
+            "write",
+            "src/auth.py",
+            f"{fg(colors['success'])}{glyph('diff_add')}24{reset} {fg(colors['error'])}{glyph('diff_del')}7{reset}",
+        ),
+        (
+            colors["warning"],
+            "shell",
+            "pytest tests/auth",
+            f"exit 0{dim}       2.1s{reset}",
+        ),
+    ]
+    for color_hex, verb, argument, result in rows:
+        tag = f"[{verb}]"
+        padding = " " * max(10 - len(tag), 1)
+        line = (
+            f"      {fg(colors['muted'])}[{reset}"
+            f"{fg(color_hex)}{verb}{reset}"
+            f"{fg(colors['muted'])}]{padding}{reset}"
+            f"{fg(colors['muted'])}{argument:<34}{reset}"
+            f"{result}"
+        )
+        print(line)

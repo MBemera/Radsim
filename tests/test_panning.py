@@ -106,7 +106,7 @@ class TestPanningSession:
         test_file.write_text("My braindump notes here")
 
         result = session.process_file(str(test_file))
-        assert "✓" in result
+        assert "ok" in result
         assert len(session.dumps) == 1
 
     def test_process_missing_file(self, tmp_path, monkeypatch):

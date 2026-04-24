@@ -108,12 +108,12 @@ class Plan:
         return plan
 
 
-RISK_ICONS = {"low": "🟢", "medium": "🟡", "med": "🟡", "high": "🔴"}
+RISK_ICONS = {"low": "low", "medium": "medium", "med": "medium", "high": "high"}
 STATUS_ICONS = {
-    "pending": "⬜",
-    "in_progress": "🔄",
-    "completed": "✅",
-    "skipped": "⏭️",
+    "pending": "pending",
+    "in_progress": "running",
+    "completed": "ok",
+    "skipped": "skip",
 }
 
 
@@ -204,9 +204,9 @@ class PlanManager:
         lines.append(f"  ├{'─' * width}┤")
 
         for i, step in enumerate(plan.steps, 1):
-            risk_icon = RISK_ICONS.get(step.risk, "⚪")
-            status_icon = STATUS_ICONS.get(step.status, "⬜")
-            checkpoint = " 🔒" if step.checkpoint else ""
+            risk_icon = RISK_ICONS.get(step.risk, "?")
+            status_icon = STATUS_ICONS.get(step.status, "pending")
+            checkpoint = " [checkpoint]" if step.checkpoint else ""
 
             # Step header
             step_header = f"  Step {i}: {step.description[:35]}"
@@ -259,7 +259,7 @@ class PlanManager:
 
         self.active_plan.status = "approved"
         self._save_plan(self.active_plan)
-        return "  ✓ Plan approved! Use '/plan step' or '/plan run' to execute."
+        return "  ok Plan approved! Use '/plan step' or '/plan run' to execute."
 
     def reject_plan(self) -> str:
         """Reject and discard the active plan."""
@@ -269,7 +269,7 @@ class PlanManager:
         self.active_plan.status = "rejected"
         self._save_plan(self.active_plan)
         self.active_plan = None
-        return "  ✗ Plan rejected and discarded."
+        return "  fail Plan rejected and discarded."
 
     def get_next_step(self) -> tuple[int, PlanStep] | None:
         """Get the next pending step."""
@@ -317,7 +317,7 @@ class PlanManager:
 
         lines = []
         lines.append("")
-        lines.append(f"  📋 {plan.title}")
+        lines.append(f"  Plan: {plan.title}")
         lines.append(f"  Status: {plan.status.upper()}")
         lines.append(f"  Progress: {completed}/{total} steps completed")
 
@@ -344,12 +344,12 @@ class PlanManager:
         lines = ["", "  ═══ PLAN HISTORY ═══", ""]
         for plan_data in plans[-10:]:  # Last 10
             status_icon = {
-                "completed": "✅",
-                "rejected": "❌",
-                "draft": "📝",
-                "approved": "🔄",
-                "in_progress": "🔄",
-            }.get(plan_data.get("status"), "❓")
+                "completed": "ok",
+                "rejected": "fail",
+                "draft": "draft",
+                "approved": "approved",
+                "in_progress": "running",
+            }.get(plan_data.get("status"), "?")
 
             lines.append(f"  {status_icon} {plan_data['title']}")
             lines.append(f"     Created: {plan_data['created_at']}")
@@ -402,7 +402,7 @@ class PlanManager:
         export_path = Path.cwd() / f"{plan.plan_id}.md"
         export_path.write_text("\n".join(md_lines))
 
-        return f"  ✓ Plan exported to: {export_path}"
+        return f"  ok Plan exported to: {export_path}"
 
     def _save_plan(self, plan: Plan):
         """Save plan to JSON file."""

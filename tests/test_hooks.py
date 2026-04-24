@@ -252,5 +252,5 @@ class TestBuiltInHookFactories:
             tool_result={"success": False, "error": "disk full"},
         )
         hook(ctx)
-        assert "failed" in messages[0]
+        assert "fail" in messages[0]
         assert "disk full" in messages[0]

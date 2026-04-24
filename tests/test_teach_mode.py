@@ -20,22 +20,22 @@ class TestIsTeachComment:
     """Test detection of teaching comment lines."""
 
     def test_python_teach_comment(self):
-        assert is_teach_comment("# 🎓 This is a teaching comment") is True
+        assert is_teach_comment("# [teach] This is a teaching comment") is True
 
     def test_python_teach_comment_indented(self):
-        assert is_teach_comment("    # 🎓 Indented teaching comment") is True
+        assert is_teach_comment("    # [teach] Indented teaching comment") is True
 
     def test_javascript_teach_comment(self):
-        assert is_teach_comment("// 🎓 JS teaching comment") is True
+        assert is_teach_comment("// [teach] JS teaching comment") is True
 
     def test_sql_teach_comment(self):
-        assert is_teach_comment("-- 🎓 SQL teaching comment") is True
+        assert is_teach_comment("-- [teach] SQL teaching comment") is True
 
     def test_css_teach_comment(self):
-        assert is_teach_comment("/* 🎓 CSS teaching comment */") is True
+        assert is_teach_comment("/* [teach] CSS teaching comment */") is True
 
     def test_html_teach_comment(self):
-        assert is_teach_comment("<!-- 🎓 HTML teaching comment -->") is True
+        assert is_teach_comment("<!-- [teach] HTML teaching comment -->") is True
 
     def test_regular_comment_not_teach(self):
         assert is_teach_comment("# This is a normal comment") is False
@@ -50,7 +50,7 @@ class TestIsTeachComment:
         assert is_teach_comment("   ") is False
 
     def test_graduation_cap_in_string_not_teach(self):
-        assert is_teach_comment('print("🎓 hello")') is False
+        assert is_teach_comment('print("[teach] hello")') is False
 
     def test_hash_without_emoji_not_teach(self):
         assert is_teach_comment("# regular comment here") is False
@@ -62,40 +62,40 @@ class TestStripTeachComments:
     def test_strips_python_teach_comments(self):
         content = """import os
 
-# 🎓 load_dotenv reads .env into environment
+# [teach] load_dotenv reads .env into environment
 from dotenv import load_dotenv
 
 load_dotenv()
 """
         result = strip_teach_comments(content)
-        assert "🎓" not in result
+        assert "[teach]" not in result
         assert "import os" in result
         assert "load_dotenv()" in result
 
     def test_strips_javascript_teach_comments(self):
         content = """const express = require('express');
-// 🎓 Express is the most popular Node.js web framework
+// [teach] Express is the most popular Node.js web framework
 const app = express();
 """
         result = strip_teach_comments(content)
-        assert "🎓" not in result
+        assert "[teach]" not in result
         assert "const express" in result
         assert "const app" in result
 
     def test_preserves_regular_comments(self):
         content = """# Regular comment stays
-# 🎓 Teaching comment goes
+# [teach] Teaching comment goes
 x = 42  # Inline comment stays
 """
         result = strip_teach_comments(content)
         assert "Regular comment stays" in result
-        assert "🎓" not in result
+        assert "[teach]" not in result
         assert "x = 42  # Inline comment stays" in result
 
     def test_removes_consecutive_blank_lines(self):
         content = """line_one = 1
 
-# 🎓 Teaching comment
+# [teach] Teaching comment
 
 line_two = 2
 """
@@ -113,20 +113,20 @@ line_two = 2
         assert strip_teach_comments(content) == content
 
     def test_all_teach_comments(self):
-        content = "# 🎓 line one\n# 🎓 line two\n# 🎓 line three"
+        content = "# [teach] line one\n# [teach] line two\n# [teach] line three"
         result = strip_teach_comments(content)
         assert result.strip() == ""
 
     def test_mixed_languages(self):
-        content = """# 🎓 Python style
+        content = """# [teach] Python style
 import os
-// 🎓 JS style
+// [teach] JS style
 const x = 1;
--- 🎓 SQL style
+-- [teach] SQL style
 SELECT * FROM users;
 """
         result = strip_teach_comments(content)
-        assert "🎓" not in result
+        assert "[teach]" not in result
         assert "import os" in result
         assert "const x = 1;" in result
         assert "SELECT * FROM users;" in result
@@ -142,14 +142,14 @@ class TestStyleTeachContent:
     def test_teach_lines_get_styled(self, monkeypatch):
         # Force color support for this test
         monkeypatch.setattr("radsim.output.supports_color", lambda: True)
-        text = "# 🎓 This is a teaching line\nx = 42"
+        text = "# [teach] This is a teaching line\nx = 42"
         result = style_teach_content(text)
         # The teach line should be wrapped in ANSI magenta
         assert "\033[95m" in result  # bright_magenta
         assert "x = 42" in result
 
     def test_non_teach_lines_unchanged(self):
-        text = "regular line\n# 🎓 teach line\nanother regular"
+        text = "regular line\n# [teach] teach line\nanother regular"
         result = style_teach_content(text)
         lines = result.split("\n")
         assert lines[0] == "regular line"
@@ -167,25 +167,25 @@ class TestPrintCodeContent:
         assert "3 lines" in captured.out
 
     def test_highlight_teach_shows_indicator(self, capsys):
-        content = "# 🎓 Learn this\nx = 42"
+        content = "# [teach] Learn this\nx = 42"
         print_code_content(content, file_path="test.py", highlight_teach=True)
         captured = capsys.readouterr()
-        assert "teaching annotations shown in magenta" in captured.out
+        assert "[teach] annotations shown in magenta" in captured.out
 
     def test_highlight_teach_applies_color(self, capsys, monkeypatch):
         # Force color support for this test
         monkeypatch.setattr("radsim.output.supports_color", lambda: True)
-        content = "# 🎓 Learn this\nx = 42"
+        content = "# [teach] Learn this\nx = 42"
         print_code_content(content, file_path="test.py", highlight_teach=True)
         captured = capsys.readouterr()
         # The teach line should have magenta ANSI code
         assert "\033[95m" in captured.out
 
     def test_no_highlight_no_teach_indicator(self, capsys):
-        content = "# 🎓 Learn this\nx = 42"
+        content = "# [teach] Learn this\nx = 42"
         print_code_content(content, file_path="test.py", highlight_teach=False)
         captured = capsys.readouterr()
-        assert "teaching annotations shown in magenta" not in captured.out
+        assert "[teach] annotations shown in magenta" not in captured.out
 
     def test_collapsed_mode(self, capsys):
         lines = [f"line_{i} = {i}" for i in range(20)]
@@ -209,7 +209,7 @@ class TestTeachModePrompt:
     def test_prompt_mentions_inline_comments(self):
         from radsim.modes import TEACH_MODE_PROMPT
 
-        assert "# 🎓" in TEACH_MODE_PROMPT
+        assert "# [teach]" in TEACH_MODE_PROMPT
 
     def test_prompt_mentions_auto_stripping(self):
         from radsim.modes import TEACH_MODE_PROMPT
@@ -219,10 +219,10 @@ class TestTeachModePrompt:
     def test_prompt_mentions_multiple_languages(self):
         from radsim.modes import TEACH_MODE_PROMPT
 
-        assert "// 🎓" in TEACH_MODE_PROMPT
-        assert "<!-- 🎓" in TEACH_MODE_PROMPT
-        assert "/* 🎓" in TEACH_MODE_PROMPT
-        assert "-- 🎓" in TEACH_MODE_PROMPT
+        assert "// [teach]" in TEACH_MODE_PROMPT
+        assert "<!-- [teach]" in TEACH_MODE_PROMPT
+        assert "/* [teach]" in TEACH_MODE_PROMPT
+        assert "-- [teach]" in TEACH_MODE_PROMPT
 
     def test_prompt_does_not_use_old_teach_tags(self):
         from radsim.modes import TEACH_MODE_PROMPT
@@ -269,8 +269,8 @@ class TestTeachModeToggle:
         manager = ModeManager()
         manager.toggle("teach")
         additions = manager.get_prompt_additions()
-        assert "🎓" in additions
-        assert "# 🎓" in additions
+        assert "[teach]" in additions
+        assert "# [teach]" in additions
 
     def test_no_prompt_additions_when_inactive(self):
         from radsim.modes import ModeManager
@@ -287,17 +287,17 @@ class TestTeachAnnotationTruncation:
         """Teach lines up to 120 chars should NOT be truncated."""
         monkeypatch.setattr("radsim.output.supports_color", lambda: True)
         # Create a teach comment that's over 80 but under 120 chars
-        # "# 🎓 " is 5 chars (emoji counts as 1 in Python)
-        prefix = "# 🎓 "
+        # "# [teach] " is 10 chars
+        prefix = "# [teach] "
         padding = "x" * (100 - len(prefix))
         long_teach = prefix + padding
         assert len(long_teach) == 100
         content = f"x = 1\n{long_teach}\ny = 2"
         print_code_content(content, file_path="test.py", highlight_teach=True)
         captured = capsys.readouterr()
-        # The full teach line should appear without "..." truncation
-        assert "x" * 94 in captured.out
-        assert long_teach[:77] + "..." not in captured.out
+        # The full teach line should appear without ellipsis truncation
+        assert long_teach in captured.out
+        assert long_teach[:77] + "…" not in captured.out
 
     def test_regular_code_still_truncated_at_80(self, capsys):
         """Regular code lines over 80 chars should still be truncated."""
@@ -306,14 +306,14 @@ class TestTeachAnnotationTruncation:
         content = long_code
         print_code_content(content, file_path="test.py", highlight_teach=True)
         captured = capsys.readouterr()
-        assert "..." in captured.out
+        assert "…" in captured.out
 
     def test_teach_comments_over_120_are_truncated(self, capsys, monkeypatch):
         """Teach lines over 120 chars should still be truncated (at 120)."""
         monkeypatch.setattr("radsim.output.supports_color", lambda: True)
-        long_teach = "# 🎓 " + "x" * 130
+        long_teach = "# [teach] " + "x" * 130
         assert len(long_teach) > 120
         content = long_teach
         print_code_content(content, file_path="test.py", highlight_teach=True)
         captured = capsys.readouterr()
-        assert "..." in captured.out
+        assert "…" in captured.out
