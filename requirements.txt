@@ -1,5 +1,6 @@
 # Core dependencies - PINNED for production stability
 anthropic==0.84.0
+prompt_toolkit==3.0.48
 
 # Optional providers - PINNED versions
 openai==1.58.0
