@@ -570,41 +570,77 @@ def _select_openrouter_model() -> str | None:
     return top[0][0]
 
 
+def _vendor_of(model_id: str) -> str:
+    """Extract the vendor prefix from an OpenRouter model id (e.g. anthropic/claude-…)."""
+    if "/" in model_id:
+        return model_id.split("/", 1)[0]
+    return "other"
+
+
+def _group_by_vendor(choices: list[tuple[str, str]]) -> dict[str, list[tuple[str, str]]]:
+    grouped: dict[str, list[tuple[str, str]]] = {}
+    for model_id, label in choices:
+        grouped.setdefault(_vendor_of(model_id), []).append((model_id, label))
+    return grouped
+
+
 def _select_from_full_openrouter() -> str | None:
-    """Browse the full OpenRouter catalogue, optionally filtered by a search term."""
+    """Browse the full OpenRouter catalogue via a vendor menu or substring search."""
     full = _build_openrouter_choices(top_only=False)
     if not full:
         print("  warning: full catalogue unavailable, using top list.")
         top = _build_openrouter_choices(top_only=True)
         return top[0][0] if top else None
 
-    print()
-    try:
-        query = input(
-            f"  Filter ({len(full)} models) — type a substring or press Enter for all: "
-        ).strip().lower()
-    except (KeyboardInterrupt, EOFError):
-        return None
+    grouped = _group_by_vendor(full)
+    vendors = sorted(grouped.keys(), key=lambda v: (-len(grouped[v]), v))
 
-    if query:
-        filtered = [
-            (model_id, label)
-            for model_id, label in full
-            if query in model_id.lower() or query in label.lower()
-        ]
-        if not filtered:
-            print(f"  No matches for '{query}'.")
+    while True:
+        print()
+        print(f"  Browse {len(full)} models by vendor:")
+        for i, vendor in enumerate(vendors, 1):
+            print(f"    {i}. {vendor} ({len(grouped[vendor])})")
+        search_index = len(vendors) + 1
+        back_index = len(vendors) + 2
+        print(f"    {search_index}. Search by name…")
+        print(f"    {back_index}. Back")
+        print()
+
+        try:
+            choice = input(f"  Enter 1-{back_index}: ").strip()
+        except (KeyboardInterrupt, EOFError):
             return None
-        full = filtered
 
+        try:
+            idx = int(choice) - 1
+        except ValueError:
+            continue
+
+        if idx == back_index - 1:
+            return None
+        if idx == search_index - 1:
+            picked = _search_openrouter_models(full)
+            if picked:
+                return picked
+            continue
+        if 0 <= idx < len(vendors):
+            picked = _select_from_vendor(vendors[idx], grouped[vendors[idx]])
+            if picked:
+                return picked
+            continue
+
+
+def _select_from_vendor(vendor: str, models: list[tuple[str, str]]) -> str | None:
     print()
-    print(f"  Models ({len(full)}):")
-    for i, (_, label) in enumerate(full, 1):
+    print(f"  {vendor} ({len(models)} models):")
+    for i, (_, label) in enumerate(models, 1):
         print(f"    {i}. {label}")
+    back_index = len(models) + 1
+    print(f"    {back_index}. Back")
     print()
 
     try:
-        choice = input(f"  Enter 1-{len(full)}: ").strip()
+        choice = input(f"  Enter 1-{back_index}: ").strip()
     except (KeyboardInterrupt, EOFError):
         return None
 
@@ -613,8 +649,53 @@ def _select_from_full_openrouter() -> str | None:
     except ValueError:
         return None
 
-    if 0 <= idx < len(full):
-        return full[idx][0]
+    if idx == len(models):
+        return None
+    if 0 <= idx < len(models):
+        return models[idx][0]
+    return None
+
+
+def _search_openrouter_models(full: list[tuple[str, str]]) -> str | None:
+    print()
+    try:
+        query = input("  Search (substring of name or id): ").strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        return None
+    if not query:
+        return None
+
+    filtered = [
+        (model_id, label)
+        for model_id, label in full
+        if query in model_id.lower() or query in label.lower()
+    ]
+    if not filtered:
+        print(f"  No matches for '{query}'.")
+        return None
+
+    print()
+    print(f"  Matches ({len(filtered)}):")
+    for i, (_, label) in enumerate(filtered, 1):
+        print(f"    {i}. {label}")
+    back_index = len(filtered) + 1
+    print(f"    {back_index}. Back")
+    print()
+
+    try:
+        choice = input(f"  Enter 1-{back_index}: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        return None
+
+    try:
+        idx = int(choice) - 1
+    except ValueError:
+        return None
+
+    if idx == len(filtered):
+        return None
+    if 0 <= idx < len(filtered):
+        return filtered[idx][0]
     return None
 
 
