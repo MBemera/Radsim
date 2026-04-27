@@ -39,7 +39,7 @@ COLORS = {
     "gray": "\033[90m",
 }
 
-# RadSim ASCII Logo (Option B - Blocky)
+# RadSim ASCII Logo (cube-block style — matches the RadSim brand artwork)
 RADSIM_LOGO_LINES = [
     "  ██████   █████  ██████  ███████ ██ ███    ███",
     "  ██   ██ ██   ██ ██   ██ ██      ██ ████  ████",
@@ -48,7 +48,46 @@ RADSIM_LOGO_LINES = [
     "  ██   ██ ██   ██ ██████  ███████ ██ ██      ██",
 ]
 
-RADSIM_TAGLINE = "Radically Simple Code"
+# Logo lines are 47 columns wide (2-space lead + 45 visible cols).
+LOGO_WIDTH = 47
+
+# Robot mascot frames. The body is centered over the logo, with an ASCII
+# lightning bolt zig-zagging out of the upper right of the head and connecting
+# to the body. Each frame is exactly 5 lines so we can overdraw in place.
+RADSIM_ROBOT_FRAMES = [
+    [
+        "                      ╭───╮╱",
+        "                      │◉ ◉│╱",
+        "                      ╰─┬─╯╲",
+        "                     ┌──┴──┐╲",
+        "                     └─────┘╱",
+    ],
+    [
+        "                      ╭───╮╱",
+        "                      │‾ ‾│╱",
+        "                      ╰─┬─╯╲",
+        "                     ┌──┴──┐╲",
+        "                     └─────┘╱",
+    ],
+    [
+        "                      ╭───╮ ",
+        "                      │◉ ◉│ ",
+        "                      ╰─┬─╯ ",
+        "                     ┌──┴──┐ ",
+        "                     └─────┘ ",
+    ],
+    [
+        "                      ╭───╮╱",
+        "                      │◉ ◉│╱",
+        "                      ╰─┬─╯╲",
+        "                     ┌──┴──┐╲",
+        "                     └─────┘╱",
+    ],
+]
+
+ROBOT_HEIGHT = len(RADSIM_ROBOT_FRAMES[0])
+
+RADSIM_TAGLINE = "── radically simple coding agent ──"
 
 
 def colorize(text, color):
@@ -56,24 +95,79 @@ def colorize(text, color):
     return colorize_ansi(text, color, COLORS, supports_color_fn=supports_color)
 
 
+def _center_line(text, width=LOGO_WIDTH):
+    """Center a visible string within the given column width."""
+    padding = max(0, (width - len(text)) // 2)
+    return " " * padding + text
+
+
+def _print_robot_frame(frame):
+    """Render a single mascot frame in bright cyan."""
+    for line in frame:
+        sys.stdout.write("\r\033[2K")
+        sys.stdout.write(colorize(line, "bright_cyan") + "\n")
+    sys.stdout.flush()
+
+
+def _animate_robot_drop(frame):
+    """Print the mascot one line at a time so it appears to drop in."""
+    for line in frame:
+        print(colorize(line, "bright_cyan"))
+        sys.stdout.flush()
+        time.sleep(0.06)
+
+
+def _animate_robot_loop(frames, cycles=3, frame_delay=0.18):
+    """Cycle through mascot frames in place to keep it engaging."""
+    for _ in range(cycles):
+        for frame in frames[1:]:
+            sys.stdout.write(f"\033[{ROBOT_HEIGHT}A")
+            _print_robot_frame(frame)
+            time.sleep(frame_delay)
+        sys.stdout.write(f"\033[{ROBOT_HEIGHT}A")
+        _print_robot_frame(frames[0])
+        time.sleep(frame_delay)
+
+
+def _print_logo_solid(logo_lines):
+    """Print the RadSim logo as a single solid block (no sweep)."""
+    for line in logo_lines:
+        print(colorize(line, "bright_cyan"))
+    sys.stdout.flush()
+
+
+def _animate_tagline(tagline):
+    """Type the tagline in character by character, centered under the logo."""
+    leading = " " * max(0, (LOGO_WIDTH - len(tagline)) // 2)
+    sys.stdout.write(leading)
+    for ch in tagline:
+        sys.stdout.write(colorize(ch, "cyan"))
+        sys.stdout.flush()
+        time.sleep(0.015)
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
+
 def print_boot_sequence(provider, model, animated=True):
     """Print the RadSim boot-up sequence with logo and animation."""
     animation_level = load_active_animation_level()
     animated = animated and animation_level == "full"
 
-    # Clear some space
     print()
 
     if animated:
-        for line in RADSIM_LOGO_LINES:
-            print(colorize(line, "bright_cyan"))
-            time.sleep(0.01)
+        _animate_robot_drop(RADSIM_ROBOT_FRAMES[0])
+        _animate_robot_loop(RADSIM_ROBOT_FRAMES, cycles=2)
+        _print_logo_solid(RADSIM_LOGO_LINES)
+        print()
+        _animate_tagline(RADSIM_TAGLINE)
     else:
+        for line in RADSIM_ROBOT_FRAMES[0]:
+            print(colorize(line, "bright_cyan"))
         for line in RADSIM_LOGO_LINES:
             print(colorize(line, "bright_cyan"))
-
-    print()
-    print(colorize(f"  {RADSIM_TAGLINE}", "cyan"))
+        print()
+        print(colorize(_center_line(RADSIM_TAGLINE), "cyan"))
 
     print()
     box_width = 47
