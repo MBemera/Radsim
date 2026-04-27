@@ -47,10 +47,9 @@ class HealthChecker:
 
         # Check environment variables
         env_vars = [
-            "ANTHROPIC_API_KEY",
-            "OPENAI_API_KEY",
-            "GOOGLE_API_KEY",
             "OPENROUTER_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
             "RADSIM_API_KEY",
         ]
 
@@ -92,19 +91,16 @@ class HealthChecker:
 
         providers_found = []
 
-        if importlib.util.find_spec("anthropic"):
-            providers_found.append("anthropic")
-
         if importlib.util.find_spec("openai"):
             providers_found.append("openai")
 
-        if importlib.util.find_spec("google.genai"):
-            providers_found.append("google-genai")
+        if importlib.util.find_spec("anthropic"):
+            providers_found.append("anthropic")
 
         if providers_found:
             return True, f"Provider SDKs available: {', '.join(providers_found)}"
 
-        return False, "No provider SDKs installed (need anthropic, openai, or google-genai)"
+        return False, "No provider SDKs installed (need openai or anthropic)"
 
     def run_all_checks(self) -> HealthStatus:
         """Run all health checks and return status."""

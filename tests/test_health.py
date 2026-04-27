@@ -63,7 +63,6 @@ class TestHealthChecker:
         env_patch = {
             "ANTHROPIC_API_KEY": "",
             "OPENAI_API_KEY": "",
-            "GOOGLE_API_KEY": "",
             "OPENROUTER_API_KEY": "",
             "RADSIM_API_KEY": "",
         }

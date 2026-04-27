@@ -42,6 +42,22 @@ DEFAULT_COMMAND_SPECS = [
         "telegram_safe": False,
     },
     {
+        "names": ["/login"],
+        "handler_name": "_cmd_login",
+        "description": "Log in to a provider with an API key",
+        "category": "provider",
+        "accepts_args": True,
+        "telegram_safe": False,
+    },
+    {
+        "names": ["/logout"],
+        "handler_name": "_cmd_logout",
+        "description": "Remove a provider's saved credentials",
+        "category": "provider",
+        "accepts_args": True,
+        "telegram_safe": False,
+    },
+    {
         "names": ["/free"],
         "handler_name": "_cmd_free",
         "description": "Switch to free OpenRouter model",

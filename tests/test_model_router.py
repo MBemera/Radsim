@@ -14,7 +14,7 @@ class TestModelRouter:
         assert router.primary_model == "claude-sonnet-4-5"
 
     def test_default_model_per_provider(self):
-        providers = ["claude", "openai", "gemini", "vertex", "openrouter"]
+        providers = ["openrouter", "openai", "claude"]
         for provider in providers:
             router = ModelRouter(primary_provider=provider)
             assert router.primary_model is not None
@@ -48,7 +48,7 @@ class TestProviderHealth:
         router = ModelRouter()
         assert router.is_provider_healthy("claude") is True
         assert router.is_provider_healthy("openai") is True
-        assert router.is_provider_healthy("gemini") is True
+        assert router.is_provider_healthy("openrouter") is True
 
     def test_mark_unhealthy(self):
         router = ModelRouter()
@@ -116,7 +116,7 @@ class TestModelSelection:
     def test_fallback_to_primary_when_all_fail(self):
         router = ModelRouter(primary_provider="claude")
         # Mark everything unhealthy
-        for p in ["claude", "openai", "gemini", "vertex", "openrouter"]:
+        for p in ["openrouter", "openai", "claude"]:
             router.mark_provider_unhealthy(p, "down")
 
         provider, model = router.select_model()

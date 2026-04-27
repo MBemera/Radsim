@@ -47,7 +47,7 @@ class TestCLIParsing:
         """All 5 providers should be valid choices."""
         from radsim.cli import parse_arguments
 
-        for provider in ["claude", "openai", "gemini", "vertex", "openrouter"]:
+        for provider in ["openrouter", "openai", "claude"]:
             # Test that parsing doesn't raise for valid providers
             sys.argv = ["radsim", "--provider", provider, "test prompt"]
             args = parse_arguments()

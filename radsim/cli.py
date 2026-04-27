@@ -117,7 +117,7 @@ Examples:
   radsim  (starts interactive mode)
 
 Environment variables:
-  RADSIM_PROVIDER   API provider (claude, openai, gemini)
+  RADSIM_PROVIDER   API provider (openrouter, openai, claude)
   RADSIM_API_KEY    Your API key
         """,
     )
@@ -131,8 +131,8 @@ Environment variables:
     parser.add_argument(
         "--provider",
         "-p",
-        choices=["claude", "openai", "gemini", "vertex", "openrouter"],
-        help="API provider (default: claude)",
+        choices=["openrouter", "openai", "claude"],
+        help="API provider (default: openrouter)",
     )
 
     parser.add_argument(
@@ -211,6 +211,29 @@ def _run_interactive_mode(config, context_file):
     run_interactive(config, context_file)
 
 
+def _handle_login_subcommand() -> int | None:
+    """Intercept `radsim login <provider>` / `radsim logout <provider>`.
+
+    Returns an exit code if the subcommand was handled, or None to let the
+    normal argparse flow proceed.
+    """
+    if len(sys.argv) < 2 or sys.argv[1] not in ("login", "logout"):
+        return None
+
+    sub_parser = argparse.ArgumentParser(prog=f"radsim {sys.argv[1]}")
+    sub_parser.add_argument(
+        "provider",
+        choices=["openrouter", "openai", "claude"],
+    )
+
+    sub_args = sub_parser.parse_args(sys.argv[2:])
+    from . import login as login_module
+
+    if sys.argv[1] == "login":
+        return login_module.run_login(sub_args.provider)
+    return login_module.run_logout(sub_args.provider)
+
+
 def main():
     """Main entry point."""
     from .log_config import configure_logging
@@ -218,6 +241,10 @@ def main():
     configure_runtime_warnings()
     install_process_handlers()
     configure_logging()
+
+    login_exit = _handle_login_subcommand()
+    if login_exit is not None:
+        sys.exit(login_exit)
 
     args = parse_arguments()
 

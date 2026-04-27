@@ -1,0 +1,185 @@
+/* Animated splash logo from the Radsim intro screen. */
+:root {
+  --neon: #33e7ff;
+  --ink-3: rgba(226, 246, 255, 0.48);
+}
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  background: #02070a;
+  animation: splashIn 0.5s ease-out;
+}
+
+.splash.is-leaving {
+  animation: splashOut 0.65s cubic-bezier(.6, 0, .2, 1) forwards;
+}
+
+@keyframes splashIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes splashOut {
+  to {
+    opacity: 0;
+    transform: scale(1.06);
+    filter: blur(6px);
+  }
+}
+
+.splash-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(51, 231, 255, 0.25), transparent 55%),
+    radial-gradient(ellipse at 50% 80%, rgba(51, 231, 255, 0.12), transparent 60%);
+}
+
+.splash-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(51, 231, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(51, 231, 255, 0.08) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at 50% 50%, #000 10%, transparent 70%);
+  animation: gridDrift 20s linear infinite;
+}
+
+@keyframes gridDrift {
+  to {
+    background-position: 48px 48px;
+  }
+}
+
+.splash-inner {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  padding: 32px;
+  text-align: center;
+}
+
+.splash-mascot {
+  width: clamp(320px, 58vw, 640px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+
+.splash-mascot img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  mix-blend-mode: screen;
+  filter: drop-shadow(0 0 40px rgba(51, 231, 255, 0.7))
+    drop-shadow(0 0 120px rgba(51, 231, 255, 0.4));
+  animation: splashFloat 4.5s ease-in-out infinite;
+}
+
+@keyframes splashFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.splash-tag {
+  color: var(--neon);
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  text-shadow: 0 0 8px rgba(51, 231, 255, 0.5);
+  margin-top: -4px;
+}
+
+.splash-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 32px;
+  border: 1px solid var(--neon);
+  background: rgba(51, 231, 255, 0.06);
+  color: var(--neon);
+  font-family: monospace;
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border-radius: 2px;
+  cursor: none;
+  box-shadow: 0 0 0 rgba(51, 231, 255, 0), inset 0 0 20px rgba(51, 231, 255, 0.1);
+  text-shadow: 0 0 8px rgba(51, 231, 255, 0.5);
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.splash-btn::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border: 1px solid rgba(51, 231, 255, 0.25);
+  pointer-events: none;
+  animation: splashRing 2s ease-in-out infinite;
+}
+
+@keyframes splashRing {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: scale(1.04);
+  }
+}
+
+.splash-btn:hover {
+  background: var(--neon);
+  color: #02181d;
+  box-shadow: 0 0 40px rgba(51, 231, 255, 0.8), inset 0 0 20px rgba(255, 255, 255, 0.3);
+  text-shadow: none;
+}
+
+.splash-btn:hover .sb-arrow {
+  transform: translateX(4px);
+}
+
+.sb-arrow {
+  transition: transform 0.25s ease;
+}
+
+.splash-foot {
+  margin-top: 12px;
+  color: var(--ink-3);
+  font-size: 10.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 520px) {
+  .splash-btn {
+    padding: 16px 24px;
+    font-size: 12px;
+  }
+
+  .splash-inner {
+    gap: 20px;
+  }
+}

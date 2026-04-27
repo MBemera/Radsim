@@ -416,11 +416,9 @@ def step_provider_intro():
     print()
 
     providers = [
-        ("Claude (Anthropic)", "Great for coding, reasoning, safety", "$3-15/M tokens"),
+        ("OpenRouter", "Recommended — free models, multiple providers", "$0–0.50/M tokens"),
         ("GPT-5 (OpenAI)", "Versatile, multimodal, fast", "$1-15/M tokens"),
-        ("Gemini (Google)", "Huge context, good for docs", "$0.10-5/M tokens"),
-        ("Vertex AI (Google Cloud)", "GCP-hosted Gemini + Claude models", "$0.80-15/M tokens"),
-        ("OpenRouter", "Recommended - multiple models, cheapest", "$0.14-0.50/M tokens"),
+        ("Claude (Anthropic)", "Great for coding, reasoning, safety", "$3-15/M tokens"),
     ]
 
     for name, desc, price in providers:
@@ -439,24 +437,20 @@ def step_select_provider() -> tuple:
 
     print("  Choose your preferred AI provider:")
     print()
-    print("    1. Claude (Anthropic)       - Best for coding")
+    print("    1. OpenRouter               - Recommended (free models, cheapest)")
     print("    2. GPT-5 (OpenAI)           - Versatile & fast")
-    print("    3. Gemini (Google)           - Large context window")
-    print("    4. Vertex AI (Google Cloud)  - GCP-hosted models")
-    print("    5. OpenRouter               - Recommended (cheapest, most models)")
+    print("    3. Claude (Anthropic)       - Best for coding")
     print()
 
     provider_map = {
-        "1": "claude",
+        "1": "openrouter",
         "2": "openai",
-        "3": "gemini",
-        "4": "vertex",
-        "5": "openrouter",
+        "3": "claude",
     }
 
     while True:
         try:
-            choice = input("  Enter 1-5 [5]: ").strip() or "5"
+            choice = input("  Enter 1-3 [1]: ").strip() or "1"
         except (KeyboardInterrupt, EOFError):
             print("\n  Setup cancelled.")
             sys.exit(0)
@@ -464,7 +458,7 @@ def step_select_provider() -> tuple:
         provider = provider_map.get(choice)
         if provider:
             break
-        print("  Invalid choice. Please enter 1-5.")
+        print("  Invalid choice. Please enter 1-3.")
 
     # Select model
     print()
@@ -509,92 +503,7 @@ def step_api_key(provider: str) -> str:
 
     provider_url = PROVIDER_URLS[provider]
 
-    # Vertex AI uses project ID + location instead of an API key
-    if provider == "vertex":
-        # Check if project ID already exists
-        existing_project = os.getenv("GOOGLE_CLOUD_PROJECT")
-        if not existing_project:
-            env_config = load_env_file()
-            existing_project = env_config.get("keys", {}).get("GOOGLE_CLOUD_PROJECT")
-
-        if existing_project and not existing_project.lower().startswith("paste_your"):
-            print(f"  ok Found existing GOOGLE_CLOUD_PROJECT: {existing_project}")
-            print()
-            print("  Your Vertex AI project is already configured!")
-            location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-            if not location:
-                env_config = env_config if "env_config" in dir() else load_env_file()
-                location = env_config.get("keys", {}).get(
-                    "GOOGLE_CLOUD_LOCATION", "us-central1"
-                )
-            pause()
-            return f"{existing_project}:{location}"
-
-        print("  Vertex AI uses your Google Cloud project credentials.")
-        print()
-        print("  Prerequisites:")
-        print(f"  1. A GCP project with Vertex AI enabled: {provider_url}")
-        print("  2. Application Default Credentials (run: gcloud auth application-default login)")
-        print()
-        print("  [api key] Enter your GCP project details:")
-        print()
-
-        try:
-            project_id = input("  Google Cloud Project ID (or press Enter to skip): ").strip()
-        except (KeyboardInterrupt, EOFError):
-            print("\n  Setup cancelled.")
-            sys.exit(0)
-
-        if not project_id:
-            print()
-            print("  No problem! You can add it later:")
-            print(f"  1. Open: {ENV_FILE}")
-            print('  2. Add: GOOGLE_CLOUD_PROJECT="your-project-id"')
-            print('         GOOGLE_CLOUD_LOCATION="us-central1"')
-            print()
-            print("  Then run 'radsim' again.")
-            pause()
-            return None
-
-        try:
-            location = (
-                input("  GCP Location [us-central1]: ").strip() or "us-central1"
-            )
-        except (KeyboardInterrupt, EOFError):
-            print("\n  Setup cancelled.")
-            sys.exit(0)
-
-        # Save project config securely
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
-        env_config = load_env_file()
-        existing_keys = env_config.get("keys", {})
-        existing_keys["GOOGLE_CLOUD_PROJECT"] = project_id
-        existing_keys["GOOGLE_CLOUD_LOCATION"] = location
-
-        lines = [
-            "# RadSim Configuration",
-            "# This file is chmod 600 (secure)",
-            "",
-            f'RADSIM_PROVIDER="{provider}"',
-            "",
-            "# API Keys & Credentials",
-        ]
-
-        for key_name, key_value in existing_keys.items():
-            if key_value and not key_value.lower().startswith("paste_your"):
-                lines.append(f'{key_name}="{key_value}"')
-
-        lines.append("")
-        ENV_FILE.write_text("\n".join(lines))
-        ENV_FILE.chmod(0o600)
-
-        print()
-        print("  ok Vertex AI config saved securely to ~/.radsim/.env")
-        pause()
-        return f"{project_id}:{location}"
-
-    # Standard API key flow for non-Vertex providers
+    # Standard API key flow
     env_var_name = PROVIDER_ENV_VARS.get(provider, "RADSIM_API_KEY")
 
     # Check if key already exists

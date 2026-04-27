@@ -19,10 +19,7 @@ def mock_env(monkeypatch):
         "RADSIM_API_KEY",
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
-        "GOOGLE_API_KEY",
         "OPENROUTER_API_KEY",
-        "GOOGLE_CLOUD_PROJECT",
-        "GOOGLE_CLOUD_LOCATION",
         "RADSIM_ACCESS_CODE",
     ]
     for var in env_vars_to_clear:
