@@ -9,6 +9,10 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+REASONING_EFFORT_LEVELS = ("low", "medium", "high")
+DEFAULT_REASONING_EFFORT = "medium"
+
+
 @dataclass
 class Config:
     """RadSim configuration."""
@@ -20,6 +24,7 @@ class Config:
     verbose: bool = False
     stream: bool = True
     agent_config: dict = field(default_factory=dict)
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT
     # Rate limiting settings (aggressive loop protection)
     max_api_calls_per_turn: int = 15  # Hard stop after 15 calls without user input
     max_session_input_tokens: int = 0  # 0 = unlimited (set to 500000 for budget limit)
@@ -464,6 +469,27 @@ def save_config(api_key, provider, model):
     ENV_FILE.chmod(0o600)  # Secure: owner read/write only
 
 
+def save_reasoning_effort(effort: str) -> None:
+    """Persist global reasoning effort to settings.json."""
+    if effort not in REASONING_EFFORT_LEVELS:
+        raise ValueError(
+            f"Invalid reasoning_effort: {effort}. "
+            f"Expected one of {REASONING_EFFORT_LEVELS}."
+        )
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    settings = load_settings_file()
+    settings["reasoning_effort"] = effort
+    SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+
+
+def load_reasoning_effort() -> str:
+    """Read global reasoning effort from settings.json, default to medium."""
+    effort = load_settings_file().get("reasoning_effort", DEFAULT_REASONING_EFFORT)
+    if effort not in REASONING_EFFORT_LEVELS:
+        return DEFAULT_REASONING_EFFORT
+    return effort
+
+
 def save_rate_limit_tier(tier_name):
     """Save rate limit tier to settings.json.
 
@@ -474,6 +500,150 @@ def save_rate_limit_tier(tier_name):
     settings = load_settings_file()
     settings["rate_limit_tier"] = tier_name
     SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+
+
+def _format_model_label(entry: dict) -> str:
+    """Build a TUI-friendly label from a normalized OpenRouter model entry."""
+    label = entry.get("name") or entry["id"]
+    suffix_parts = []
+    if entry.get("supports_reasoning"):
+        suffix_parts.append("reasoning")
+    ctx = entry.get("context_length") or 0
+    if ctx:
+        suffix_parts.append(f"{ctx // 1000}k ctx")
+    if suffix_parts:
+        return f"{label} ({', '.join(suffix_parts)})"
+    return label
+
+
+def _build_openrouter_choices(top_only: bool = True) -> list[tuple[str, str]]:
+    """Return (model_id, label) pairs for the OpenRouter catalogue.
+
+    When top_only is True, returns the curated short list from
+    PROVIDER_MODELS enriched with live capability metadata when available.
+    Otherwise returns the full live catalogue.
+    """
+    from .openrouter_models import find_model, get_openrouter_models
+
+    if top_only:
+        choices = []
+        for model_id, fallback_label in PROVIDER_MODELS["openrouter"]:
+            entry = find_model(model_id)
+            if entry:
+                choices.append((model_id, _format_model_label(entry)))
+            else:
+                choices.append((model_id, fallback_label))
+        return choices
+
+    catalogue = get_openrouter_models()
+    if not catalogue:
+        return PROVIDER_MODELS["openrouter"]
+    return [(entry["id"], _format_model_label(entry)) for entry in catalogue]
+
+
+def _select_openrouter_model() -> str | None:
+    """Two-level OpenRouter picker: curated top list with an opt-in full browse."""
+    top = _build_openrouter_choices(top_only=True)
+    expand_index = len(top) + 1
+
+    print()
+    print("  Recommended OpenRouter models:")
+    for i, (_, label) in enumerate(top, 1):
+        print(f"    {i}. {label}")
+    print(f"    {expand_index}. Show all models…")
+    print()
+
+    try:
+        choice = input(f"  Enter 1-{expand_index} [1]: ").strip() or "1"
+    except (KeyboardInterrupt, EOFError):
+        return None
+
+    try:
+        idx = int(choice) - 1
+    except ValueError:
+        return top[0][0]
+
+    if idx == len(top):
+        return _select_from_full_openrouter()
+    if 0 <= idx < len(top):
+        return top[idx][0]
+    return top[0][0]
+
+
+def _select_from_full_openrouter() -> str | None:
+    """Browse the full OpenRouter catalogue, optionally filtered by a search term."""
+    full = _build_openrouter_choices(top_only=False)
+    if not full:
+        print("  warning: full catalogue unavailable, using top list.")
+        top = _build_openrouter_choices(top_only=True)
+        return top[0][0] if top else None
+
+    print()
+    try:
+        query = input(
+            f"  Filter ({len(full)} models) — type a substring or press Enter for all: "
+        ).strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        return None
+
+    if query:
+        filtered = [
+            (model_id, label)
+            for model_id, label in full
+            if query in model_id.lower() or query in label.lower()
+        ]
+        if not filtered:
+            print(f"  No matches for '{query}'.")
+            return None
+        full = filtered
+
+    print()
+    print(f"  Models ({len(full)}):")
+    for i, (_, label) in enumerate(full, 1):
+        print(f"    {i}. {label}")
+    print()
+
+    try:
+        choice = input(f"  Enter 1-{len(full)}: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        return None
+
+    try:
+        idx = int(choice) - 1
+    except ValueError:
+        return None
+
+    if 0 <= idx < len(full):
+        return full[idx][0]
+    return None
+
+
+def _maybe_prompt_reasoning_effort(provider: str, model: str) -> None:
+    """Prompt for reasoning effort when the chosen model supports it."""
+    if provider not in ("openai", "openrouter"):
+        return
+    capabilities = MODEL_CAPABILITIES.get(model, {})
+    supports_reasoning = capabilities.get("supports_reasoning", False)
+    if provider == "openrouter":
+        from .openrouter_models import model_supports_reasoning
+        supports_reasoning = supports_reasoning or model_supports_reasoning(model)
+    if not supports_reasoning:
+        return
+
+    print()
+    print("  This model supports reasoning. Choose effort level:")
+    print("    1. low (cheapest, faster, less thinking)")
+    print("    2. medium (recommended)")
+    print("    3. high (deepest reasoning, more tokens)")
+    print()
+    try:
+        choice = input("  Enter 1-3 [2]: ").strip() or "2"
+    except (KeyboardInterrupt, EOFError):
+        return
+    mapping = {"1": "low", "2": "medium", "3": "high"}
+    effort = mapping.get(choice, "medium")
+    save_reasoning_effort(effort)
+    print(f"  ok Reasoning effort set to '{effort}'.")
 
 
 def setup_config(first_time=True):
@@ -534,28 +704,36 @@ def setup_config(first_time=True):
         print("  Invalid choice.")
         return None, None, None
 
-    # Select model
-    print()
-    print("  Select model:")
-    models = PROVIDER_MODELS[provider]
-    for i, (_, model_name) in enumerate(models, 1):
-        print(f"    {i}. {model_name}")
-    print()
+    # Select model — OpenRouter uses a two-level dynamic picker, others a static list
+    if provider == "openrouter":
+        model = _select_openrouter_model()
+        if not model:
+            print("\n  Setup cancelled.")
+            return None, None, None
+    else:
+        print()
+        print("  Select model:")
+        models = PROVIDER_MODELS[provider]
+        for i, (_, model_name) in enumerate(models, 1):
+            print(f"    {i}. {model_name}")
+        print()
 
-    try:
-        model_choice = input(f"  Enter 1-{len(models)} [1]: ").strip() or "1"
-    except (KeyboardInterrupt, EOFError):
-        print("\n  Setup cancelled.")
-        return None, None, None
+        try:
+            model_choice = input(f"  Enter 1-{len(models)} [1]: ").strip() or "1"
+        except (KeyboardInterrupt, EOFError):
+            print("\n  Setup cancelled.")
+            return None, None, None
 
-    try:
-        model_index = int(model_choice) - 1
-        if 0 <= model_index < len(models):
-            model = models[model_index][0]
-        else:
-            model = models[0][0]  # Default to first
-    except ValueError:
-        model = models[0][0]  # Default to first
+        try:
+            model_index = int(model_choice) - 1
+            if 0 <= model_index < len(models):
+                model = models[model_index][0]
+            else:
+                model = models[0][0]
+        except ValueError:
+            model = models[0][0]
+
+    _maybe_prompt_reasoning_effort(provider, model)
 
     env_var_name = PROVIDER_ENV_VARS.get(provider, "RADSIM_API_KEY")
 
@@ -735,6 +913,10 @@ def load_config(
         rate_limit_tier = DEFAULT_RATE_LIMIT_TIER
     max_api_calls = RATE_LIMIT_TIERS[rate_limit_tier]["max_calls"]
 
+    reasoning_effort = settings_config.get("reasoning_effort", DEFAULT_REASONING_EFFORT)
+    if reasoning_effort not in REASONING_EFFORT_LEVELS:
+        reasoning_effort = DEFAULT_REASONING_EFFORT
+
     return Config(
         provider=provider,
         api_key=api_key,
@@ -743,5 +925,6 @@ def load_config(
         verbose=final_verbose,
         stream=final_stream,
         agent_config=agent_config,
+        reasoning_effort=reasoning_effort,
         max_api_calls_per_turn=max_api_calls,
     )

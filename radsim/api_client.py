@@ -352,7 +352,13 @@ class ClaudeClient(BaseAPIClient):
 class OpenAIClient(BaseAPIClient):
     """OpenAI API client."""
 
-    def __init__(self, api_key, model="gpt-5.2", timeout=DEFAULT_TIMEOUT_SECONDS):
+    def __init__(
+        self,
+        api_key,
+        model="gpt-5.2",
+        timeout=DEFAULT_TIMEOUT_SECONDS,
+        reasoning_effort=None,
+    ):
         try:
             import openai
         except ImportError:
@@ -364,6 +370,13 @@ class OpenAIClient(BaseAPIClient):
             timeout=timeout,
         )
         self.model = model
+        self.reasoning_effort = reasoning_effort
+
+    def _apply_reasoning(self, kwargs):
+        """Attach reasoning_effort to a chat completion request when set."""
+        if self.reasoning_effort:
+            kwargs["reasoning_effort"] = self.reasoning_effort
+        return kwargs
 
     def chat(self, messages, system_prompt=None, tools=None):
         """Send a chat request to OpenAI with retry logic."""
@@ -393,6 +406,7 @@ class OpenAIClient(BaseAPIClient):
         if tools:
             kwargs["tools"] = self._convert_tools(tools)
 
+        self._apply_reasoning(kwargs)
         return self._chat_with_retry(**kwargs)
 
     @with_retry(max_retries=DEFAULT_MAX_RETRIES)
@@ -437,6 +451,7 @@ class OpenAIClient(BaseAPIClient):
         if tools:
             kwargs["tools"] = self._convert_tools(tools)
 
+        self._apply_reasoning(kwargs)
         stream = self.client.chat.completions.create(**kwargs)
 
         final_text = ""
@@ -872,7 +887,13 @@ class OpenRouterClient(OpenAIClient):
     - X-Title header (optional, for analytics)
     """
 
-    def __init__(self, api_key, model="qwen/qwen3-coder:free", timeout=DEFAULT_TIMEOUT_SECONDS):
+    def __init__(
+        self,
+        api_key,
+        model="qwen/qwen3-coder:free",
+        timeout=DEFAULT_TIMEOUT_SECONDS,
+        reasoning_effort=None,
+    ):
         try:
             import openai
         except ImportError:
@@ -890,9 +911,23 @@ class OpenRouterClient(OpenAIClient):
             },
         )
         self.model = model
+        self.reasoning_effort = reasoning_effort
+
+    def _apply_reasoning(self, kwargs):
+        """OpenRouter exposes a unified reasoning param that maps across providers."""
+        if not self.reasoning_effort:
+            return kwargs
+        from .openrouter_models import model_supports_reasoning
+        if not model_supports_reasoning(self.model):
+            return kwargs
+        kwargs["extra_body"] = {
+            **kwargs.get("extra_body", {}),
+            "reasoning": {"effort": self.reasoning_effort},
+        }
+        return kwargs
 
 
-def create_client(provider, api_key, model=None):
+def create_client(provider, api_key, model=None, reasoning_effort=None):
     """Create an API client for the specified provider."""
     clients = {
         "claude": ClaudeClient,
@@ -906,7 +941,9 @@ def create_client(provider, api_key, model=None):
         raise ValueError(f"Unknown provider: {provider}")
 
     client_class = clients[provider]
-
+    kwargs = {}
     if model:
-        return client_class(api_key, model)
-    return client_class(api_key)
+        kwargs["model"] = model
+    if reasoning_effort and provider in ("openai", "openrouter"):
+        kwargs["reasoning_effort"] = reasoning_effort
+    return client_class(api_key, **kwargs)

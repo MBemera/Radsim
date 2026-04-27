@@ -79,7 +79,12 @@ class CoreCommandHandlersMixin:
 
     def _cmd_switch(self, agent, args=None):
         """Quick switch provider/model without full setup."""
-        from .config import PROVIDER_MODELS, load_env_file
+        from .config import (
+            PROVIDER_MODELS,
+            _maybe_prompt_reasoning_effort,
+            _select_openrouter_model,
+            load_env_file,
+        )
         from .output import print_header
 
         print()
@@ -129,27 +134,35 @@ class CoreCommandHandlersMixin:
                 print(f"  warning: No API key found for {provider}. Add it to .env first.")
                 return
 
-        print()
-        print("  Select model:")
-        models = PROVIDER_MODELS[provider]
-        for index, (_, model_name) in enumerate(models, 1):
-            print(f"    {index}. {model_name}")
-        print()
+        if provider == "openrouter":
+            model = _select_openrouter_model()
+            if not model:
+                print("\n  Cancelled.")
+                return
+        else:
+            print()
+            print("  Select model:")
+            models = PROVIDER_MODELS[provider]
+            for index, (_, model_name) in enumerate(models, 1):
+                print(f"    {index}. {model_name}")
+            print()
 
-        try:
-            model_choice = input(f"  Enter 1-{len(models)} [1]: ").strip() or "1"
-        except (KeyboardInterrupt, EOFError):
-            print("\n  Cancelled.")
-            return
+            try:
+                model_choice = input(f"  Enter 1-{len(models)} [1]: ").strip() or "1"
+            except (KeyboardInterrupt, EOFError):
+                print("\n  Cancelled.")
+                return
 
-        try:
-            model_index = int(model_choice) - 1
-            if 0 <= model_index < len(models):
-                model = models[model_index][0]
-            else:
+            try:
+                model_index = int(model_choice) - 1
+                if 0 <= model_index < len(models):
+                    model = models[model_index][0]
+                else:
+                    model = models[0][0]
+            except ValueError:
                 model = models[0][0]
-        except ValueError:
-            model = models[0][0]
+
+        _maybe_prompt_reasoning_effort(provider, model)
 
         agent.update_config(provider, api_key, model)
         print()
