@@ -29,9 +29,14 @@ class AgentPolicyMixin:
         if self.config.auto_confirm and not force_confirm:
             print_info(f"Auto-executing: {description}")
             confirmed = True
+        elif force_confirm:
+            confirmed = confirm_action(f"{description}?", config=None)
         else:
-            config_for_confirmation = None if force_confirm else self.config
-            confirmed = confirm_action(f"{description}?", config=config_for_confirmation)
+            confirmed = self._confirm_action_with_trust(
+                tool_name,
+                tool_input,
+                f"{description}?",
+            )
 
         if not confirmed:
             print_warning(f"{description} cancelled")
@@ -52,6 +57,16 @@ class AgentPolicyMixin:
             print_error(error_message or result.get("error", f"{tool_name} failed"))
 
         return result
+
+    def _confirm_action_with_trust(self, tool_name, tool_input, message):
+        """Confirm an action, allowing learned trust for safe Tier 1 tools."""
+        try:
+            from .trust_bandit_integration import confirm_with_bandit
+
+            return confirm_with_bandit(tool_name, tool_input, message, config=self.config)
+        except Exception:
+            logger.debug("Trust-bandit confirmation failed, using normal prompt", exc_info=True)
+            return confirm_action(message, config=self.config)
 
     def _execute_with_permission(self, tool_name, tool_input):
         """Execute a tool with appropriate permission checks."""

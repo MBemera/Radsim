@@ -150,6 +150,64 @@ class LearningCommandHandlersMixin:
 
         print()
 
+    def _cmd_trust(self, agent, args=None):
+        """View or reset learned confirmation trust."""
+        from .trust_bandit import get_trust_bandit
+
+        args = args or []
+        bandit = get_trust_bandit()
+
+        if not args:
+            self._print_trust_stats(agent, bandit)
+            return
+
+        command = args[0].lower()
+        if command == "reset":
+            self._reset_trust_stats(bandit, args)
+            return
+
+        if command in ("low", "medium", "high"):
+            agent.config.trust_mode = command
+            print_info(f"Trust mode set to {command}.")
+            return
+
+        print_error("Usage: /trust, /trust reset [tool], /trust low, /trust medium")
+
+    def _print_trust_stats(self, agent, bandit):
+        """Print trust-bandit stats."""
+        stats = bandit.get_stats()
+        mode = getattr(agent.config, "trust_mode", "medium")
+
+        print()
+        print("  Trust bandit")
+        print(f"  Mode: {mode}")
+        print()
+
+        if not stats:
+            print_info("No trust data yet. Learning starts after 5 confirms per action.")
+            return
+
+        for entry in stats:
+            signature = entry["signature"]
+            if len(signature) > 52:
+                signature = signature[:49] + "..."
+            print(
+                f"  {entry['tool']:<16} {signature:<52} "
+                f"trust={entry['trust']:.2f} n={entry['observations']}"
+            )
+        print()
+
+    def _reset_trust_stats(self, bandit, args):
+        """Reset trust data from the /trust command."""
+        if len(args) > 1:
+            tool_name = args[1]
+            bandit.reset(tool_name=tool_name)
+            print_info(f"Reset trust for {tool_name}.")
+            return
+
+        bandit.reset()
+        print_info("Reset all trust.")
+
     def _cmd_settings(self, agent, args=None):
         """View or change agent settings."""
         from .agent_config import get_agent_config_manager

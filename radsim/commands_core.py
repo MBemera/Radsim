@@ -418,6 +418,8 @@ class CoreCommandHandlersMixin:
                 ("/stats", "Learning statistics"),
                 ("/report", "Full learning report"),
                 ("/preferences", "Show learned preferences"),
+                ("/trust", "Show learned confirmation trust"),
+                ("/trust reset", "Reset learned confirmation trust"),
                 ("/audit", "Audit what was learned"),
                 ("/reset <cat>", "Reset learning data"),
             ],

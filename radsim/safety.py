@@ -138,6 +138,26 @@ def is_extension_safe(file_path):
     return False, f"Uncommon file extension: {extension}"
 
 
+def _should_auto_confirm_write(file_path, config):
+    """Return whether the trust bandit can skip a write prompt."""
+    try:
+        from .trust_bandit_integration import should_auto_confirm_action
+
+        return should_auto_confirm_action("write_file", {"file_path": file_path}, config=config)
+    except Exception:
+        return False, "trust_unavailable"
+
+
+def _record_write_decision(file_path, accepted, config):
+    """Record a write prompt decision if trust learning is enabled."""
+    try:
+        from .trust_bandit_integration import record_user_decision
+
+        record_user_decision("write_file", {"file_path": file_path}, accepted, config=config)
+    except Exception:
+        pass
+
+
 def confirm_write(file_path, content, config=None):
     """Ask user to confirm a file write operation."""
     # Check safety first, even in auto mode
@@ -150,16 +170,25 @@ def confirm_write(file_path, content, config=None):
         print(f"  > Auto-writing: {file_path}")
         return True
 
+    # Check extension before any learned auto-confirm shortcut.
+    ext_safe, ext_reason = is_extension_safe(file_path)
+    if not ext_safe:
+        print(f"\nwarning:  Warning: {ext_reason}")
+
+    if ext_safe:
+        auto_confirm, reason = _should_auto_confirm_write(file_path, config)
+        if auto_confirm:
+            print(f"  > Auto-writing (trusted): {file_path} ({reason})")
+            _record_write_decision(file_path, True, config)
+            return True
+
     # Telegram confirmation mode — send summary instead of terminal prompt
     if _telegram_confirm_fn:
         line_count = len(content.splitlines())
         summary = f"Write file: {file_path} ({line_count} lines)"
-        return _telegram_confirm_fn(summary)
-
-    # Check extension
-    ext_safe, ext_reason = is_extension_safe(file_path)
-    if not ext_safe:
-        print(f"\nwarning:  Warning: {ext_reason}")
+        confirmed = _telegram_confirm_fn(summary)
+        _record_write_decision(file_path, confirmed, config)
+        return confirmed
 
     # Show preview - use teach-aware display when teach mode is active
     teach_active = False
@@ -241,17 +270,21 @@ def confirm_write(file_path, content, config=None):
                 continue  # Re-prompt for y/n/all
 
             if response_lower in ["y", "yes"]:
+                _record_write_decision(file_path, True, config)
                 return True
 
             if response_lower in ["a", "all", "always"]:
                 if config:
                     config.auto_confirm = True
                     print("  ok Auto-confirm enabled (dangerous actions will still prompt)")
+                _record_write_decision(file_path, True, config)
                 return True
 
+            _record_write_decision(file_path, False, config)
             return False
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
+        _record_write_decision(file_path, False, config)
         return False
     finally:
         resume_escape_listener()
