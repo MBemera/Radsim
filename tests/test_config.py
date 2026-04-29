@@ -37,8 +37,8 @@ def test_config_from_settings_json(tmp_path, monkeypatch):
     settings_file = config_dir / "settings.json"
 
     settings = {
-        "default_provider": "gemini",
-        "default_model": "gemini-2.5-pro",
+        "default_provider": "openrouter",
+        "default_model": "moonshotai/kimi-k2.5",
         "stream": False,
         "verbose": True,
     }
@@ -62,7 +62,7 @@ def test_config_from_settings_json(tmp_path, monkeypatch):
     )
 
     config = load_config()
-    assert config.provider == "gemini"
-    assert config.model == "gemini-2.5-pro"
+    assert config.provider == "openrouter"
+    assert config.model == "moonshotai/kimi-k2.5"
     assert config.stream is False
     assert config.verbose is True

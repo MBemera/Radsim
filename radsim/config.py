@@ -60,19 +60,6 @@ PROVIDER_MODELS = {
         ("gpt-5.2-codex", "GPT-5.2 Codex (Cheap)"),
         ("gpt-5-mini", "GPT-5 Mini (Fast & cheap)"),
     ],
-    "gemini": [
-        ("gemini-3-pro", "Gemini 3 Pro (Most capable)"),
-        ("gemini-3-flash", "Gemini 3 Flash (Recommended)"),
-        ("gemini-2.5-pro", "Gemini 2.5 Pro"),
-        ("gemini-2.5-flash", "Gemini 2.5 Flash (Fast & cheap)"),
-    ],
-    "vertex": [
-        ("claude-opus-4-6", "Claude Opus 4.6 on Vertex (Most capable)"),
-        ("gemini-2.5-pro", "Gemini 2.5 Pro on Vertex (Recommended)"),
-        ("gemini-2.5-flash", "Gemini 2.5 Flash on Vertex (Fast)"),
-        ("claude-sonnet-4-5", "Claude Sonnet 4.5 on Vertex"),
-        ("claude-haiku-4-5", "Claude Haiku 4.5 on Vertex (Cheap)"),
-    ],
     "openrouter": [
         ("moonshotai/kimi-k2.5", "Kimi K2.5 (Recommended)"),
         ("anthropic/claude-opus-4.6", "Claude Opus 4.6 via OpenRouter"),
@@ -87,28 +74,22 @@ PROVIDER_MODELS = {
 
 # Default model for each provider (Updated Feb 2026)
 DEFAULT_MODELS = {
-    "claude": "claude-sonnet-4-5",
-    "openai": "gpt-5.4",
-    "gemini": "gemini-3-flash",
-    "vertex": "gemini-2.5-pro",
     "openrouter": "moonshotai/kimi-k2.5",
+    "openai": "gpt-5.4",
+    "claude": "claude-sonnet-4-5",
 }
 
 PROVIDER_URLS = {
-    "claude": "https://console.anthropic.com/settings/keys",
-    "openai": "https://platform.openai.com/api-keys",
-    "gemini": "https://aistudio.google.com/apikey",
-    "vertex": "https://console.cloud.google.com/vertex-ai",
     "openrouter": "https://openrouter.ai/keys",
+    "openai": "https://platform.openai.com/api-keys",
+    "claude": "https://console.anthropic.com/settings/keys",
 }
 
 # Provider-specific environment variable names
 PROVIDER_ENV_VARS = {
-    "claude": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "gemini": "GOOGLE_API_KEY",
-    "vertex": "GOOGLE_CLOUD_PROJECT",
     "openrouter": "OPENROUTER_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "claude": "ANTHROPIC_API_KEY",
 }
 
 # Fallback models for automatic failover (in priority order)
@@ -123,15 +104,6 @@ FALLBACK_MODELS = {
         "gpt-5.2",
         "gpt-5.2-codex",
         "gpt-5-mini",
-    ],
-    "gemini": [
-        "gemini-3-flash",
-        "gemini-2.5-flash",
-    ],
-    "vertex": [
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
-        "claude-haiku-4-5",
     ],
     "openrouter": [
         "moonshotai/kimi-k2.5",
@@ -157,11 +129,6 @@ MODEL_PRICING = {
     "gpt-5.2": (2.50, 10.00),
     "gpt-5.2-codex": (2.50, 10.00),
     "gpt-5-mini": (1.00, 4.00),
-    # Google Gemini 3 Series
-    "gemini-3-pro": (1.25, 5.00),
-    "gemini-3-flash": (0.10, 0.40),
-    "gemini-2.5-pro": (1.25, 5.00),
-    "gemini-2.5-flash": (0.075, 0.30),
     # OpenRouter models
     "moonshotai/kimi-k2.5": (0.14, 0.28),
     "anthropic/claude-opus-4.6": (5.00, 25.00),
@@ -185,11 +152,6 @@ CONTEXT_LIMITS = {
     "gpt-5.2": 256000,
     "gpt-5.2-codex": 256000,
     "gpt-5-mini": 128000,
-    # Google Gemini 3 Series
-    "gemini-3-pro": 2000000,
-    "gemini-3-flash": 1000000,
-    "gemini-2.5-pro": 2000000,
-    "gemini-2.5-flash": 1000000,
     # OpenRouter models
     "anthropic/claude-opus-4.6": 1000000,
     "anthropic/claude-sonnet-4.6": 1000000,
@@ -256,33 +218,6 @@ MODEL_CAPABILITIES = {
         "supports_tools": True,
         "supports_streaming": True,
         "supports_reasoning": True,
-        "supports_vision": True,
-        "max_output_tokens": 8192,
-    },
-    # Gemini 3 Series - Enhanced multimodal
-    "gemini-3-pro": {
-        "supports_tools": True,
-        "supports_streaming": True,
-        "supports_vision": True,
-        "supports_audio": True,
-        "max_output_tokens": 8192,
-    },
-    "gemini-3-flash": {
-        "supports_tools": True,
-        "supports_streaming": True,
-        "supports_vision": True,
-        "supports_audio": True,
-        "max_output_tokens": 8192,
-    },
-    "gemini-2.5-pro": {
-        "supports_tools": True,
-        "supports_streaming": True,
-        "supports_vision": True,
-        "max_output_tokens": 8192,
-    },
-    "gemini-2.5-flash": {
-        "supports_tools": True,
-        "supports_streaming": True,
         "supports_vision": True,
         "max_output_tokens": 8192,
     },
@@ -401,10 +336,7 @@ def load_env_file():
                 elif key in (
                     "ANTHROPIC_API_KEY",
                     "OPENAI_API_KEY",
-                    "GOOGLE_API_KEY",
                     "OPENROUTER_API_KEY",
-                    "GOOGLE_CLOUD_PROJECT",
-                    "GOOGLE_CLOUD_LOCATION",
                     "RADSIM_ACCESS_CODE",
                     "TELEGRAM_BOT_TOKEN",
                     "TELEGRAM_CHAT_ID",
@@ -746,11 +678,9 @@ def setup_config(first_time=True):
         print(f"    Global: {ENV_FILE}")
         print()
         print("  Add your API key for your chosen provider:")
-        print("    ANTHROPIC_API_KEY    - https://console.anthropic.com/settings/keys")
-        print("    OPENAI_API_KEY       - https://platform.openai.com/api-keys")
-        print("    GOOGLE_API_KEY       - https://aistudio.google.com/apikey")
-        print("    GOOGLE_CLOUD_PROJECT - https://console.cloud.google.com/vertex-ai")
         print("    OPENROUTER_API_KEY   - https://openrouter.ai/keys")
+        print("    OPENAI_API_KEY       - https://platform.openai.com/api-keys")
+        print("    ANTHROPIC_API_KEY    - https://console.anthropic.com/settings/keys")
         print()
         print("  Then run 'radsim' again.")
         print()
@@ -760,25 +690,21 @@ def setup_config(first_time=True):
         print("  ╰─────────────────────────────────────╯")
     print()
     print("  Select your AI provider:")
-    print("    1. Claude (Anthropic)")
-    print("    2. GPT-5 (OpenAI)")
-    print("    3. Gemini (Google)")
-    print("    4. Vertex AI (Google Cloud)")
-    print("    5. OpenRouter (Free)")
+    print("    1. OpenRouter (recommended — free models available)")
+    print("    2. OpenAI (GPT-5)")
+    print("    3. Claude (Anthropic)")
     print()
 
     try:
-        choice = input("  Enter 1-5: ").strip()
+        choice = input("  Enter 1-3: ").strip()
     except (KeyboardInterrupt, EOFError):
         print("\n  Setup cancelled.")
         return None, None, None
 
     provider_map = {
-        "1": "claude",
+        "1": "openrouter",
         "2": "openai",
-        "3": "gemini",
-        "4": "vertex",
-        "5": "openrouter",
+        "3": "claude",
     }
     provider = provider_map.get(choice)
 
@@ -819,65 +745,30 @@ def setup_config(first_time=True):
 
     env_var_name = PROVIDER_ENV_VARS.get(provider, "RADSIM_API_KEY")
 
-    # Vertex AI uses project ID instead of an API key
-    if provider == "vertex":
-        existing_project = os.getenv("GOOGLE_CLOUD_PROJECT")
-        if not existing_project:
-            env_config = load_env_file()
-            existing_project = env_config.get("keys", {}).get("GOOGLE_CLOUD_PROJECT")
+    # Standard API key flow
+    # Check environment first, then .env file
+    existing_key = os.getenv(env_var_name)
+    if not existing_key:
+        env_config = load_env_file()
+        existing_key = env_config.get("keys", {}).get(env_var_name)
 
-        if existing_project and not existing_project.startswith("PASTE_YOUR"):
-            print()
-            print(f"  ok Found GOOGLE_CLOUD_PROJECT: {existing_project}")
-            location = os.getenv("GOOGLE_CLOUD_LOCATION")
-            if not location:
-                env_config = env_config if "env_config" in dir() else load_env_file()
-                location = env_config.get("keys", {}).get(
-                    "GOOGLE_CLOUD_LOCATION", "us-central1"
-                )
-            api_key = f"{existing_project}:{location}"
-        else:
-            print()
-            print("  warning: No Google Cloud project configured for Vertex AI.")
-            print()
-            print("  [api key] Add to your .env file:")
-            print(f"     ./.env  OR  {ENV_FILE}")
-            print()
-            print('     GOOGLE_CLOUD_PROJECT="your-gcp-project-id"')
-            print('     GOOGLE_CLOUD_LOCATION="us-central1"  # optional')
-            print()
-            print("  Also ensure ADC is set up:")
-            print("     gcloud auth application-default login")
-            print()
-            print(f"  More info: {PROVIDER_URLS[provider]}")
-            print()
-            print("  Then run 'radsim' again.")
-            return None, None, None
+    if existing_key and not existing_key.startswith("PASTE_YOUR"):
+        print()
+        print(f"  ok Found {env_var_name} configured.")
+        api_key = existing_key
     else:
-        # Standard API key flow for other providers
-        # Check environment first, then .env file
-        existing_key = os.getenv(env_var_name)
-        if not existing_key:
-            env_config = load_env_file()
-            existing_key = env_config.get("keys", {}).get(env_var_name)
-
-        if existing_key and not existing_key.startswith("PASTE_YOUR"):
-            print()
-            print(f"  ok Found {env_var_name} configured.")
-            api_key = existing_key
-        else:
-            print()
-            print(f"  warning: No API key found for {provider}.")
-            print()
-            print("  [api key] For security, please edit your .env file directly:")
-            print(f"     ./.env  OR  {ENV_FILE}")
-            print()
-            print(f'     Add: {env_var_name}="your-api-key"')
-            print()
-            print(f"     Get key from: {PROVIDER_URLS[provider]}")
-            print()
-            print("  Then run 'radsim' again.")
-            return None, None, None
+        print()
+        print(f"  warning: No API key found for {provider}.")
+        print()
+        print("  [api key] For security, please edit your .env file directly:")
+        print(f"     ./.env  OR  {ENV_FILE}")
+        print()
+        print(f'     Add: {env_var_name}="your-api-key"')
+        print()
+        print(f"     Get key from: {PROVIDER_URLS[provider]}")
+        print()
+        print("  Then run 'radsim' again.")
+        return None, None, None
 
     # Save provider and model preferences
     save_config(api_key, provider, model)
@@ -904,7 +795,7 @@ def load_config(
         or os.getenv("RADSIM_PROVIDER")
         or env_config["provider"]
         or settings_config.get("default_provider")
-        or "claude"
+        or "openrouter"
     )
 
     # Determine API key
@@ -923,19 +814,6 @@ def load_config(
             or key_lower == ""
             or "placeholder" in key_lower
         )
-
-    if not api_key and provider == "vertex":
-        # Vertex AI uses project ID + location instead of an API key
-        project_id = env_config.get("keys", {}).get("GOOGLE_CLOUD_PROJECT")
-        if not project_id:
-            project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-        if project_id and not is_placeholder_key(project_id):
-            location = env_config.get("keys", {}).get(
-                "GOOGLE_CLOUD_LOCATION", "us-central1"
-            )
-            if not location:
-                location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-            api_key = f"{project_id}:{location}"
 
     if not api_key:
         # 1. Check .env file for provider-specific key (SECURE - preferred)

@@ -20,6 +20,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
+from .mascot_spinner import MASCOT_STATIC, register_mascot_spinner
 from .terminal import supports_color
 from .theme import (
     glyph,
@@ -27,6 +28,8 @@ from .theme import (
     load_active_palette,
     tool_category,
 )
+
+register_mascot_spinner()
 
 logger = logging.getLogger(__name__)
 
@@ -155,13 +158,13 @@ class Spinner:
             speed = 0.08 / self.delay if self.delay > 0 else 1.0
             self.status = console.status(
                 f"[primary]{self.message}[/primary]",
-                spinner="dots",
+                spinner="mascot",
                 spinner_style="primary",
                 speed=speed,
             )
             self.status.start()
         elif self.animation_level == "subtle":
-            console.print(f"  {self.message}", style="primary", end="")
+            console.print(f"  {MASCOT_STATIC} {self.message}", style="primary", end="")
             console.file.flush()
             self._inline_visible = True
 
@@ -173,7 +176,7 @@ class Spinner:
         if self.animation_level == "full" and self.status is not None:
             self.status.update(f"[primary]{self.message}[/primary]")
         elif self.animation_level == "subtle" and self._inline_visible:
-            _rewrite_inline(Text(f"  {self.message}", style="primary"))
+            _rewrite_inline(Text(f"  {MASCOT_STATIC} {self.message}", style="primary"))
 
     def stop(self):
         """Stop the spinner."""
@@ -281,7 +284,7 @@ class PhaseProgressBar:
 
     def __init__(self, total_steps, description="Processing..."):
         self.progress = Progress(
-            SpinnerColumn(spinner_name="dots", style="primary"),
+            SpinnerColumn(spinner_name="mascot", style="primary"),
             TextColumn("[primary]{task.description}"),
             BarColumn(complete_style="primary", finished_style="success"),
             TaskProgressColumn(),
@@ -458,7 +461,7 @@ class TaskDashboard:
     def __init__(self, title="RadSim Task", total_steps=100):
         self.title = title
         self.progress = Progress(
-            SpinnerColumn(spinner_name="dots", style="primary"),
+            SpinnerColumn(spinner_name="mascot", style="primary"),
             TextColumn("[primary]{task.description}"),
             BarColumn(complete_style="primary", finished_style="success"),
             TaskProgressColumn(),

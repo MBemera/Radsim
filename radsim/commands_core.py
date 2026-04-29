@@ -94,6 +94,81 @@ class CoreCommandHandlersMixin:
         else:
             print_info("Setup cancelled or incomplete.")
 
+    def _cmd_login(self, agent, args=None):
+        """Log in to a provider from inside the REPL.
+
+        Usage:
+          /login                → pick from a numbered menu
+          /login <provider>     → API-key wizard for that provider
+        """
+        from . import login as login_module
+        from .login import PROVIDERS
+
+        provider = (args[0].lower() if args else "").strip()
+        if not provider:
+            print()
+            print("  Log in - Select provider:")
+            keys = list(PROVIDERS)
+            for i, name in enumerate(keys, 1):
+                print(f"    {i}. {PROVIDERS[name]['label']}")
+            print()
+            try:
+                choice = input(f"  Enter 1-{len(keys)}: ").strip()
+            except (KeyboardInterrupt, EOFError):
+                print("\n  Cancelled.")
+                return
+            try:
+                provider = keys[int(choice) - 1]
+            except (ValueError, IndexError):
+                print("  Invalid choice.")
+                return
+
+        if provider not in PROVIDERS:
+            print(f"  Unknown provider: {provider}")
+            print(f"  Choices: {', '.join(PROVIDERS)}")
+            return
+
+        login_module.run_login(provider)
+
+        # If the user just configured a different provider, hot-swap to it.
+        from .config import load_env_file
+
+        env_config = load_env_file()
+        new_keys = env_config.get("keys", {})
+        env_var = PROVIDERS[provider]["env_var"]
+        if env_var and new_keys.get(env_var):
+            agent.update_config(provider, new_keys[env_var], None)
+
+    def _cmd_logout(self, agent, args=None):
+        """Remove a provider's API key and any cached OAuth tokens."""
+        from . import login as login_module
+        from .login import PROVIDERS
+
+        provider = (args[0].lower() if args else "").strip()
+        if not provider:
+            print()
+            print("  Log out - Select provider:")
+            keys = list(PROVIDERS)
+            for i, name in enumerate(keys, 1):
+                print(f"    {i}. {PROVIDERS[name]['label']}")
+            print()
+            try:
+                choice = input(f"  Enter 1-{len(keys)}: ").strip()
+            except (KeyboardInterrupt, EOFError):
+                print("\n  Cancelled.")
+                return
+            try:
+                provider = keys[int(choice) - 1]
+            except (ValueError, IndexError):
+                print("  Invalid choice.")
+                return
+
+        if provider not in PROVIDERS:
+            print(f"  Unknown provider: {provider}")
+            return
+
+        login_module.run_logout(provider)
+
     def _cmd_switch(self, agent, args=None):
         """Quick switch provider/model without full setup."""
         from .config import (
@@ -106,25 +181,21 @@ class CoreCommandHandlersMixin:
 
         print()
         print("  Quick Switch - Select provider:")
-        print("    1. Claude (Anthropic)")
+        print("    1. OpenRouter")
         print("    2. GPT-5 (OpenAI)")
-        print("    3. Gemini (Google)")
-        print("    4. Vertex AI (Google Cloud)")
-        print("    5. OpenRouter")
+        print("    3. Claude (Anthropic)")
         print()
 
         try:
-            choice = input("  Enter 1-5: ").strip()
+            choice = input("  Enter 1-3: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n  Cancelled.")
             return
 
         provider_map = {
-            "1": "claude",
+            "1": "openrouter",
             "2": "openai",
-            "3": "gemini",
-            "4": "vertex",
-            "5": "openrouter",
+            "3": "claude",
         }
         provider = provider_map.get(choice)
 
@@ -136,20 +207,12 @@ class CoreCommandHandlersMixin:
 
         env_config = load_env_file()
 
-        if provider == "vertex":
-            project_id = env_config.get("keys", {}).get("GOOGLE_CLOUD_PROJECT")
-            if not project_id or project_id.lower().startswith("paste_your"):
-                print("  warning: No GOOGLE_CLOUD_PROJECT found. Add it to .env first.")
-                return
-            location = env_config.get("keys", {}).get("GOOGLE_CLOUD_LOCATION", "us-central1")
-            api_key = f"{project_id}:{location}"
-        else:
-            env_var = PROVIDER_ENV_VARS.get(provider, "RADSIM_API_KEY")
-            api_key = env_config.get("keys", {}).get(env_var)
+        env_var = PROVIDER_ENV_VARS.get(provider, "RADSIM_API_KEY")
+        api_key = env_config.get("keys", {}).get(env_var)
 
-            if not api_key or api_key.lower().startswith("paste_your"):
-                print(f"  warning: No API key found for {provider}. Add it to .env first.")
-                return
+        if not api_key or api_key.lower().startswith("paste_your"):
+            print(f"  warning: No API key found for {provider}. Add it to .env first.")
+            return
 
         if provider == "openrouter":
             model = _select_openrouter_model()
