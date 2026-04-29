@@ -21,6 +21,7 @@ class Config:
     api_key: str
     model: str
     auto_confirm: bool = False
+    trust_mode: str = "medium"
     verbose: bool = False
     stream: bool = True
     agent_config: dict = field(default_factory=dict)

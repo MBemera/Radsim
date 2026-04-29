@@ -170,6 +170,14 @@ DEFAULT_COMMAND_SPECS = [
         "telegram_safe": True,
     },
     {
+        "names": ["/trust"],
+        "handler_name": "_cmd_trust",
+        "description": "View or reset learned confirmation trust",
+        "category": "learning",
+        "accepts_args": True,
+        "telegram_safe": False,
+    },
+    {
         "names": ["/skill", "/skills"],
         "handler_name": "_cmd_skill",
         "description": "Configure custom skills/instructions",

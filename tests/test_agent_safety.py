@@ -8,7 +8,7 @@ from radsim.agent import RadSimAgent
 def build_agent(auto_confirm=False):
     """Create a minimal agent instance for handler tests."""
     agent = object.__new__(RadSimAgent)
-    agent.config = SimpleNamespace(auto_confirm=auto_confirm, verbose=False)
+    agent.config = SimpleNamespace(auto_confirm=auto_confirm, trust_mode="medium", verbose=False)
     agent._rejected_writes = set()
     agent._mcp_manager = None
     return agent
@@ -122,3 +122,31 @@ def test_web_fetch_rejection_preserved(monkeypatch):
     assert "STOPPED" in result["error"]
     assert len(confirm_calls) == 1
     assert execute_calls == []
+
+
+def test_generic_confirmation_uses_trust_bandit(monkeypatch):
+    agent = build_agent(auto_confirm=False)
+    confirm_calls = []
+
+    def fake_confirm_with_bandit(tool_name, tool_input, message, config=None):
+        confirm_calls.append((tool_name, tool_input, message, config))
+        return True
+
+    monkeypatch.setattr(
+        "radsim.trust_bandit_integration.confirm_with_bandit",
+        fake_confirm_with_bandit,
+    )
+    monkeypatch.setattr(
+        "radsim.agent_policy.execute_tool",
+        lambda tool_name, tool_input: {"success": True},
+    )
+
+    result = agent._run_tool_with_confirmation(
+        "type_check",
+        {"file_path": "src/example.py"},
+        "Type check src/example.py",
+    )
+
+    assert result["success"] is True
+    assert len(confirm_calls) == 1
+    assert confirm_calls[0][0] == "type_check"

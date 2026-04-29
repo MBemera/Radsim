@@ -626,7 +626,11 @@ class RadSimAgent(
             new_preview = new_string[:100] + "..." if len(new_string) > 100 else new_string
             print(f"OLD: {old_preview}")
             print(f"NEW: {new_preview}")
-            confirmed = confirm_action("Apply this change?", config=self.config)
+            confirmed = self._confirm_action_with_trust(
+                "replace_in_file",
+                tool_input,
+                "Apply this change?",
+            )
 
         if confirmed:
             result = execute_tool("replace_in_file", tool_input)
@@ -782,7 +786,11 @@ class RadSimAgent(
             print_info(f"Creating directory: {directory_path}")
             confirmed = True
         else:
-            confirmed = confirm_action(f"Create directory: '{directory_path}'?", config=self.config)
+            confirmed = self._confirm_action_with_trust(
+                "create_directory",
+                tool_input,
+                f"Create directory: '{directory_path}'?",
+            )
 
         if confirmed:
             result = execute_tool("create_directory", tool_input)
@@ -815,7 +823,7 @@ class RadSimAgent(
             print_info(f"Staging: {desc}")
             confirmed = True
         else:
-            confirmed = confirm_action(f"Stage {desc}?", config=self.config)
+            confirmed = self._confirm_action_with_trust("git_add", tool_input, f"Stage {desc}?")
 
         if confirmed:
             result = execute_tool("git_add", tool_input)
@@ -915,7 +923,11 @@ class RadSimAgent(
             print_info(f"Running tests: {desc}")
             confirmed = True
         else:
-            confirmed = confirm_action(f"Run tests: {desc}?", config=self.config)
+            confirmed = self._confirm_action_with_trust(
+                "run_tests",
+                tool_input,
+                f"Run tests: {desc}?",
+            )
 
         if confirmed:
             print_info("Running tests...")
@@ -953,7 +965,11 @@ class RadSimAgent(
             print_info(f"{action}: {desc}")
             confirmed = True
         else:
-            confirmed = confirm_action(f"{action} {desc}?", config=self.config)
+            confirmed = self._confirm_action_with_trust(
+                "lint_code",
+                tool_input,
+                f"{action} {desc}?",
+            )
 
         if confirmed:
             print_info("Running linter...")
@@ -977,11 +993,15 @@ class RadSimAgent(
         desc = file_path or "project"
         action = "Check formatting" if check_only else "Format code"
 
-        if self.config.auto_confirm and check_only:
+        if self.config.auto_confirm:
             print_info(f"{action}: {desc}")
             confirmed = True
         else:
-            confirmed = confirm_action(f"{action} in {desc}?", config=self.config)
+            confirmed = self._confirm_action_with_trust(
+                "format_code",
+                tool_input,
+                f"{action} in {desc}?",
+            )
 
         if confirmed:
             print_info("Running formatter...")

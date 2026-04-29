@@ -228,6 +228,14 @@ class AgentApiMixin:
             tool_success = result.get("success", False)
             tool_error = result.get("error", "") if not tool_success else ""
 
+            if self._interrupted.is_set():
+                try:
+                    from .trust_bandit_integration import record_user_decision
+
+                    record_user_decision(tool_name, tool_input, accepted=False, config=self.config)
+                except Exception:
+                    logger.debug("Trust bandit interrupt recording failed", exc_info=True)
+
             if not tool_success and "STOPPED" in tool_error:
                 user_rejected = True
 
