@@ -1012,6 +1012,22 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "forget_memory",
+        "description": "Remove stale persistent memory. Use when a preference, project context key, or learned pattern is no longer true.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string", "description": "The key or exact pattern text to remove"},
+                "memory_type": {
+                    "type": "string",
+                    "description": "Type: 'preference', 'context', 'pattern'",
+                    "default": "preference",
+                },
+            },
+            "required": ["key"],
+        },
+    },
+    {
         "name": "schedule_task",
         "description": "Schedule a recurring task using cron syntax. Common examples: '*/5 * * * *' (every 5 min), '0 9 * * *' (daily 9am), '0 9 * * 1' (Monday 9am).",
         "input_schema": {
@@ -1147,6 +1163,61 @@ TOOL_DEFINITIONS = [
                 },
             },
             "required": ["file_path", "edits"],
+        },
+    },
+    {
+        "name": "add_tool",
+        "description": (
+            "Register a new tool the agent can call. "
+            "The new tool is appended to radsim/tools/custom_tools.py and hot-loaded "
+            "so it is callable on the very next turn (no restart). "
+            "Use when the user asks you to add or extend your tool capabilities."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "snake_case tool name, e.g. 'count_words'",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "One-line description shown to future invocations of the model",
+                },
+                "parameters": {
+                    "type": "object",
+                    "description": (
+                        "JSON Schema with 'properties' (and optional 'required'). "
+                        "Each property becomes a named argument passed to the body."
+                    ),
+                },
+                "body": {
+                    "type": "string",
+                    "description": (
+                        "Python function body (no 'def' line). "
+                        "Receives each parameter as a named arg. "
+                        "Must return a dict, conventionally {'success': bool, ...}. "
+                        "os/subprocess/shutil imports are forbidden for safety."
+                    ),
+                },
+            },
+            "required": ["name", "description", "parameters", "body"],
+        },
+    },
+    {
+        "name": "list_custom_tools",
+        "description": "List all tools added via add_tool.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "remove_tool",
+        "description": "Remove a custom tool that was added via add_tool.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Tool name to remove"},
+            },
+            "required": ["name"],
         },
     },
 ]

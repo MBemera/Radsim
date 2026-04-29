@@ -361,6 +361,12 @@ _TOOL_REGISTRY = {
         ("key", None),
         ("memory_type", "preference"),
     ),
+    "forget_memory": _build_tool_executor(
+        "..memory",
+        "forget_memory",
+        ("key", ""),
+        ("memory_type", "preference"),
+    ),
     "schedule_task": _build_tool_executor(
         "..scheduler",
         "schedule_task",
@@ -400,7 +406,33 @@ _TOOL_REGISTRY = {
         ("language_filter", None),
     ),
     "apply_patch": _build_tool_executor("..patch", "apply_patch", ("patch", "")),
+    "add_tool": _build_tool_executor(
+        ".self_extend",
+        "add_tool",
+        ("name", ""),
+        ("description", ""),
+        ("parameters", {}),
+        ("body", ""),
+    ),
+    "list_custom_tools": _build_tool_executor(".self_extend", "list_custom_tools"),
+    "remove_tool": _build_tool_executor(".self_extend", "remove_tool", ("name", "")),
 }
+
+
+def _merge_custom_tools():
+    """Load user-added tools into the live registry and definitions."""
+    try:
+        from . import custom_tools
+        _TOOL_REGISTRY.update(custom_tools.CUSTOM_REGISTRY)
+        existing_names = {d["name"] for d in TOOL_DEFINITIONS}
+        for definition in custom_tools.CUSTOM_DEFINITIONS:
+            if definition["name"] not in existing_names:
+                TOOL_DEFINITIONS.append(definition)
+    except ImportError:
+        pass
+
+
+_merge_custom_tools()
 
 
 def execute_tool(tool_name, tool_input):

@@ -22,6 +22,9 @@ CONFIRMATION_TOOLS = {
     "deploy",
     "schedule_task",
     "save_memory",
+    "forget_memory",
+    "add_tool",
+    "remove_tool",
     "add_skill",
     "remove_skill",
     "send_telegram",
@@ -50,6 +53,7 @@ READ_ONLY_TOOLS = {
     "load_memory",
     "list_schedules",
     "list_skills",
+    "list_custom_tools",
 }
 
 LIGHT_CONFIRM_TOOLS = {

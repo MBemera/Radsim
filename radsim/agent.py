@@ -1133,9 +1133,10 @@ class RadSimAgent(
             confirmed = True
         else:
             preview = str(value)[:50] + "..." if len(str(value)) > 50 else str(value)
-            confirmed = confirm_action(
+            confirmed = self._confirm_action_with_trust(
+                "save_memory",
+                tool_input,
                 f"Save to {memory_type} memory?\n  Key: {key}\n  Value: {preview}",
-                config=self.config,
             )
 
         if confirmed:
@@ -1148,6 +1149,45 @@ class RadSimAgent(
         else:
             print_warning("Memory save cancelled")
             return {"success": False, "error": "STOPPED: User rejected memory save. Do NOT retry."}
+
+    def _handle_forget_memory(self, tool_input):
+        """Handle forget_memory with confirmation."""
+        key = tool_input.get("key", "")
+        memory_type = tool_input.get("memory_type", "preference")
+
+        return self._run_tool_with_confirmation(
+            tool_name="forget_memory",
+            tool_input=tool_input,
+            description=f"Forget {memory_type} memory: {key}",
+            success_message=f"Memory forgotten: {key} ({memory_type})",
+        )
+
+    def _handle_add_tool(self, tool_input):
+        """Handle add_tool with confirmation. Trust-bandit can auto-confirm."""
+        name = tool_input.get("name", "")
+        description = tool_input.get("description", "")
+        body_preview = str(tool_input.get("body", ""))[:200]
+        message = (
+            f"Register new tool {name!r}?\n"
+            f"  Description: {description}\n"
+            f"  Body preview: {body_preview}"
+        )
+        return self._run_tool_with_confirmation(
+            tool_name="add_tool",
+            tool_input=tool_input,
+            description=message,
+            success_message=f"Tool added: {name}",
+        )
+
+    def _handle_remove_tool(self, tool_input):
+        """Handle remove_tool with confirmation."""
+        name = tool_input.get("name", "")
+        return self._run_tool_with_confirmation(
+            tool_name="remove_tool",
+            tool_input=tool_input,
+            description=f"Remove custom tool {name!r}",
+            success_message=f"Tool removed: {name}",
+        )
 
     def _handle_schedule_task(self, tool_input):
         """Handle schedule_task with confirmation."""

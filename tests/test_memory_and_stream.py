@@ -1,6 +1,7 @@
 """Tests for memory persistence and stream configuration."""
 
 import json
+from datetime import datetime, timedelta
 
 
 class TestMemoryPersistence:
@@ -56,6 +57,65 @@ class TestMemoryPersistence:
         assert "preferences" in data
         assert "persistent_key" in data["preferences"]
         assert data["preferences"]["persistent_key"] == "persistent_value"
+
+    def test_forget_memory_removes_preference(self, tmp_path, monkeypatch):
+        """Test that stale preferences can be removed through the memory tool."""
+        fake_memory_dir = tmp_path / "memory"
+        fake_memory_dir.mkdir()
+
+        import radsim.config
+
+        monkeypatch.setattr(radsim.config, "CONFIG_DIR", fake_memory_dir)
+        monkeypatch.setattr("radsim.memory.CONFIG_DIR", fake_memory_dir)
+
+        from radsim.memory import forget_memory, load_memory, save_memory
+        from radsim.runtime_context import get_runtime_context
+
+        get_runtime_context().clear_all()
+
+        save_result = save_memory("stale_key", "stale_value", "preference")
+        forget_result = forget_memory("stale_key", "preference")
+        load_result = load_memory("stale_key", "preference")
+
+        assert save_result["success"] is True
+        assert forget_result["success"] is True
+        assert load_result["success"] is True
+        assert load_result["data"] is None
+
+    def test_session_timeout_defaults_to_sixty_minutes(self, tmp_path, monkeypatch):
+        """Test that coding sessions survive normal long pauses."""
+        fake_memory_dir = tmp_path / "memory"
+        fake_memory_dir.mkdir()
+
+        monkeypatch.setattr("radsim.memory.CONFIG_DIR", fake_memory_dir)
+
+        from radsim.memory import SESSION_TIMEOUT_MINUTES, SessionMemory
+
+        session = SessionMemory("timeout_test")
+
+        session.data["last_active"] = (
+            datetime.now() - timedelta(minutes=SESSION_TIMEOUT_MINUTES - 1)
+        ).isoformat()
+        assert session.is_expired() is False
+
+        session.data["last_active"] = (
+            datetime.now() - timedelta(minutes=SESSION_TIMEOUT_MINUTES + 1)
+        ).isoformat()
+        assert session.is_expired() is True
+
+    def test_recent_files_track_intent(self, tmp_path):
+        """Test that recent file memory records why a file mattered."""
+        from radsim.memory import ProjectMemory
+
+        memory = ProjectMemory(tmp_path)
+        memory.update_recent_file("app.py", intent="read")
+        memory.update_recent_file("app.py", intent="edited")
+
+        entry = memory.data["recent_files"][0]
+
+        assert entry["path"] == "app.py"
+        assert entry["last_intent"] == "edited"
+        assert entry["intents"] == {"read": 1, "edited": 1}
 
 
 class TestStreamConfiguration:
@@ -146,6 +206,12 @@ class TestMemoryHandlerIntegration:
 
         assert "save_memory" in CONFIRMATION_TOOLS
 
+    def test_forget_memory_in_confirmation_tools(self):
+        """Test that forget_memory is in CONFIRMATION_TOOLS."""
+        from radsim.agent import CONFIRMATION_TOOLS
+
+        assert "forget_memory" in CONFIRMATION_TOOLS
+
     def test_schedule_task_in_confirmation_tools(self):
         """Test that schedule_task is in CONFIRMATION_TOOLS."""
         from radsim.agent import CONFIRMATION_TOOLS
@@ -158,6 +224,9 @@ class TestMemoryHandlerIntegration:
 
         assert hasattr(RadSimAgent, "_handle_save_memory"), (
             "_handle_save_memory method should exist"
+        )
+        assert hasattr(RadSimAgent, "_handle_forget_memory"), (
+            "_handle_forget_memory method should exist"
         )
         assert hasattr(RadSimAgent, "_handle_schedule_task"), (
             "_handle_schedule_task method should exist"

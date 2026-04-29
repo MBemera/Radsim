@@ -21,6 +21,23 @@ class CoreCommandHandlersMixin:
 
         print_tools_list()
 
+    def _cmd_prompt_stats(self, agent):
+        """Show runtime prompt size by layer."""
+        from .prompts import get_prompt_stats
+
+        stats = get_prompt_stats()
+        print()
+        print("  Prompt Stats")
+        print(f"  Total: {stats['total_chars']:,} chars (~{stats['approx_tokens']:,} tokens)")
+        print()
+        for layer in stats["layers"]:
+            print(
+                f"  - {layer['name']:<18} "
+                f"{layer['chars']:>7,} chars  "
+                f"~{layer['approx_tokens']:>6,} tokens"
+            )
+        print()
+
     def _cmd_clear(self, agent):
         agent.reset()
         from .background import reset_job_manager

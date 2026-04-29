@@ -10,11 +10,11 @@ from .constants import MAX_FILE_SIZE, MAX_FILES_TO_READ, MAX_TRUNCATED_SIZE
 from .validation import is_protected_path, validate_path
 
 
-def _track_recent_file(path):
+def _track_recent_file(path, intent="accessed"):
     """Update recent file tracking without constructing fresh Memory objects."""
     try:
         memory = get_runtime_context().get_memory()
-        memory.project_mem.update_recent_file(str(path))
+        memory.project_mem.update_recent_file(str(path), intent=intent)
     except Exception:
         pass
 
@@ -82,7 +82,7 @@ def read_file(file_path, offset=0, limit=None):
             content = content[:MAX_TRUNCATED_SIZE]
             content += f"\n... [Truncated at {MAX_TRUNCATED_SIZE} chars, {total_lines} total lines]"
 
-        _track_recent_file(path)
+        _track_recent_file(path, intent="read")
 
         return {
             "success": True,
@@ -177,7 +177,7 @@ def write_file(file_path, content, show_diff=True):
             added_lines = None
             removed_lines = None
 
-        _track_recent_file(path)
+        _track_recent_file(path, intent="written")
 
         return {
             "success": True,
@@ -251,7 +251,7 @@ def replace_in_file(file_path, old_string, new_string, replace_all=False, show_d
 
         added_lines, removed_lines = _count_changed_lines(content, new_content)
 
-        _track_recent_file(path)
+        _track_recent_file(path, intent="edited")
 
         return {
             "success": True,
@@ -293,7 +293,7 @@ def rename_file(old_path, new_path):
         path_new.parent.mkdir(parents=True, exist_ok=True)
 
         path_old.rename(path_new)
-        _track_recent_file(path_new)
+        _track_recent_file(path_new, intent="renamed")
 
         return {"success": True, "old_path": str(path_old), "new_path": str(path_new)}
     except Exception as error:

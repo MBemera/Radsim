@@ -112,6 +112,7 @@ class AgentConversationMixin:
         self._rejected_writes.clear()
         self._current_task_start = time.time()
         self._current_task_tools = []
+        self._refresh_session_activity()
 
         background_results = self._collect_finished_background_results()
         if background_results:
@@ -197,3 +198,12 @@ class AgentConversationMixin:
             logger.debug("Learning completion tracking failed, continuing main flow")
 
         return result
+
+    def _refresh_session_activity(self):
+        """Mark the current session active for memory expiry."""
+        try:
+            from .runtime_context import get_runtime_context
+
+            get_runtime_context().get_memory().session_mem.update_activity()
+        except Exception:
+            logger.debug("Session memory activity update failed", exc_info=True)
