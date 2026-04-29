@@ -1,14 +1,14 @@
-# RadSim — Radically Simple Code Generator
+# RadSim — Radically Simple Agents
 
 <p align="center">
-  <img src="docs/screenshots/screenshot-3-interactive.png" alt="RadSim interactive session" width="700">
+  <img src="docs/assets/radsim_banner.png" alt="RadSim — radically simple agents" width="780">
 </p>
 
 <p align="center">
   <a href="https://pypi.org/project/radsimcli/"><img src="https://img.shields.io/pypi/v/radsimcli?color=blue&label=version" alt="PyPI version"></a>
   <a href="https://pypi.org/project/radsimcli/"><img src="https://img.shields.io/pypi/pyversions/radsimcli" alt="Python versions"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
-  <a href="https://github.com/MBemera/Radsim/releases"><img src="https://img.shields.io/badge/version-1.2.1-blue" alt="Version"></a>
+  <a href="https://github.com/MBemera/Radsim/releases"><img src="https://img.shields.io/badge/version-1.4.0-blue" alt="Version"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="Platforms">
 </p>
 
@@ -96,8 +96,14 @@ RadSim normalizes every provider's API into a common format. When you call a too
 | Feature | Description |
 |---------|-------------|
 | **5 AI providers** | Claude, OpenAI, Gemini, Vertex AI, OpenRouter — switch anytime |
+| **Dynamic OpenRouter catalogue** | Live model list fetched from OpenRouter, with reasoning-effort selector for compatible models |
 | **25+ built-in tools** | File I/O, search, shell, git, web fetch, browser, multi-edit, repo map, patch, todo |
+| **Self-extending agent** | `add_tool` / `remove_tool` / `list_custom_tools` let the agent add new tools at runtime — hot-reloaded into the live registry without restart |
+| **Trust-bandit auto-confirm** | Frequently-confirmed safe actions (writes, edits, formatters, `save_memory`, `add_tool`) auto-execute after enough trusted observations |
+| **Natural-language self-modification** | "Remember I like X" or "give yourself a tool that…" persists across sessions |
 | **Interactive + single-shot** | Full REPL session or one-off `radsim "do this"` commands |
+| **Login flow** | Optional account login with secure credential storage |
+| **Animated mascot spinner** | Solid-logo loop with ASCII bolt frames during agent calls |
 | **Automatic failover** | Falls back to cheaper models if your primary is unavailable |
 | **Telegram remote control** | Send tasks and receive results from your phone via Telegram bot |
 | **Planning workflows** | `/plan` for structured plan-confirm-execute, `/panning` for brain-dump synthesis |
@@ -126,7 +132,7 @@ All provider packages (OpenAI, Gemini, Playwright, etc.) are included automatica
 
 ```bash
 radsim --version
-# RadSim 1.2.1
+# RadSim 1.4.0
 ```
 
 ### Development Install (from source)
@@ -443,6 +449,22 @@ RadSim includes 25+ tools for complete coding workflows.
 |------|-------------|
 | `send_telegram` | Send a message to your configured Telegram chat |
 
+### Self-Extension
+
+| Tool | Description |
+|------|-------------|
+| `add_tool` | Define a new tool at runtime (name, description, parameters schema, Python body). Validated, sandboxed, persisted to `radsim/tools/custom_tools.py`, and hot-reloaded into the live registry — no restart needed. |
+| `remove_tool` | Remove a previously-added custom tool. |
+| `list_custom_tools` | List all custom tools currently registered. |
+
+### Memory
+
+| Tool | Description |
+|------|-------------|
+| `save_memory` | Persist a fact, preference, or context entry across sessions. Promoted to trust-bandit Tier 1 — auto-confirms after enough trusted approvals. |
+| `load_memory` | Retrieve persisted memory by key or scope. |
+| `forget_memory` | Remove a memory entry. |
+
 ---
 
 ## Architecture
@@ -560,6 +582,17 @@ Full philosophy: [RADSIM_DOCUMENTATION.md](RADSIM_DOCUMENTATION.md)
 ---
 
 ## Changelog
+
+### v1.4.0 (2026-04-30)
+
+- **Self-extending agent**: new `add_tool`, `remove_tool`, and `list_custom_tools` meta-tools let the agent define new tools at runtime — validated, sandboxed, persisted to `radsim/tools/custom_tools.py`, and hot-reloaded into the live registry without restart
+- **Trust-bandit auto-confirm**: per-tool trust scoring promotes safe Tier 1 actions (writes, edits, formatters, type checks, `save_memory`, `add_tool`) to auto-execute after 5+ observations at ≥0.80 mean trust
+- **Natural-language self-modification**: triggers like "remember I like X" or "give yourself a tool that…" route to `save_memory` / `add_tool` and persist across sessions
+- **Dynamic OpenRouter catalogue**: live model list fetched from the OpenRouter API (no hardcoded list); "Show all" cataloged as a vendor menu
+- **Reasoning-effort selector**: pick effort level for compatible OpenRouter models
+- **Login flow**: optional account login with secure credential storage and tests
+- **Animated mascot spinner**: solid-logo loop with ASCII bolt frames during agent calls
+- Tightened safety guards: validate custom tool names, forbid dangerous import patterns in injected bodies, block reserved names
 
 ### v1.2.1 (2026-03-01)
 
