@@ -93,6 +93,7 @@ class RadSimAgent(
             config.provider,
             config.api_key,
             config.model,
+            reasoning_effort=getattr(config, "reasoning_effort", None),
         )
         self.messages = []
         self.system_prompt = get_system_prompt()
