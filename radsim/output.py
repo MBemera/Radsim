@@ -1205,6 +1205,19 @@ HELP_DETAILS = {
         "examples": ["/tools"],
         "related": ["/commands", "/help"],
     },
+    "prompt-stats": {
+        "title": "Prompt Stats",
+        "aliases": ["/promptstats"],
+        "summary": "Show runtime system prompt size by layer.",
+        "usage": ["/prompt-stats", "/promptstats"],
+        "details": (
+            "Prints the total runtime prompt size and a layer-by-layer breakdown\n"
+            "for base instructions, modes, skills, custom prompt, self-modification,\n"
+            "and memory context. Token counts are estimates."
+        ),
+        "examples": ["/prompt-stats"],
+        "related": ["/tools", "/memory", "/selfmod"],
+    },
     "commands": {
         "title": "All Commands",
         "aliases": ["/cmds"],

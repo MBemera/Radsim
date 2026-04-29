@@ -26,6 +26,8 @@ TIER_ONE_TOOLS = {
     "format_code",
     "type_check",
     "save_context",
+    "save_memory",
+    "add_tool",
 }
 
 TIER_TWO_TOOLS = {

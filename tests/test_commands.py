@@ -99,6 +99,21 @@ def test_help_no_args(capsys):
     assert "/help <command>" in output
 
 
+def test_prompt_stats_command(capsys):
+    """Test that /prompt-stats prints runtime prompt layers."""
+    registry = CommandRegistry()
+    agent = MockAgent()
+
+    result = registry.handle_input("/prompt-stats", agent)
+
+    assert result is True
+    output = capsys.readouterr().out
+    assert "Prompt Stats" in output
+    assert "base" in output
+    assert "personality" in output
+    assert "tool_use" in output
+
+
 def test_detect_help_intent_skills():
     from radsim.commands import detect_help_intent
 

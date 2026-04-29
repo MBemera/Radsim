@@ -18,6 +18,14 @@ DEFAULT_COMMAND_SPECS = [
         "telegram_safe": True,
     },
     {
+        "names": ["/prompt-stats", "/promptstats"],
+        "handler_name": "_cmd_prompt_stats",
+        "description": "Show runtime prompt size by layer",
+        "category": "analysis",
+        "accepts_args": False,
+        "telegram_safe": True,
+    },
+    {
         "names": ["/clear", "/c"],
         "handler_name": "_cmd_clear",
         "description": "Clear conversation history",

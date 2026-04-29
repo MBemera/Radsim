@@ -1,10 +1,19 @@
 """System prompts with RadSim principles."""
 
 import logging
+from pathlib import Path
 
 from .runtime_context import get_runtime_context
 
 logger = logging.getLogger(__name__)
+
+PROMPT_FRAGMENT_DIR = Path(__file__).resolve().parent / "prompt_fragments"
+PERSONALITY_PROMPT_FILE = PROMPT_FRAGMENT_DIR / "personality.md"
+TOOL_USE_PROMPT_FILE = PROMPT_FRAGMENT_DIR / "tool_use.md"
+HARNESS_PROMPT_FILES = {
+    "personality": PERSONALITY_PROMPT_FILE,
+    "tool_use": TOOL_USE_PROMPT_FILE,
+}
 
 RADSIM_SYSTEM_PROMPT = """You are RadSim, an agentic coding assistant that generates radically simple code.
 
@@ -82,6 +91,16 @@ Generate code so simple that ANY developer, ANY AI agent, and ANY editor can und
 - **get_project_info**: Get project type, tools, file counts
 - **batch_replace**: Replace text across multiple files
 
+### Memory Operations
+- **save_memory**: Store user preferences, project context, or learned patterns
+- **load_memory**: Retrieve stored memory when it may affect the current task
+- **forget_memory**: Remove stale memory that is no longer true
+
+### Self-Extension (add new tools at runtime)
+- **add_tool**: Register a new tool the agent can call. Use when the user says "add a tool that...", "give yourself a tool to...", "you should be able to..." or similar requests for new capabilities. The new tool is hot-loaded and callable on the very next turn.
+- **list_custom_tools**: List tools previously added via add_tool.
+- **remove_tool**: Drop a custom tool by name.
+
 ### Task Planning
 - **plan_task**: Create structured task plans with subtasks
 - **save_context**: Save conversation context for later
@@ -108,6 +127,17 @@ Generate code so simple that ANY developer, ANY AI agent, and ANY editor can und
 ### Tool Chaining
 - You can use multiple tools in sequence
 - Example: search -> read -> modify -> write -> run tests
+
+### Persistent Memory
+- Use load_memory when stored preferences or project context could change the answer.
+- Use save_memory for facts the user explicitly asks you to remember, or for stable project context worth carrying across sessions.
+- Use forget_memory when the user says a stored fact is stale, wrong, or superseded.
+- Never silently save new long-term preferences. The harness may ask for confirmation; respect that result.
+
+### Self-Extension
+- When the user asks for a new capability ("add a tool that X", "you should be able to Y"), prefer add_tool over editing source files manually. add_tool is a single call, the result hot-loads, and the registration persists across restarts.
+- Construct the body as a plain Python function body that returns a dict (conventionally {"success": bool, ...}). Do NOT import os/subprocess/shutil — those are blocked.
+- After add_tool succeeds, the new tool is callable on your very next turn. Demonstrate it in the same response if possible.
 
 ### Safety
 1. **CURRENT DIRECTORY ONLY**: ALL files MUST be written within the current working directory or its subdirectories. NEVER use absolute paths to other locations (e.g., ~/Desktop, /tmp, or any path outside the project). Use relative paths like "src/file.py" or "./output.txt".
@@ -391,20 +421,79 @@ IMPORTANT:
 
 def get_system_prompt():
     """Get the RadSim system prompt."""
-    prompt = RADSIM_SYSTEM_PROMPT
-    runtime_context = get_runtime_context()
+    return "".join(layer["content"] for layer in _build_prompt_layers())
 
-    # Include active mode prompt additions (e.g., Teach Mode)
+
+def get_prompt_stats():
+    """Return prompt size statistics by layer."""
+    layers = _build_prompt_layers()
+    total_chars = sum(len(layer["content"]) for layer in layers)
+    total_tokens = sum(_estimate_prompt_tokens(layer["content"]) for layer in layers)
+
+    return {
+        "total_chars": total_chars,
+        "approx_tokens": total_tokens,
+        "layers": [
+            {
+                "name": layer["name"],
+                "chars": len(layer["content"]),
+                "approx_tokens": _estimate_prompt_tokens(layer["content"]),
+            }
+            for layer in layers
+        ],
+    }
+
+
+def _build_prompt_layers():
+    """Build prompt layers in runtime order."""
+    runtime_context = get_runtime_context()
+    layers = [{"name": "base", "content": RADSIM_SYSTEM_PROMPT}]
+
+    _add_harness_prompt_layers(layers, runtime_context)
+    _add_mode_layer(layers)
+    _add_skills_layer(layers, runtime_context)
+    _add_custom_prompt_layer(layers, runtime_context)
+    _add_self_modification_layer(layers)
+    _add_memory_layer(layers, runtime_context)
+
+    return layers
+
+
+def _add_harness_prompt_layers(layers, runtime_context):
+    """Append markdown prompt fragments maintained as harness files."""
+    for layer_name, file_path in HARNESS_PROMPT_FILES.items():
+        fragment = runtime_context.get_cached_prompt_fragment(
+            f"{layer_name}_prompt",
+            [file_path],
+            lambda current_path=file_path: _read_prompt_fragment(current_path),
+        )
+        if fragment:
+            layers.append({"name": layer_name, "content": f"\n\n{fragment}"})
+
+
+def _read_prompt_fragment(file_path):
+    """Read one markdown prompt fragment."""
+    try:
+        return file_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        logger.debug("Prompt fragment not available: %s", file_path)
+        return ""
+
+
+def _add_mode_layer(layers):
+    """Append active mode instructions."""
     try:
         from .modes import get_mode_manager
 
         mode_additions = get_mode_manager().get_prompt_additions()
         if mode_additions:
-            prompt += "\n\n" + mode_additions
+            layers.append({"name": "active_modes", "content": "\n\n" + mode_additions})
     except Exception:
         logger.debug("Failed to load mode prompt additions")
 
-    # Include user-configured skills
+
+def _add_skills_layer(layers, runtime_context):
+    """Append user-configured skills."""
     try:
         from .config import SKILLS_FILE
         from .skills import get_skills_for_prompt
@@ -415,11 +504,13 @@ def get_system_prompt():
             get_skills_for_prompt,
         )
         if skills_section:
-            prompt += skills_section
+            layers.append({"name": "skills", "content": skills_section})
     except Exception:
         logger.debug("Failed to load skills for prompt")
 
-    # Load custom prompt extensions (user-defined via /selfmod)
+
+def _add_custom_prompt_layer(layers, runtime_context):
+    """Append custom prompt extensions."""
     try:
         from .config import CUSTOM_PROMPT_FILE
 
@@ -430,40 +521,57 @@ def get_system_prompt():
             if CUSTOM_PROMPT_FILE.exists()
             else "",
         )
-        if custom_text:
-            max_custom_size = 5000  # 5KB max
-            if len(custom_text) > max_custom_size:
-                custom_text = custom_text[:max_custom_size] + "\n[custom_prompt.txt truncated]"
-            prompt += f"\n\n## Custom Instructions\n{custom_text}"
+        if not custom_text:
+            return
+
+        max_custom_size = 5000
+        if len(custom_text) > max_custom_size:
+            custom_text = custom_text[:max_custom_size] + "\n[custom_prompt.txt truncated]"
+        layers.append({"name": "custom_prompt", "content": f"\n\n## Custom Instructions\n{custom_text}"})
     except Exception:
         logger.debug("Failed to load custom_prompt.txt")
 
-    # Self-modification awareness
+
+def _add_self_modification_layer(layers):
+    """Append self-modification awareness."""
     try:
         from .config import PACKAGE_DIR
 
-        prompt += "\n\n## Self-Modification"
-        prompt += f"\nYour source code is at: {PACKAGE_DIR}"
-        prompt += "\nYou may read and edit your own source files ONLY when the user explicitly requests it."
-        prompt += "\nABSOLUTE RULE: You must NEVER delete or modify the RADSIM_SYSTEM_PROMPT string in prompts.py."
-        prompt += "\nTo add custom prompt content, write to ~/.radsim/custom_prompt.txt instead."
+        content = "\n\n## Self-Modification"
+        content += f"\nYour source code is at: {PACKAGE_DIR}"
+        content += "\nYou may read and edit your own source files ONLY when the user explicitly requests it."
+        content += "\nABSOLUTE RULE: You must NEVER delete or modify the RADSIM_SYSTEM_PROMPT string in prompts.py."
+        content += "\nThe harness prompt files are part of your editable source:"
+        content += f"\n- Tool-use behavior: {TOOL_USE_PROMPT_FILE}"
+        content += f"\n- Personality and stance: {PERSONALITY_PROMPT_FILE}"
+        content += "\nWhen the user asks to change agent behavior, edit the narrowest matching harness file."
+        content += "\nPrompt changes are reloaded before each API call, so confirmed edits can affect the next turn."
+        content += "\nTo add user-specific custom prompt content, write to ~/.radsim/custom_prompt.txt instead."
+        layers.append({"name": "self_modification", "content": content})
     except Exception:
         logger.debug("Failed to add self-modification info")
 
-    # Load Global Memory Preferences
+
+def _add_memory_layer(layers, runtime_context):
+    """Append persistent memory context."""
     try:
-        mem = runtime_context.get_memory()
+        memory = runtime_context.get_memory()
         memory_fragment = runtime_context.get_cached_prompt_fragment(
             "memory_prompt",
-            [mem.global_mem.file_path, mem.project_mem.agents_file],
-            lambda: _build_memory_prompt_fragment(mem),
+            [memory.global_mem.file_path, memory.project_mem.agents_file],
+            lambda: _build_memory_prompt_fragment(memory),
         )
         if memory_fragment:
-            prompt += memory_fragment
+            layers.append({"name": "memory", "content": memory_fragment})
     except Exception:
         logger.debug("Failed to load memory context")
 
-    return prompt
+
+def _estimate_prompt_tokens(content):
+    """Estimate prompt tokens without provider-specific tokenizers."""
+    if not content:
+        return 0
+    return max(1, round(len(content) / 4))
 
 
 def _build_memory_prompt_fragment(memory):

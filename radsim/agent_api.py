@@ -15,6 +15,7 @@ from .output import (
     print_warning,
     reset_stream_state,
 )
+from .prompts import get_system_prompt
 from .rate_limiter import BudgetExceeded, CircuitBreakerOpen, RateLimitExceeded
 from .tools import TOOL_DEFINITIONS
 
@@ -35,6 +36,8 @@ class AgentApiMixin:
 
     def _call_api(self):
         """Call the API with current messages."""
+        self.system_prompt = get_system_prompt()
+
         warning = self.protection.check_before_api_call()
         if warning:
             print_warning(warning)

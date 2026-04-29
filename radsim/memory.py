@@ -19,6 +19,8 @@ SECRET_PATTERNS = [
     r"(?i)(password|secret|bearer|token)[\w\s]*=[\s]*[\"']?([a-zA-Z0-9\-_=]{16,})[\"']?", # Generic secrets
 ]
 
+SESSION_TIMEOUT_MINUTES = 60
+
 
 def sanitize_data(data):
     """Recursively strip sensitive information from data before saving."""
@@ -241,7 +243,7 @@ class ProjectMemory(BaseMemory):
         })
         return self._save_json(self.json_file, self.data)
 
-    def update_recent_file(self, file_path: str):
+    def update_recent_file(self, file_path: str, intent: str = "accessed"):
         if "recent_files" not in self.data:
             self.data["recent_files"] = []
 
@@ -250,12 +252,17 @@ class ProjectMemory(BaseMemory):
             if entry.get("path") == file_path:
                 entry["last_accessed"] = datetime.now().isoformat()
                 entry["access_count"] = entry.get("access_count", 0) + 1
+                entry["last_intent"] = intent
+                intents = entry.setdefault("intents", {})
+                intents[intent] = intents.get(intent, 0) + 1
                 return self._save_json(self.json_file, self.data)
 
         self.data["recent_files"].append({
             "path": file_path,
             "last_accessed": datetime.now().isoformat(),
-            "access_count": 1
+            "access_count": 1,
+            "last_intent": intent,
+            "intents": {intent: 1},
         })
 
         # Keep manageable size
@@ -313,7 +320,7 @@ class SessionMemory(BaseMemory):
         self.data["active_task"] = task_description
         self.update_activity()
 
-    def is_expired(self, timeout_minutes=5):
+    def is_expired(self, timeout_minutes=SESSION_TIMEOUT_MINUTES):
         """Check if the session has expired beyond the grace period."""
         if "last_active" not in self.data:
             return True
@@ -461,6 +468,76 @@ def load_memory(key=None, memory_type="preference"):
         return {"success": True, "key": key, "memory_type": memory_type, "data": data}
     except Exception as error:
         return {"success": False, "error": str(error)}
+
+
+def forget_memory(key, memory_type="preference"):
+    """Remove a value from persistent memory.
+
+    Args:
+        key: The key or pattern text to remove
+        memory_type: Type of memory ('preference', 'context', 'pattern')
+
+    Returns:
+        dict with success status
+    """
+    if not key:
+        return {"success": False, "error": "Key is required"}
+
+    try:
+        from .runtime_context import get_runtime_context
+
+        memory = get_runtime_context().get_memory()
+
+        if memory_type == "preference":
+            data = memory.global_mem.data.setdefault("preferences", {})
+            saved = _delete_key_and_save(data, key, memory.global_mem.file_path, memory.global_mem)
+        elif memory_type == "context":
+            saved = _delete_key_and_save(memory.project_mem.data, key, memory.project_mem.json_file, memory.project_mem)
+        elif memory_type == "pattern":
+            saved = _delete_pattern(memory.global_mem, key)
+        else:
+            return {"success": False, "error": f"Unknown memory type: {memory_type}"}
+
+        if not saved:
+            return {"success": False, "error": f"Memory not found: {key}"}
+
+        return {
+            "success": True,
+            "key": key,
+            "memory_type": memory_type,
+            "message": f"Forgot {memory_type} memory",
+        }
+    except Exception as error:
+        return {"success": False, "error": str(error)}
+
+
+def _delete_key_and_save(data, key, file_path, memory_store):
+    """Delete a key from a dictionary-backed memory file."""
+    if key not in data:
+        return False
+    del data[key]
+    return memory_store._save_json(file_path, memory_store.data)
+
+
+def _delete_pattern(global_memory, key):
+    """Delete matching learned patterns from global memory."""
+    patterns = global_memory.data.get("learned_patterns", [])
+    remaining = []
+    removed = False
+
+    for pattern in patterns:
+        pattern_text = pattern.get("pattern") if isinstance(pattern, dict) else pattern
+        if pattern_text == key:
+            removed = True
+            continue
+        remaining.append(pattern)
+
+    if not removed:
+        return False
+
+    global_memory.data["learned_patterns"] = remaining
+    global_memory.data["last_updated"] = datetime.now().isoformat()
+    return global_memory._save_json(global_memory.file_path, global_memory.data)
 
 
 def clear_memory(key=None, memory_type="context"):

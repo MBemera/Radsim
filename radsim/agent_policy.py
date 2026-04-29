@@ -151,8 +151,14 @@ class AgentPolicyMixin:
             return self._handle_save_context(tool_input)
         if tool_name == "save_memory":
             return self._handle_save_memory(tool_input)
+        if tool_name == "forget_memory":
+            return self._handle_forget_memory(tool_input)
         if tool_name == "schedule_task":
             return self._handle_schedule_task(tool_input)
+        if tool_name == "add_tool":
+            return self._handle_add_tool(tool_input)
+        if tool_name == "remove_tool":
+            return self._handle_remove_tool(tool_input)
         if tool_name in READ_ONLY_TOOLS:
             return execute_tool(tool_name, tool_input)
         if self._mcp_manager and self._mcp_manager.is_mcp_tool(tool_name):
