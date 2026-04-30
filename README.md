@@ -1,83 +1,95 @@
+<p align="center">
+  <img src="docs/assets/radsim_banner.png" alt="RadSim — radically simple agents" width="520">
+</p>
+
 # RadSim
 
-RadSim is a local CLI coding agent for developers.
+RadSim (`radsimcli` on PyPI) is a coding agent that runs in your terminal. You
+configure a provider API key, type a task, and the agent edits files, runs
+commands, uses git, and reports back. The model never holds your code — it
+sits on your machine, calls a model over the network, and sends back tool
+results until the task is done.
 
-It runs in your terminal, uses your own provider API key, and gives an AI model
-controlled access to local tools. It can read files, search code, edit files,
-run shell commands, use git, call browser/web tools, keep memory, and run
-slash-command workflows.
+It works on Python 3.10+, macOS, Linux, and Windows. The current version on
+`main` is `1.4.0`.
 
-RadSim is designed for local development workflows. Model requests are sent to
-the provider you configure.
+## Why RadSim exists
 
-Package name: `radsimcli`
+Most AI coding tools are tuned for impressive demos. The output runs once and
+then becomes a maintenance burden — clever one-liners, deep nesting, abstractions
+invented for problems that aren't there. RadSim was built around the opposite
+default: **the simplest version of a thing that actually works.** That rule
+applies in two places:
 
-Current version in `main`: `1.4.0`
+1. **The code RadSim writes for you.** The system prompt and built-in skills
+   push the model toward flat control flow, descriptive names, single-purpose
+   functions, and standard patterns that any other agent (or a junior developer)
+   can read on the first pass. There is a slash command, `/stress`, that runs an
+   adversarial review against those rules.
 
-Python: `3.10+`
+2. **RadSim itself.** The agent loop is short, the file layout is flat, the
+   provider clients are thin wrappers, and the tool registry is a dictionary.
+   When something breaks, you can find it.
 
-## Overview
+It is also local-first. There is no server-side account, no project upload, no
+"cloud workspace." Your code is read from disk, sent to the model you chose,
+and the response goes through tool calls that run on your machine. If you
+revoke the API key, RadSim stops working — there's nowhere else for it to go.
 
-RadSim is a Python package that installs a `radsim` command.
+## How the agent loop works
 
-RadSim supports provider selection for:
+1. You type a task — either as a single argument (`radsim "fix the failing test"`)
+   or interactively after `radsim`.
+2. RadSim sends three things to your provider: the conversation so far, a
+   system prompt, and the list of tool definitions the model is allowed to call.
+3. The model replies with text, with tool calls, or both.
+4. For each tool call, RadSim either runs it immediately (read-only operations)
+   or asks you to confirm (anything that mutates state).
+5. The tool result goes back to the model.
+6. Steps 3–5 repeat until the model has nothing left to do or you stop the loop
+   with `Ctrl+C` / `/kill`.
 
-- `openrouter`
-- `openai`
-- `claude`
+Two design choices fall out of this:
 
-RadSim has an agent loop:
+- **The model never executes code directly.** Everything that touches your
+  machine goes through a named tool with a defined schema. That's what lets
+  RadSim show you a diff before writing a file, or a command before running it.
 
-1. You type a task.
-2. RadSim sends the conversation, system prompt, and tool definitions to the
-   selected provider.
-3. The model replies with text or tool calls.
-4. RadSim runs approved tools locally.
-5. Tool results go back to the model.
-6. The loop continues until the task is done or you stop it.
+- **Confirmations are policy, not friction.** The model can request a destructive
+  action, but you decide whether it happens. Trust patterns are learned per
+  action type so the prompts get less chatty over time without removing the
+  guardrail.
 
-## What It Can Do
+## Why OpenRouter is the default provider
 
-- Interactive agent sessions with `radsim`
-- One-shot tasks with `radsim "your task"`
-- File reads, writes, renames, deletes, and multi-file patches
-- Regex search, glob search, symbol lookup, and repo maps
-- Shell commands, tests, linting, formatting, and type checks
-- Git status, diff, log, branch, add, commit, checkout, and stash
-- Browser and web fetch tools
-- Docker, SQLite, deploy-readiness, and dependency helpers
-- Persistent memory and user skills
-- Todo tracking
-- Background sub-agent jobs
-- Scheduled jobs
-- Telegram integration
-- Optional MCP server tools
-- Runtime custom tools through `add_tool`
+RadSim supports `openrouter`, `openai`, and `claude` directly. OpenRouter is the
+recommended starting point because:
 
-## How It Runs
+- **One key, many models.** You can switch between Kimi K2.5, Claude Sonnet,
+  GPT-5 variants, and others by changing a single string. No second signup, no
+  second billing relationship.
+- **Cheap models are practical for daily use.** Kimi K2.5 is currently the
+  configured default at `$0.14` input / `$0.28` output per million tokens. A
+  full coding session usually costs less than a coffee, which makes "let it
+  rerun" a reasonable choice instead of a budget event.
+- **Live model catalogue.** OpenRouter publishes the full list of available
+  models with their context windows and capabilities. RadSim caches that under
+  `~/.radsim/models_cache.json` and falls back to a static list if the fetch
+  fails.
 
-- RadSim runs locally from your terminal.
-- RadSim uses the provider account and model you configure.
-- Model usage is billed by your selected provider.
-- The main agent loop calls the selected provider client directly.
-- Review AI-generated changes before using them in production.
-- Code that RadSim includes in a prompt is sent to the selected model provider.
+If you already pay for Anthropic or OpenAI directly, those providers are first-
+class — there's no degraded path. The provider layer is the same code shape;
+OpenRouter is just the most flexible starting point.
 
 ## Install
 
-Install from PyPI:
+From PyPI:
 
 ```bash
 python3 -m pip install radsimcli
 ```
 
-Check it:
-
-```bash
-radsim --version
-```
-
-Install from source:
+From source (recommended if you want to read the code or send PRs):
 
 ```bash
 git clone https://github.com/MBemera/Radsim.git
@@ -85,152 +97,116 @@ cd Radsim
 python3 -m pip install -e ".[dev]"
 ```
 
-Run the CLI after installing:
+Verify:
 
 ```bash
+radsim --version
+```
+
+## First run
+
+Run `radsim` with no arguments. The setup wizard asks for:
+
+- Terms acceptance.
+- A provider (`openrouter`, `openai`, or `claude`).
+- A model from that provider's list.
+- An API key, which is written to `~/.radsim/.env` with `chmod 600`.
+
+You can re-enter the wizard at any time with `radsim --setup`. Once configured:
+
+```bash
+# Interactive mode
 radsim
-```
 
-## First Run
-
-Start RadSim:
-
-```bash
-radsim
-```
-
-The setup flow asks for:
-
-- Terms acceptance
-- Basic user preferences
-- Provider
-- Model
-- API key
-
-Run setup again:
-
-```bash
-radsim --setup
-```
-
-Use one-shot mode:
-
-```bash
+# One-shot mode
 radsim "Find the failing tests and explain the cause"
 radsim "Add input validation to the API handler"
+
+# Skip confirmation prompts (use deliberately)
 radsim --yes "Format the project and fix lint errors"
 ```
 
-`--yes` skips many confirmation prompts. Use it only when you are comfortable
-with the requested changes.
+## Where RadSim looks for `.env`
 
-## Providers
+In priority order, highest first:
 
-RadSim reads provider config from `~/.radsim/.env`.
+1. `RADSIM_ENV_FILE` if it points at a real file.
+2. A `preferred_env_file` saved as a memory preference.
+3. `.env` in your **current working directory**.
+4. The `.env` next to the installed RadSim source (used during development).
+5. `~/.radsim/.env` (the global config).
 
-```bash
-RADSIM_PROVIDER="openrouter"
-RADSIM_MODEL="moonshotai/kimi-k2.5"
+Earlier files win on conflicting keys. This means you can drop a `.env` in any
+project to override the global one without touching `~/.radsim`.
 
-OPENROUTER_API_KEY="sk-or-..."
-OPENAI_API_KEY="sk-..."
-ANTHROPIC_API_KEY="sk-ant-..."
-```
+## Slash commands
 
-Provider model lists configured in `main`:
+Slash commands exist because there are workflows you'll reach for often enough
+that typing them as a prompt would be wasteful. They all work mid-session.
 
-| Provider | Models listed in code |
+| Command | What it does |
 | --- | --- |
-| OpenRouter | `moonshotai/kimi-k2.5`, `anthropic/claude-opus-4.6`, `anthropic/claude-sonnet-4.6`, `openai/gpt-5.4`, `openai/gpt-5.3-codex`, `openai/gpt-5.2-codex`, `minimax/minimax-m2.1`, `z-ai/glm-4.7` |
-| OpenAI | `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.2`, `gpt-5.2-codex`, `gpt-5-mini` |
-| Claude | `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5` |
+| `/help`, `/commands` | Show help, list slash commands. |
+| `/tools` | List the tools the model can currently call. |
+| `/switch`, `/free` | Change provider/model now (and persist to `~/.radsim/.env`). `/free` jumps to the cheapest OpenRouter model. |
+| `/login`, `/logout` | Save or remove provider credentials. |
+| `/config`, `/settings` | Re-run the setup wizard or inspect agent settings. |
+| `/ratelimit` | Cap how many tool calls the model can make per turn. |
+| `/clear`, `/new` | Forget the current conversation; start fresh. |
+| `/memory` | Inspect or edit persistent memory. |
+| `/skill` | Manage your custom-instruction skill files. |
+| `/teach` | Toggle teach mode (annotated diffs, slower pace). |
+| `/plan`, `/panning` | Plan-then-execute and brain-dump processing workflows. |
+| `/background`, `/job` | Start sub-agent jobs and scheduled jobs. |
+| `/mcp`, `/telegram` | Connect to MCP servers; configure Telegram remote control. |
+| `/complexity`, `/stress`, `/archaeology` | Score complexity, run adversarial review, find dead code. |
+| `/exit`, `/kill` | Quit normally; emergency-stop the loop. |
 
-OpenRouter can fetch a live model catalogue and cache it under `~/.radsim`.
-If that fetch fails, RadSim falls back to the static list above.
+## Tools, explained simply
 
-Login helpers:
+The model gets 68 tools by default, grouped by what they let it do:
 
-```bash
-radsim login openrouter
-radsim login openai
-radsim login claude
-radsim logout openrouter
-```
+- **Look at your code.** `read_file`, `list_directory`, `glob_files`,
+  `grep_search`, `repo_map`, plus symbol-level helpers like `find_definition`
+  and `find_references`. None of these mutate anything; they don't ask for
+  confirmation.
 
-## Configuration Files
+- **Change your code.** `write_file`, `replace_in_file`, `multi_edit`,
+  `apply_patch`. Each one shows you a diff before running.
 
-RadSim stores user-level state in `~/.radsim`.
+- **Run things.** `run_shell_command`, `run_tests`, `lint_code`, `format_code`,
+  `type_check`. These prompt for confirmation by default; learned trust can
+  auto-confirm safe variants.
 
-| File or directory | Purpose |
-| --- | --- |
-| `~/.radsim/.env` | Provider, model, and API keys |
-| `~/.radsim/settings.json` | Reasoning effort, rate limits, and UI settings |
-| `~/.radsim/memory/` | Persistent memory |
-| `~/.radsim/schedules.json` | Scheduled jobs |
-| `~/.radsim/mcp.json` | MCP server config |
-| `~/.radsim/models_cache.json` | Cached OpenRouter model catalogue |
+- **Use git.** Status, diff, log, branch, add, commit, checkout, stash. Reads
+  are free; writes confirm.
 
-Project-local `.env` files are intentionally ignored for RadSim config.
+- **Manage dependencies.** `pip_install`, `npm_install`, `add_dependency`,
+  `list_dependencies`. Always confirms.
 
-## Main Commands
+- **Talk to the web.** `web_fetch` for HTTP, plus a Playwright-driven browser
+  (`browser_open`, `browser_click`, `browser_type`, `browser_screenshot`).
+  Browser tools need `python3 -m playwright install chromium` first.
 
-| Command | Purpose |
-| --- | --- |
-| `/help` | Show help |
-| `/tools` | List tools |
-| `/commands` | List slash commands |
-| `/config` | Change provider or API key |
-| `/switch` | Switch provider/model |
-| `/login` | Save provider credentials |
-| `/logout` | Remove provider credentials |
-| `/free` | Switch to the configured free OpenRouter option |
-| `/ratelimit` | Set API call limit per turn |
-| `/clear` | Clear conversation history |
-| `/new` | Start fresh context |
-| `/memory` | Manage memory |
-| `/skill` | Manage custom instructions |
-| `/teach` | Toggle teach mode |
-| `/settings` | View or change agent settings |
-| `/plan` | Plan-confirm-execute workflow |
-| `/panning` | Brain-dump processing |
-| `/background` | Manage background sub-agent jobs |
-| `/job` | Manage scheduled jobs |
-| `/mcp` | Manage MCP server connections |
-| `/telegram` | Configure Telegram integration |
-| `/complexity` | Complexity budget and scoring |
-| `/stress` | Adversarial code review |
-| `/archaeology` | Find dead code |
-| `/exit` | Exit |
-| `/kill` | Hard stop |
+- **Remember things across sessions.** `save_memory`, `load_memory`,
+  `forget_memory`. Memory is sanitized before write — anything that looks like
+  an API key gets replaced with `[REDACTED_SECRET]`.
 
-## Tool Groups
+- **Stay organized.** `todo_read`, `todo_write`, `plan_task`, `delegate_task`
+  for in-session tracking and farming work out to a sub-agent.
 
-RadSim currently defines 68 built-in tools.
+- **Heavier operations.** `run_docker`, `database_query`, `generate_tests`,
+  `refactor_code`, `deploy`. All confirm.
 
-| Group | Examples |
-| --- | --- |
-| Files | `read_file`, `write_file`, `replace_in_file`, `multi_edit`, `apply_patch` |
-| Directories | `list_directory`, `create_directory` |
-| Search | `glob_files`, `grep_search`, `search_files`, `repo_map` |
-| Code intel | `find_definition`, `find_references`, `analyze_code` |
-| Shell | `run_shell_command` |
-| Git | `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit` |
-| Testing | `run_tests`, `lint_code`, `format_code`, `type_check` |
-| Dependencies | `list_dependencies`, `add_dependency`, `pip_install`, `npm_install` |
-| Browser/web | `browser_open`, `browser_click`, `browser_type`, `browser_screenshot`, `web_fetch` |
-| Memory | `save_memory`, `load_memory`, `forget_memory` |
-| Tasks | `todo_read`, `todo_write`, `plan_task`, `delegate_task` |
-| Integrations | `send_telegram`, MCP tools when configured |
-| Advanced | `run_docker`, `database_query`, `generate_tests`, `refactor_code`, `deploy` |
-| Self-extension | `add_tool`, `list_custom_tools`, `remove_tool` |
+- **Add more tools at runtime.** `add_tool` lets the model register a new
+  tool by name, schema, and Python body. The new tool is appended to
+  `radsim/tools/custom_tools.py` and hot-loaded into the live registry — no
+  restart needed. `list_custom_tools` and `remove_tool` manage the result.
 
-Browser tools need Playwright browsers installed:
+If you ask "can you do X?" and the answer is no, the right follow-up is often
+"add a tool that does X" — that's a single `add_tool` call, not a code change.
 
-```bash
-python3 -m playwright install chromium
-```
-
-MCP support is optional:
+MCP support is opt-in:
 
 ```bash
 python3 -m pip install "radsimcli[mcp]"
@@ -238,79 +214,60 @@ python3 -m pip install "radsimcli[mcp]"
 
 ## Safety
 
-RadSim runs tools on your machine.
+RadSim's safety model is simple: **anything that touches your machine confirms
+unless you've trained the trust system to allow it.**
 
-RadSim asks before actions that can change your environment. `--yes` and
-learned trust rules can auto-confirm selected actions.
+Confirmations cover file writes and deletes, shell commands, git mutations,
+dependency changes, code formatting, database queries, deploys, memory writes,
+scheduled jobs, custom-tool registration, and outbound Telegram messages.
 
-Confirmed actions include:
+A few hard rules don't bend even with `--yes`:
 
-- File writes and deletes
-- Shell commands
-- Git writes
-- Dependency changes
-- Formatting
-- Database queries
-- Deploy commands
-- Memory writes
-- Scheduled jobs
-- Custom tool changes
-- Telegram sends
+- API keys live in `~/.radsim/.env` with `chmod 600`.
+- The agent cannot **write** to `.env`, credentials files, or known private-key
+  paths. It can read them when you ask.
+- Anything you include in a prompt gets sent to the provider you chose. That's
+  how the model works; pick a provider whose data policy matches your context.
 
-Security:
+You can disable the GitHub release check at startup with `--skip-update-check`.
 
-- API keys are stored in `~/.radsim/.env` with `chmod 600`.
-- Known secret paths such as `.env`, `credentials`, and private keys are protected.
-- Provider config is read from `~/.radsim/.env`.
-- Startup may check GitHub releases. Use `--skip-update-check` to skip release checks.
-- OpenRouter model selection may call the OpenRouter model API.
-- Anything sent to your selected model provider is subject to that provider's terms.
+## Configuration files
 
-Disable update checks:
-
-```bash
-radsim --skip-update-check
-```
-
-## Architecture
-
-Important files:
+Everything user-level lives under `~/.radsim`:
 
 | Path | Purpose |
 | --- | --- |
-| `radsim/cli.py` | CLI entry point, argument parsing, startup flow |
-| `radsim/agent.py` | Main agent class |
-| `radsim/agent_api.py` | API calls, streaming, tool-call loop |
-| `radsim/agent_policy.py` | Tool permissions and confirmation policy |
-| `radsim/api_client.py` | Claude, OpenAI, and OpenRouter clients |
-| `radsim/config.py` | Provider models, defaults, pricing, settings |
-| `radsim/tools/` | Tool definitions and implementations |
-| `radsim/commands*.py` | Slash command registry and handlers |
-| `radsim/safety.py` | Path checks and confirmation helpers |
-| `radsim/memory.py` | Persistent memory |
-| `radsim/mcp_client.py` | Optional MCP integration |
-| `radsim/telegram.py` | Telegram integration |
-| `radsim/scheduler.py` | Scheduled jobs |
-| `radsim/model_router.py` | Experimental routing utilities |
-| `tests/` | Pytest test suite |
+| `~/.radsim/.env` | Provider, model, and API keys. |
+| `~/.radsim/settings.json` | Reasoning effort, rate limits, UI preferences. |
+| `~/.radsim/memory/` | Persistent memory store. |
+| `~/.radsim/schedules.json` | Scheduled jobs. |
+| `~/.radsim/mcp.json` | MCP server config. |
+| `~/.radsim/models_cache.json` | Cached OpenRouter model catalogue. |
+
+## Architecture
+
+For contributors. Files are flat under `radsim/`:
+
+| Path | Purpose |
+| --- | --- |
+| `radsim/cli.py` | CLI entry point and startup flow. |
+| `radsim/agent.py`, `agent_*.py` | Main agent class and conversation/policy mixins. |
+| `radsim/api_client.py` | Provider clients (OpenAI, Anthropic, OpenRouter). |
+| `radsim/config.py` | Provider lists, defaults, pricing, settings, env loading. |
+| `radsim/tools/` | Tool definitions and implementations. |
+| `radsim/commands*.py` | Slash command registry and handlers. |
+| `radsim/safety.py` | Path checks and confirmation prompts. |
+| `radsim/memory.py` | Persistent memory plus secret sanitization. |
+| `radsim/mcp_client.py` | Optional MCP integration. |
+| `radsim/telegram.py` | Telegram bridge. |
+| `radsim/scheduler.py` | Scheduled jobs. |
+| `tests/` | Pytest suite. |
 
 ## Development
 
-Install dev dependencies:
-
 ```bash
 python3 -m pip install -e ".[dev]"
-```
-
-Run tests:
-
-```bash
 pytest
-```
-
-Run lint:
-
-```bash
 ruff check .
 ```
 
