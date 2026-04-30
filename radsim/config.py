@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .runtime_context import get_runtime_context
+
 logger = logging.getLogger(__name__)
 
 
@@ -282,23 +284,30 @@ MEMORY_DIR = CONFIG_DIR / "memory"
 SCHEDULES_FILE = CONFIG_DIR / "schedules.json"
 PACKAGE_DIR = Path(__file__).parent  # The radsim source directory
 CUSTOM_PROMPT_FILE = CONFIG_DIR / "custom_prompt.txt"
+PROJECT_ENV_FILE = PACKAGE_DIR.parent / ".env"
 
 
 def load_env_file():
-    """Load config from .env file.
+    """Load config from .env files.
 
-    Always reads ONLY from the global ~/.radsim/.env.
-    Local project .env files are intentionally ignored so that
-    API keys and model settings are always controlled from one place.
+    Reads a preferred env file first when configured, then the project-root
+    .env next to the current source checkout, then the global ~/.radsim/.env.
+    Preferred env files can come from `RADSIM_ENV_FILE`, `settings.json`,
+    or the remembered `preferred_env_file` memory preference.
 
     Supports both RADSIM_API_KEY and provider-specific keys.
     """
     result = {"api_key": None, "provider": None, "model": None, "keys": {}}
 
-    # Only read from the global config file — never local project .env
     env_files_to_check = []
-    if ENV_FILE.exists():
-        env_files_to_check.append(ENV_FILE)
+
+    preferred_env_file = _get_preferred_env_file()
+    if preferred_env_file is not None and preferred_env_file.exists():
+        env_files_to_check.append(preferred_env_file)
+
+    for env_file in (PROJECT_ENV_FILE, ENV_FILE):
+        if env_file.exists() and env_file not in env_files_to_check:
+            env_files_to_check.append(env_file)
 
     if not env_files_to_check:
         return result
@@ -347,6 +356,26 @@ def load_env_file():
             logger.debug(f"Failed to parse env file: {env_file}")
 
     return result
+
+
+def _get_preferred_env_file() -> Path | None:
+    """Return a user-configured env file path when one is available."""
+    env_file_path = os.getenv("RADSIM_ENV_FILE")
+    if not env_file_path:
+        settings = load_settings_file()
+        env_file_path = settings.get("env_file")
+    if not env_file_path:
+        try:
+            memory = get_runtime_context().get_memory()
+            env_file_path = memory.global_mem.get_preference("preferred_env_file")
+        except Exception:
+            logger.debug("Preferred env file lookup failed", exc_info=True)
+            return None
+
+    if not env_file_path:
+        return None
+
+    return Path(env_file_path).expanduser()
 
 
 def load_settings_file():
@@ -783,13 +812,13 @@ def load_config(
     provider_override=None, api_key_override=None, auto_confirm=False, verbose=False, stream=True
 ):
     """Load configuration from environment or overrides."""
-    # Load from .env file and settings.json
+    # Load from env files and settings.json
     env_config = load_env_file()
     settings_config = load_settings_file()
 
     agent_config = settings_config.get("agent_config", {})
 
-    # Determine provider (priority: override > env var > .env file > settings.json > default)
+    # Determine provider (priority: override > env var > env files > settings.json > default)
     provider = (
         provider_override
         or os.getenv("RADSIM_PROVIDER")
@@ -799,7 +828,8 @@ def load_config(
     )
 
     # Determine API key
-    # Priority: 1) CLI override, 2) .env file (provider-specific), 3) .env file (RADSIM_API_KEY), 4) System env var
+    # Priority: 1) CLI override, 2) env files (provider-specific), 3) env files (RADSIM_API_KEY),
+    # 4) System env var
     api_key = api_key_override
     provider_env_var = PROVIDER_ENV_VARS.get(provider)
 
@@ -835,7 +865,7 @@ def load_config(
         # 4. Legacy fallback
         api_key = os.getenv("RADSIM_API_KEY")
 
-    # Determine model (priority: env var > .env file > settings.json > default)
+    # Determine model (priority: env var > env files > settings.json > default)
     model = (
         os.getenv("RADSIM_MODEL") or env_config.get("model") or settings_config.get("default_model")
     )
