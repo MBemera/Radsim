@@ -222,7 +222,7 @@ def test_confirm_write_records_user_rejection(tmp_path, monkeypatch):
         "radsim.trust_bandit_integration.get_trust_bandit",
         lambda: fake_bandit,
     )
-    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+    monkeypatch.setattr("builtins.input", lambda *args, **kwargs: "n")
 
     confirmed = confirm_write("src/example.py", "print('hi')\n", config=config)
 

@@ -81,6 +81,8 @@ def test_load_env_file_prefers_memory_preferred_env_path(tmp_path, monkeypatch):
 
     project_root = tmp_path / "project"
     project_root.mkdir()
+    cwd_dir = tmp_path / "cwd"
+    cwd_dir.mkdir()
     preferred_env_file = tmp_path / "preferred.env"
     preferred_env_file.write_text('OPENAI_API_KEY="preferred-key"\n')
     project_env_file = project_root / ".env"
@@ -88,6 +90,7 @@ def test_load_env_file_prefers_memory_preferred_env_path(tmp_path, monkeypatch):
     global_env_file = config_dir / ".env"
     global_env_file.write_text('OPENAI_API_KEY="global-key"\n')
 
+    monkeypatch.chdir(cwd_dir)
     monkeypatch.setattr(radsim.config, "CONFIG_DIR", config_dir)
     monkeypatch.setattr(radsim.config, "SETTINGS_FILE", settings_file)
     monkeypatch.setattr(radsim.config, "ENV_FILE", global_env_file)
@@ -114,11 +117,14 @@ def test_load_env_file_prefers_project_env_over_global(tmp_path, monkeypatch):
 
     project_root = tmp_path / "project"
     project_root.mkdir()
+    cwd_dir = tmp_path / "cwd"
+    cwd_dir.mkdir()
     project_env_file = project_root / ".env"
     project_env_file.write_text('OPENAI_API_KEY="project-key"\n')
     global_env_file = config_dir / ".env"
     global_env_file.write_text('OPENAI_API_KEY="global-key"\n')
 
+    monkeypatch.chdir(cwd_dir)
     monkeypatch.setattr(radsim.config, "CONFIG_DIR", config_dir)
     monkeypatch.setattr(radsim.config, "SETTINGS_FILE", settings_file)
     monkeypatch.setattr(radsim.config, "ENV_FILE", global_env_file)
@@ -130,6 +136,42 @@ def test_load_env_file_prefers_project_env_over_global(tmp_path, monkeypatch):
     env_config = radsim.config.load_env_file()
 
     assert env_config["keys"]["OPENAI_API_KEY"] == "project-key"
+
+
+def test_load_env_file_uses_cwd_env_when_present(tmp_path, monkeypatch):
+    import radsim.config
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+
+    config_dir = fake_home / ".radsim"
+    config_dir.mkdir()
+    settings_file = config_dir / "settings.json"
+    settings_file.write_text("{}")
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    cwd_dir = tmp_path / "cwd"
+    cwd_dir.mkdir()
+    cwd_env_file = cwd_dir / ".env"
+    cwd_env_file.write_text('OPENAI_API_KEY="cwd-key"\n')
+    project_env_file = project_root / ".env"
+    project_env_file.write_text('OPENAI_API_KEY="project-key"\n')
+    global_env_file = config_dir / ".env"
+    global_env_file.write_text('OPENAI_API_KEY="global-key"\n')
+
+    monkeypatch.chdir(cwd_dir)
+    monkeypatch.setattr(radsim.config, "CONFIG_DIR", config_dir)
+    monkeypatch.setattr(radsim.config, "SETTINGS_FILE", settings_file)
+    monkeypatch.setattr(radsim.config, "ENV_FILE", global_env_file)
+    monkeypatch.setattr(radsim.config, "PROJECT_ENV_FILE", project_env_file)
+    monkeypatch.setattr(radsim.config, "PACKAGE_DIR", project_root / "radsim")
+    monkeypatch.setattr(radsim.config, "get_runtime_context", lambda: _FakeRuntimeContext(None))
+    monkeypatch.delenv("RADSIM_ENV_FILE", raising=False)
+
+    env_config = radsim.config.load_env_file()
+
+    assert env_config["keys"]["OPENAI_API_KEY"] == "cwd-key"
 
 
 class _FakeRuntimeContext:
