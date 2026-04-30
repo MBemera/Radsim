@@ -31,6 +31,7 @@ class EscapeListener:
         self._stop_event = threading.Event()
         self._paused = threading.Event()  # Set when listener should pause
         self._resumed = threading.Event()  # Set when listener may resume
+        self._pause_ready = threading.Event()  # Set once terminal mode is restored
         self._agent = None
         self._old_settings = None
         self._fd = None
@@ -48,6 +49,7 @@ class EscapeListener:
         self._stop_event.clear()
         self._paused.clear()
         self._resumed.set()  # Start in resumed state
+        self._pause_ready.clear()
         self._thread = threading.Thread(target=self._listen, daemon=True)
         self._thread.start()
 
@@ -56,6 +58,7 @@ class EscapeListener:
         self._stop_event.set()
         # Unblock any pause wait
         self._resumed.set()
+        self._pause_ready.set()
         self._agent = None
 
     def pause(self):
@@ -66,8 +69,10 @@ class EscapeListener:
         """
         if not self._thread or not self._thread.is_alive():
             return
+        self._pause_ready.clear()
         self._resumed.clear()
         self._paused.set()
+        self._pause_ready.wait(timeout=0.5)
 
     def resume(self):
         """Resume listening after a pause."""
@@ -98,6 +103,7 @@ class EscapeListener:
                         )
                     except termios.error:
                         pass
+                    self._pause_ready.set()
 
                     # Wait until resumed or stopped
                     while not self._stop_event.is_set():
@@ -112,6 +118,7 @@ class EscapeListener:
                         tty.setcbreak(self._fd)
                     except termios.error:
                         return
+                    self._pause_ready.clear()
                     continue
 
                 # Check if a key is available (100ms timeout)

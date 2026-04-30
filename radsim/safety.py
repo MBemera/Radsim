@@ -1,6 +1,8 @@
 """Safety guardrails and confirmations for RadSim Agent."""
 
 import os
+import select
+import sys
 from pathlib import Path
 
 # Commands that trigger immediate process termination from any prompt
@@ -26,6 +28,31 @@ def _emergency_stop():
     """Immediately terminate the process."""
     print("\n  EMERGENCY STOP EMERGENCY STOP - Terminating immediately!")
     os._exit(1)
+
+
+def _flush_stdin_buffer():
+    """Discard buffered terminal input before showing a blocking prompt."""
+    try:
+        while select.select([sys.stdin], [], [], 0)[0]:
+            sys.stdin.read(1)
+    except Exception:
+        pass
+
+
+def _prompt_for_confirmation(prompt: str) -> str:
+    """Show a blocking confirmation prompt in a terminal-safe way."""
+    from .escape_listener import pause_escape_listener, resume_escape_listener
+
+    pause_escape_listener()
+    try:
+        _flush_stdin_buffer()
+        print(f"\n{prompt}", end="", flush=True)
+        return input().strip()
+    except (KeyboardInterrupt, EOFError):
+        print()
+        raise
+    finally:
+        resume_escape_listener()
 
 
 # Patterns that should never be written
@@ -227,10 +254,6 @@ def confirm_write(file_path, content, config=None):
         print("warning: This will OVERWRITE the existing file!")
 
     # Ask for confirmation - loop to allow 's' to show full code first
-    # Pause the escape listener so input() works in normal line-buffered mode
-    from .escape_listener import pause_escape_listener, resume_escape_listener
-
-    pause_escape_listener()
     try:
         while True:
             # Check if teach mode is active for the prompt hint
@@ -243,7 +266,7 @@ def confirm_write(file_path, content, config=None):
                 pass
 
             prompt_options = "[y/n/all]" if not show_hint else f"[y/n/all/{show_hint}]"
-            response = input(f"\nWrite this file? {prompt_options}: ").strip()
+            response = _prompt_for_confirmation(f"Write this file? {prompt_options}: ")
 
             # Check for emergency stop commands
             if response.lower() in STOP_COMMANDS:
@@ -286,8 +309,6 @@ def confirm_write(file_path, content, config=None):
         print("\nCancelled.")
         _record_write_decision(file_path, False, config)
         return False
-    finally:
-        resume_escape_listener()
 
 
 def confirm_action(message, config=None):
@@ -299,12 +320,8 @@ def confirm_action(message, config=None):
     if _telegram_confirm_fn:
         return _telegram_confirm_fn(message)
 
-    # Pause the escape listener so input() works in normal line-buffered mode
-    from .escape_listener import pause_escape_listener, resume_escape_listener
-
-    pause_escape_listener()
     try:
-        response = input(f"\n{message} [y/n/all]: ").strip()
+        response = _prompt_for_confirmation(f"{message} [y/n/all]: ")
 
         # Check for emergency stop commands
         if response.lower() in STOP_COMMANDS:
@@ -329,5 +346,3 @@ def confirm_action(message, config=None):
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         return False
-    finally:
-        resume_escape_listener()
