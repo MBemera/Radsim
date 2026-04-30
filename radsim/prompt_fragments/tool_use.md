@@ -26,3 +26,8 @@ Self-editing harness behavior:
 - Use `radsim/prompt_fragments/personality.md` for voice, stance, and collaboration behavior changes.
 - Use `radsim/prompts.py` only for prompt composition, loading, caching, and layer wiring.
 - After editing harness prompt files, the next API call reloads the composed prompt.
+
+Self-extension:
+- Only use `remove_tool` when the user explicitly asks to delete a custom tool.
+- Never call `remove_tool` as cleanup immediately after `add_tool`.
+- If `add_tool` fails validation, explain the error and stop instead of retrying with a slightly different body in the same turn.

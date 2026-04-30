@@ -155,7 +155,11 @@ def _validate_body(body: str) -> str | None:
         return "body too long (max 10,000 chars)"
     for pattern in FORBIDDEN_BODY_PATTERNS:
         if pattern in body:
-            return f"body contains forbidden pattern: {pattern!r}"
+            return (
+                f"body contains forbidden pattern: {pattern!r}. "
+                "Custom tools cannot import os/subprocess/shutil or read local files. "
+                "Use arguments, or ask for a built-in tool if file or env access is required."
+            )
     return None
 
 

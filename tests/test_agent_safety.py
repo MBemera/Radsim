@@ -124,6 +124,29 @@ def test_web_fetch_rejection_preserved(monkeypatch):
     assert execute_calls == []
 
 
+def test_remove_tool_forces_confirmation_even_when_auto_confirm(monkeypatch):
+    agent = build_agent(auto_confirm=True)
+    confirm_calls = []
+    execute_calls = []
+
+    monkeypatch.setattr(
+        "radsim.agent_policy.confirm_action",
+        lambda *args, **kwargs: confirm_calls.append((args, kwargs)) or False,
+    )
+    monkeypatch.setattr(
+        "radsim.agent_policy.execute_tool",
+        lambda tool_name, tool_input: execute_calls.append((tool_name, tool_input)),
+    )
+
+    result = agent._handle_remove_tool({"name": "perplexity_search"})
+
+    assert result["success"] is False
+    assert "STOPPED" in result["error"]
+    assert len(confirm_calls) == 1
+    assert confirm_calls[0][0][0].startswith("Remove custom tool")
+    assert execute_calls == []
+
+
 def test_generic_confirmation_uses_trust_bandit(monkeypatch):
     agent = build_agent(auto_confirm=False)
     confirm_calls = []

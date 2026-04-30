@@ -1187,6 +1187,7 @@ class RadSimAgent(
             tool_name="remove_tool",
             tool_input=tool_input,
             description=f"Remove custom tool {name!r}",
+            force_confirm=True,
             success_message=f"Tool removed: {name}",
         )
 
