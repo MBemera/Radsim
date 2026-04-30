@@ -24,7 +24,7 @@ print(f"radsim/agent.py in recent_files: {found}")
 
 # 3. Test Sanitization
 print("\n--- Testing Secret Sanitization ---")
-test_key = "sk-ant-api03-1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+test_key = "sk-ant-EXAMPLE-NOT-A-REAL-KEY-USED-FOR-REDACTION-TEST-ONLY"
 mem.global_mem.set_preference("dummy_api_key", test_key)
 
 # Read file directly to see if it was redacted
