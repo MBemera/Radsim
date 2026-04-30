@@ -305,7 +305,17 @@ def load_env_file():
     if preferred_env_file is not None and preferred_env_file.exists():
         env_files_to_check.append(preferred_env_file)
 
-    for env_file in (PROJECT_ENV_FILE, ENV_FILE):
+    try:
+        cwd_env_file = Path.cwd() / ".env"
+    except (FileNotFoundError, OSError):
+        cwd_env_file = None
+
+    candidate_files = []
+    if cwd_env_file is not None:
+        candidate_files.append(cwd_env_file)
+    candidate_files.extend([PROJECT_ENV_FILE, ENV_FILE])
+
+    for env_file in candidate_files:
         if env_file.exists() and env_file not in env_files_to_check:
             env_files_to_check.append(env_file)
 

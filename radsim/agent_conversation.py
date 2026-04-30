@@ -36,11 +36,20 @@ class AgentConversationMixin:
             print_warning(f"Context file not found: {file_path}")
 
     def update_config(self, provider, api_key, model):
-        """Update agent configuration and client."""
+        """Update agent configuration, client, and persist provider/model."""
         self.config.provider = provider
         self.config.api_key = api_key
         self.config.model = model
         self.client = create_client(provider, api_key, model)
+
+        try:
+            from .config import save_config
+
+            save_config(api_key, provider, model)
+        except Exception as error:
+            logger.debug("Failed to persist provider/model: %s", error)
+            print_warning(f"Switched in this session, but could not save preference: {error}")
+
         print_success(f"Switched to {provider} ({model})")
 
     def reset(self):
