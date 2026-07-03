@@ -38,7 +38,7 @@ function Test-PythonVersion {
             if ($version -match "Python (\d+)\.(\d+)\.(\d+)") {
                 $major = [int]$Matches[1]
                 $minor = [int]$Matches[2]
-                if ($major -ge 3 -and $minor -ge 10) {
+                if (($major -eq 3 -and $minor -ge 10) -or ($major -gt 3)) {
                     $pythonCmd = $cmd
                     break
                 }
@@ -82,24 +82,34 @@ $pythonVersion = Get-PythonVersion -PythonCmd $pythonCmd
 Write-Success "Python $pythonVersion detected (using: $pythonCmd)"
 
 # Step 2: Check pip
+# Note: native stderr must not be redirected while ErrorActionPreference
+# is "Stop" — Windows PowerShell 5.1 turns any stderr line (e.g. a pip
+# upgrade notice) into a terminating error. Toggle to Continue and rely
+# on exit codes instead.
 Write-Info "Checking pip..."
-try {
-    & $pythonCmd -m pip --version 2>&1 | Out-Null
-    Write-Success "pip available"
-}
-catch {
+$ErrorActionPreference = "Continue"
+& $pythonCmd -m pip --version *> $null
+$pipExitCode = $LASTEXITCODE
+$ErrorActionPreference = "Stop"
+
+if ($pipExitCode -ne 0) {
     Write-ErrorMessage "pip is not installed."
     Write-Host "Please install pip: https://pip.pypa.io/en/stable/installation/"
     exit 1
 }
+Write-Success "pip available"
 
 # Step 3: Install radsim from PyPI
 Write-Info "Installing RadSim from PyPI..."
 
-& $pythonCmd -m pip install radsimcli --quiet 2>&1 | Out-Null
+$ErrorActionPreference = "Continue"
+$installOutput = & $pythonCmd -m pip install radsimcli --quiet 2>&1
+$installExitCode = $LASTEXITCODE
+$ErrorActionPreference = "Stop"
 
-if ($LASTEXITCODE -ne 0) {
-    Write-ErrorMessage "Installation failed"
+if ($installExitCode -ne 0) {
+    Write-ErrorMessage "Installation failed:"
+    $installOutput | ForEach-Object { Write-Host "  $_" }
     exit 1
 }
 
@@ -108,13 +118,22 @@ Write-Success "RadSim installed"
 # Step 5: Verify command and update PATH if needed
 $pathNeedsUpdate = $false
 
-$radsimPath = & $pythonCmd -c "import shutil; print(shutil.which('radsim') or '')" 2>$null
+$ErrorActionPreference = "Continue"
+$radsimPath = & $pythonCmd -c "import shutil; print(shutil.which('radsim') or '')"
+$ErrorActionPreference = "Stop"
 if ($radsimPath) {
     Write-Success "'radsim' command is available"
 }
 else {
-    # Add Python Scripts directory to PATH
-    $scriptsDir = Join-Path (Split-Path -Parent (& $pythonCmd -c "import sys; print(sys.executable)")) "Scripts"
+    # Per-user pip installs put radsim.exe in the USER scripts dir
+    # (%APPDATA%\Python\PythonXY\Scripts), not <python>\Scripts —
+    # prefer whichever actually contains radsim.exe.
+    $userScripts = & $pythonCmd -c "import os, sysconfig; print(sysconfig.get_path('scripts', os.name + '_user'))"
+    $sysScripts = & $pythonCmd -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+    $scriptsDir = $sysScripts
+    if ($userScripts -and (Test-Path (Join-Path $userScripts "radsim.exe"))) {
+        $scriptsDir = $userScripts
+    }
 
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($userPath -notlike "*$scriptsDir*") {

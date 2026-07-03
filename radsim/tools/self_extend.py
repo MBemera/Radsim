@@ -9,7 +9,7 @@ restarts) AND merged into the live `_TOOL_REGISTRY` and `TOOL_DEFINITIONS`
 import ast
 import json
 import re
-from importlib import import_module, reload
+from importlib import reload
 from pathlib import Path
 
 CUSTOM_TOOLS_FILE = Path(__file__).parent / "custom_tools.py"
@@ -187,7 +187,6 @@ def _append_to_custom_file(name: str, function_source: str, definition: dict) ->
         existing = CUSTOM_TOOLS_FILE.read_text()
 
         arg_names = _extract_arg_names(function_source)
-        defaults = ", ".join(f'"{a}": None' for a in arg_names)
         registry_line = (
             f'CUSTOM_REGISTRY[{name!r}] = lambda tool_input: {name}('
             f'**{{k: tool_input.get(k) for k in [{", ".join(repr(a) for a in arg_names)}]}})'

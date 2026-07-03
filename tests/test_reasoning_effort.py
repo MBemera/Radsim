@@ -10,8 +10,8 @@ from radsim.api_client import OpenRouterClient
 from radsim.config import (
     DEFAULT_REASONING_EFFORT,
     REASONING_EFFORT_LEVELS,
-    load_reasoning_effort,
     load_config,
+    load_reasoning_effort,
     save_reasoning_effort,
 )
 
