@@ -12,15 +12,28 @@ confirmation dialogs) can use normal line-buffered input() without interference.
 """
 
 import logging
-import select
+import os
 import sys
-import termios
 import threading
-import tty
 
 logger = logging.getLogger(__name__)
 
+try:
+    import select
+    import termios
+    import tty
+
+    HAS_TERMINAL_CONTROL = True
+except ImportError:
+    # Windows has no termios — the listener degrades to a no-op and
+    # Ctrl+C remains the only soft-cancel mechanism.
+    HAS_TERMINAL_CONTROL = False
+
 ESCAPE_BYTE = b"\x1b"
+
+# How long stop() waits for the listener to release the terminal so the
+# next prompt starts in normal line-buffered mode.
+STOP_JOIN_TIMEOUT = 0.5
 
 
 class EscapeListener:
@@ -42,6 +55,8 @@ class EscapeListener:
         Args:
             agent: The RadSimAgent instance (must have _interrupted and _is_processing)
         """
+        if not HAS_TERMINAL_CONTROL:
+            return
         if self._thread and self._thread.is_alive():
             return
 
@@ -54,11 +69,20 @@ class EscapeListener:
         self._thread.start()
 
     def stop(self):
-        """Stop listening."""
+        """Stop listening and wait for the terminal to be restored.
+
+        Joining (bounded) guarantees the next prompt is shown in normal
+        line-buffered mode with nothing else reading stdin.
+        """
         self._stop_event.set()
         # Unblock any pause wait
         self._resumed.set()
         self._pause_ready.set()
+
+        thread = self._thread
+        if thread and thread.is_alive() and threading.current_thread() is not thread:
+            thread.join(timeout=STOP_JOIN_TIMEOUT)
+
         self._agent = None
 
     def pause(self):
@@ -66,9 +90,13 @@ class EscapeListener:
 
         Call this before any interactive input() to prevent the listener
         from consuming stdin characters or leaving the terminal in cbreak mode.
+        Blocks (bounded) until the listener has restored the terminal and
+        stopped reading stdin, so the prompt receives every keystroke.
         """
         if not self._thread or not self._thread.is_alive():
             return
+        if self._paused.is_set():
+            return  # Already paused — a second wait would never be acked
         self._pause_ready.clear()
         self._resumed.clear()
         self._paused.set()
@@ -126,13 +154,23 @@ class EscapeListener:
                 if not ready:
                     continue
 
-                byte = sys.stdin.buffer.read(1)
+                # A pause/stop may have been requested while select() was
+                # waiting — never read stdin after that point, or we would
+                # steal keystrokes meant for the confirmation prompt.
+                if self._paused.is_set() or self._stop_event.is_set():
+                    continue
+
+                # os.read: exactly one byte, no Python-level readahead.
+                # (sys.stdin.buffer.read would slurp every pending byte
+                # into a buffer that a later input() call can never see,
+                # leaving the y/n prompt waiting forever.)
+                byte = os.read(self._fd, 1)
                 if byte == ESCAPE_BYTE:
                     # Consume any remaining escape sequence bytes (arrow keys etc.)
                     # Arrow keys send \x1b[A etc. — we drain the buffer so they
                     # don't get confused with a standalone Escape press.
                     while select.select([self._fd], [], [], 0.05)[0]:
-                        extra = sys.stdin.buffer.read(1)
+                        extra = os.read(self._fd, 1)
                         if extra:
                             # This was part of an escape sequence, not a bare Escape
                             byte = None
@@ -155,6 +193,8 @@ class EscapeListener:
                 )
             except termios.error:
                 pass
+            # Never leave a concurrent pause() waiting on a dead listener
+            self._pause_ready.set()
 
 
 # Singleton

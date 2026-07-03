@@ -6,13 +6,20 @@ every command can be cleanly exited with 'q' or Ctrl+C.
 
 
 def _flush_stdin():
-    """Flush any buffered stdin characters to prevent stale input."""
+    """Flush any buffered stdin characters to prevent stale input.
+
+    Reads at the file-descriptor level so nothing is left behind in
+    Python-level buffers where input() could never see it.
+    """
+    import os
     import select
     import sys
 
     try:
-        while select.select([sys.stdin], [], [], 0)[0]:
-            sys.stdin.read(1)
+        fd = sys.stdin.fileno()
+        while select.select([fd], [], [], 0)[0]:
+            if not os.read(fd, 4096):
+                break
     except Exception:
         pass
 
@@ -20,8 +27,11 @@ def _flush_stdin():
 def safe_input(prompt="  Select: "):
     """Prompt for user input with clean cancel handling.
 
-    Flushes stdin first to discard any buffered keystrokes from
-    streaming output or background job notifications.
+    Pauses the Escape listener first — menus can appear while the agent
+    is processing (e.g. the sub-agent model picker), and the listener
+    would otherwise consume the user's keystrokes and lock the prompt.
+    Then flushes stdin to discard stale keystrokes from streaming
+    output or background job notifications.
 
     Args:
         prompt: The input prompt string
@@ -29,8 +39,11 @@ def safe_input(prompt="  Select: "):
     Returns:
         str: User's input (stripped), or None if cancelled (Ctrl+C / EOF / 'q')
     """
-    _flush_stdin()
+    from .escape_listener import pause_escape_listener, resume_escape_listener
+
+    pause_escape_listener()
     try:
+        _flush_stdin()
         value = input(prompt).strip()
         if value.lower() in ("q", "quit", "exit", "back"):
             return None
@@ -38,6 +51,8 @@ def safe_input(prompt="  Select: "):
     except (KeyboardInterrupt, EOFError):
         print()
         return None
+    finally:
+        resume_escape_listener()
 
 
 def interactive_menu(title, options, prompt="  Select: ", max_retries=3):
