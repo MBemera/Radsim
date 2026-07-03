@@ -118,7 +118,7 @@ def get_openrouter_models(force_refresh: bool = False) -> list[dict]:
 
 
 def _static_fallback() -> list[dict]:
-    from .config import PROVIDER_MODELS, MODEL_CAPABILITIES, MODEL_PRICING, CONTEXT_LIMITS
+    from .config import CONTEXT_LIMITS, MODEL_CAPABILITIES, MODEL_PRICING, PROVIDER_MODELS
     fallback = []
     for model_id, label in PROVIDER_MODELS.get("openrouter", []):
         capabilities = MODEL_CAPABILITIES.get(model_id, {})

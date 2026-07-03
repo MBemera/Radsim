@@ -249,9 +249,11 @@ class CoreCommandHandlersMixin:
         print(f"  ok Switched to {provider} / {model}")
         print_header(provider, model)
 
+    CHEAPEST_OPENROUTER_MODEL = "deepseek/deepseek-v4-flash"
+
     def _cmd_free(self, agent):
-        """Instantly switch to cheapest OpenRouter model (Kimi K2.5)."""
-        from .config import load_env_file
+        """Instantly switch to the cheapest OpenRouter model."""
+        from .config import MODEL_PRICING, load_env_file
         from .output import print_header
 
         env_config = load_env_file()
@@ -262,11 +264,14 @@ class CoreCommandHandlersMixin:
             print("  Get key at: https://openrouter.ai/keys")
             return
 
-        agent.update_config("openrouter", api_key, "moonshotai/kimi-k2.5")
+        model = self.CHEAPEST_OPENROUTER_MODEL
+        agent.update_config("openrouter", api_key, model)
+
+        input_price, output_price = MODEL_PRICING.get(model, (0.0, 0.0))
         print()
-        print("  ok Switched to cheapest model: Kimi K2.5")
-        print("    ($0.14 input / $0.28 output per 1M tokens)")
-        print_header("openrouter", "moonshotai/kimi-k2.5")
+        print(f"  ok Switched to cheapest model: {model}")
+        print(f"    (${input_price} input / ${output_price} output per 1M tokens)")
+        print_header("openrouter", model)
 
     def _cmd_ratelimit(self, agent, args=None):
         """Set API call limit per turn (rate limiting tier)."""

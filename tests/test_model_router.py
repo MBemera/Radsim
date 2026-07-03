@@ -11,7 +11,7 @@ class TestModelRouter:
     def test_default_provider(self):
         router = ModelRouter(primary_provider="claude")
         assert router.primary_provider == "claude"
-        assert router.primary_model == "claude-sonnet-4-5"
+        assert router.primary_model == "claude-opus-4-8"
 
     def test_default_model_per_provider(self):
         providers = ["openrouter", "openai", "claude"]

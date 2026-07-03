@@ -48,11 +48,11 @@ RATE_LIMIT_TIERS = {
 DEFAULT_RATE_LIMIT_TIER = "standard"
 
 
-# Available models for each provider (Updated Feb 2026)
+# Available models for each provider (Updated Jul 2026)
 PROVIDER_MODELS = {
     "claude": [
-        ("claude-opus-4-6", "Claude Opus 4.6 (Most capable)"),
-        ("claude-sonnet-4-5", "Claude Sonnet 4.5 (Recommended)"),
+        ("claude-opus-4-8", "Claude Opus 4.8 (Most capable — recommended)"),
+        ("claude-sonnet-4-6", "Claude Sonnet 4.6 (Best speed/intelligence balance)"),
         ("claude-haiku-4-5", "Claude Haiku 4.5 (Fast & cheap)"),
     ],
     "openai": [
@@ -63,22 +63,22 @@ PROVIDER_MODELS = {
         ("gpt-5-mini", "GPT-5 Mini (Fast & cheap)"),
     ],
     "openrouter": [
-        ("moonshotai/kimi-k2.5", "Kimi K2.5 (Recommended)"),
-        ("anthropic/claude-opus-4.6", "Claude Opus 4.6 via OpenRouter"),
+        ("minimax/minimax-m3", "MiniMax M3 (Recommended — top usage)"),
+        ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash (Fast & cheapest)"),
+        ("anthropic/claude-opus-4.8", "Claude Opus 4.8 via OpenRouter (Most capable)"),
         ("anthropic/claude-sonnet-4.6", "Claude Sonnet 4.6 via OpenRouter"),
+        ("moonshotai/kimi-k2.5", "Kimi K2.5 (Capable & cheap)"),
         ("openai/gpt-5.4", "GPT-5.4 via OpenRouter"),
         ("openai/gpt-5.3-codex", "GPT-5.3 Codex via OpenRouter"),
-        ("openai/gpt-5.2-codex", "GPT-5.2 Codex via OpenRouter (Cheap)"),
-        ("minimax/minimax-m2.1", "Minimax M2.1 (Fast)"),
         ("z-ai/glm-4.7", "GLM 4.7 (Capable)"),
     ],
 }
 
-# Default model for each provider (Updated Feb 2026)
+# Default model for each provider (Updated Jul 2026)
 DEFAULT_MODELS = {
-    "openrouter": "moonshotai/kimi-k2.5",
+    "openrouter": "minimax/minimax-m3",
     "openai": "gpt-5.4",
-    "claude": "claude-sonnet-4-5",
+    "claude": "claude-opus-4-8",
 }
 
 PROVIDER_URLS = {
@@ -97,7 +97,8 @@ PROVIDER_ENV_VARS = {
 # Fallback models for automatic failover (in priority order)
 FALLBACK_MODELS = {
     "claude": [
-        "claude-sonnet-4-5",
+        "claude-opus-4-8",
+        "claude-sonnet-4-6",
         "claude-haiku-4-5",
     ],
     "openai": [
@@ -108,44 +109,52 @@ FALLBACK_MODELS = {
         "gpt-5-mini",
     ],
     "openrouter": [
+        "minimax/minimax-m3",
+        "deepseek/deepseek-v4-flash",
         "moonshotai/kimi-k2.5",
-        "anthropic/claude-opus-4.6",
         "anthropic/claude-sonnet-4.6",
+        "anthropic/claude-opus-4.8",
         "openai/gpt-5.4",
         "openai/gpt-5.3-codex",
-        "openai/gpt-5.2-codex",
-        "minimax/minimax-m2.1",
         "z-ai/glm-4.7",
     ],
 }
 
-# Pricing per 1M tokens (input, output) in USD - Updated Feb 2026
+# Pricing per 1M tokens (input, output) in USD - Updated Jul 2026
 MODEL_PRICING = {
     # Claude Series
-    "claude-opus-4-6": (15.00, 75.00),
+    "claude-opus-4-8": (5.00, 25.00),
+    "claude-opus-4-6": (5.00, 25.00),
+    "claude-sonnet-4-6": (3.00, 15.00),
     "claude-sonnet-4-5": (3.00, 15.00),
-    "claude-haiku-4-5": (0.80, 4.00),
+    "claude-haiku-4-5": (1.00, 5.00),
     # OpenAI GPT-5 Series
     "gpt-5.4": (5.00, 15.00),
     "gpt-5.3-codex": (5.00, 15.00),
     "gpt-5.2": (2.50, 10.00),
     "gpt-5.2-codex": (2.50, 10.00),
     "gpt-5-mini": (1.00, 4.00),
-    # OpenRouter models
-    "moonshotai/kimi-k2.5": (0.14, 0.28),
+    # OpenRouter models (live pricing, verified Jul 2026)
+    "minimax/minimax-m3": (0.30, 1.20),
+    "deepseek/deepseek-v4-flash": (0.09, 0.18),
+    "moonshotai/kimi-k2.5": (0.38, 2.02),
+    "anthropic/claude-opus-4.8": (5.00, 25.00),
     "anthropic/claude-opus-4.6": (5.00, 25.00),
     "anthropic/claude-sonnet-4.6": (3.00, 15.00),
+    "anthropic/claude-haiku-4.5": (1.00, 5.00),
     "openai/gpt-5.4": (2.50, 15.00),
     "openai/gpt-5.3-codex": (1.75, 14.00),
-    "openai/gpt-5.2-codex": (0.60, 2.40),
-    "minimax/minimax-m2.1": (0.20, 0.55),
-    "z-ai/glm-4.7": (0.50, 0.50),
+    "openai/gpt-5.2-codex": (1.75, 14.00),
+    "minimax/minimax-m2.1": (0.30, 1.20),
+    "z-ai/glm-4.7": (0.40, 1.75),
 }
 
-# Context window limits per model (in tokens) - Updated Feb 2026
+# Context window limits per model (in tokens) - Updated Jul 2026
 CONTEXT_LIMITS = {
     # Claude Series
-    "claude-opus-4-6": 200000,
+    "claude-opus-4-8": 1000000,
+    "claude-opus-4-6": 1000000,
+    "claude-sonnet-4-6": 1000000,
     "claude-sonnet-4-5": 200000,
     "claude-haiku-4-5": 200000,
     # OpenAI GPT-5 Series
@@ -154,12 +163,18 @@ CONTEXT_LIMITS = {
     "gpt-5.2": 256000,
     "gpt-5.2-codex": 256000,
     "gpt-5-mini": 128000,
-    # OpenRouter models
+    # OpenRouter models (live context windows, verified Jul 2026)
+    "minimax/minimax-m3": 1048576,
+    "deepseek/deepseek-v4-flash": 1048576,
+    "moonshotai/kimi-k2.5": 262144,
+    "anthropic/claude-opus-4.8": 1000000,
     "anthropic/claude-opus-4.6": 1000000,
     "anthropic/claude-sonnet-4.6": 1000000,
+    "anthropic/claude-haiku-4.5": 200000,
     "openai/gpt-5.4": 1050000,
     "openai/gpt-5.3-codex": 400000,
-    "openai/gpt-5.2-codex": 128000,
+    "openai/gpt-5.2-codex": 400000,
+    "z-ai/glm-4.7": 202752,
 }
 
 # Model-specific capabilities and settings per provider documentation
@@ -818,8 +833,34 @@ def setup_config(first_time=True):
     return api_key, provider, model
 
 
+def model_belongs_to_provider(model: str, provider: str) -> bool:
+    """Check whether a model ID is listed under a provider's catalog.
+
+    Unknown models (custom IDs) are allowed for any provider — this
+    only rejects models that are explicitly listed under a DIFFERENT
+    provider, which happens when the provider is switched but a stale
+    RADSIM_MODEL is still saved.
+    """
+    known_models = {model_id for model_id, _ in PROVIDER_MODELS.get(provider, [])}
+    if model in known_models:
+        return True
+
+    other_provider_models = {
+        model_id
+        for other_provider, models in PROVIDER_MODELS.items()
+        if other_provider != provider
+        for model_id, _ in models
+    }
+    return model not in other_provider_models
+
+
 def load_config(
-    provider_override=None, api_key_override=None, auto_confirm=False, verbose=False, stream=True
+    provider_override=None,
+    api_key_override=None,
+    model_override=None,
+    auto_confirm=False,
+    verbose=False,
+    stream=True,
 ):
     """Load configuration from environment or overrides."""
     # Load from env files and settings.json
@@ -875,10 +916,22 @@ def load_config(
         # 4. Legacy fallback
         api_key = os.getenv("RADSIM_API_KEY")
 
-    # Determine model (priority: env var > env files > settings.json > default)
+    # Determine model (priority: override > env var > env files > settings.json > default)
     model = (
-        os.getenv("RADSIM_MODEL") or env_config.get("model") or settings_config.get("default_model")
+        model_override
+        or os.getenv("RADSIM_MODEL")
+        or env_config.get("model")
+        or settings_config.get("default_model")
     )
+
+    # A saved model from a previously selected provider must not leak into
+    # the new provider (e.g. --provider openai with a saved Claude model).
+    if model and not model_override and not model_belongs_to_provider(model, provider):
+        logger.debug(
+            f"Saved model '{model}' belongs to another provider; "
+            f"using default for '{provider}'"
+        )
+        model = None
 
     # Global flags
     final_verbose = verbose or settings_config.get("verbose", False)

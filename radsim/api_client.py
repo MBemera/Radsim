@@ -177,7 +177,7 @@ class BaseAPIClient(ABC):
     """Base class for API clients."""
 
     @abstractmethod
-    def chat(self, messages, tools=None):
+    def chat(self, messages, system_prompt=None, tools=None):
         """Send a chat request and return the response."""
         pass
 
@@ -201,7 +201,7 @@ class BaseAPIClient(ABC):
 class ClaudeClient(BaseAPIClient):
     """Anthropic Claude API client."""
 
-    def __init__(self, api_key, model="claude-sonnet-4-5-20251124", timeout=DEFAULT_TIMEOUT_SECONDS):
+    def __init__(self, api_key, model="claude-opus-4-8", timeout=DEFAULT_TIMEOUT_SECONDS):
         try:
             import anthropic
             from anthropic import Timeout
@@ -219,7 +219,7 @@ class ClaudeClient(BaseAPIClient):
         """Send a chat request to Claude with retry logic."""
         kwargs = {
             "model": self.model,
-            "max_tokens": 4096,
+            "max_tokens": 16000,
             "messages": messages,
         }
 
@@ -247,7 +247,7 @@ class ClaudeClient(BaseAPIClient):
         """Stream a chat request to Claude."""
         kwargs = {
             "model": self.model,
-            "max_tokens": 4096,
+            "max_tokens": 16000,
             "messages": messages,
             "stream": True,
         }
@@ -262,6 +262,7 @@ class ClaudeClient(BaseAPIClient):
         current_tool_use = None
         input_tokens = 0
         output_tokens = 0
+        stop_reason = "end_turn"
 
         with self.client.messages.create(**kwargs) as stream:
             for event in stream:
@@ -306,10 +307,12 @@ class ClaudeClient(BaseAPIClient):
 
                 elif event.type == "message_delta":
                     output_tokens = event.usage.output_tokens
+                    if getattr(event.delta, "stop_reason", None):
+                        stop_reason = event.delta.stop_reason
 
         response = {
             "content": final_content,
-            "stop_reason": "end_turn",  # Simplified
+            "stop_reason": stop_reason,
             "usage": {
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
@@ -459,11 +462,12 @@ class OpenAIClient(BaseAPIClient):
         usage = {"input_tokens": 0, "output_tokens": 0}
 
         for chunk in stream:
-            # Check for usage
+            # Usage may arrive on a dedicated final chunk (OpenAI) or on a
+            # chunk that also carries choices (some OpenRouter models), so
+            # record it and keep processing the same chunk.
             if hasattr(chunk, "usage") and chunk.usage:
                 usage["input_tokens"] = chunk.usage.prompt_tokens
                 usage["output_tokens"] = chunk.usage.completion_tokens
-                continue  # Usage chunk might not have choices
 
             if not chunk.choices:
                 continue
@@ -652,7 +656,7 @@ class OpenRouterClient(OpenAIClient):
             base_url="https://openrouter.ai/api/v1",
             timeout=timeout,
             default_headers={
-                "HTTP-Referer": "https://github.com/radsim/radsim",
+                "HTTP-Referer": "https://github.com/MBemera/Radsim",
                 "X-Title": "RadSim Agent",
             },
         )

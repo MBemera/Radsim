@@ -195,3 +195,52 @@ class _FakeGlobalMemory:
         if key == "preferred_env_file":
             return str(self._preferred_env_file) if self._preferred_env_file else default
         return default
+
+
+def test_model_belongs_to_provider():
+    from radsim.config import model_belongs_to_provider
+
+    assert model_belongs_to_provider("claude-opus-4-8", "claude")
+    assert model_belongs_to_provider("gpt-5.2", "openai")
+    # A model listed under another provider must be rejected
+    assert not model_belongs_to_provider("claude-opus-4-8", "openai")
+    assert not model_belongs_to_provider("gpt-5.2", "claude")
+    # Custom/unknown model IDs are allowed for any provider
+    assert model_belongs_to_provider("my-fine-tuned-model", "openai")
+
+
+def test_stale_model_dropped_on_provider_switch(tmp_path, monkeypatch):
+    """A saved Claude model must not leak into an OpenAI session."""
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+    import radsim.config
+
+    monkeypatch.setattr(radsim.config, "CONFIG_DIR", fake_home / ".radsim")
+    monkeypatch.setattr(radsim.config, "SETTINGS_FILE", fake_home / ".radsim" / "settings.json")
+    monkeypatch.setattr(radsim.config, "ENV_FILE", fake_home / ".radsim" / ".env")
+
+    monkeypatch.setenv("RADSIM_API_KEY", "test-key")
+    monkeypatch.setenv("RADSIM_MODEL", "claude-opus-4-8")
+
+    config = load_config(provider_override="openai")
+    assert config.provider == "openai"
+    assert config.model == radsim.config.DEFAULT_MODELS["openai"]
+
+
+def test_model_override_wins(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+    import radsim.config
+
+    monkeypatch.setattr(radsim.config, "CONFIG_DIR", fake_home / ".radsim")
+    monkeypatch.setattr(radsim.config, "SETTINGS_FILE", fake_home / ".radsim" / "settings.json")
+    monkeypatch.setattr(radsim.config, "ENV_FILE", fake_home / ".radsim" / ".env")
+
+    monkeypatch.setenv("RADSIM_API_KEY", "test-key")
+
+    config = load_config(provider_override="openai", model_override="gpt-5-mini")
+    assert config.model == "gpt-5-mini"
