@@ -12,6 +12,9 @@ CONFIRMATION_TOOLS = {
     "git_stash",
     "add_dependency",
     "remove_dependency",
+    "npm_install",
+    "pip_install",
+    "init_project",
     "batch_replace",
     "multi_edit",
     "apply_patch",
@@ -54,6 +57,8 @@ READ_ONLY_TOOLS = {
     "list_schedules",
     "list_skills",
     "list_custom_tools",
+    # Sub-agent completion record (no side effects)
+    "submit_completion",
 }
 
 LIGHT_CONFIRM_TOOLS = {

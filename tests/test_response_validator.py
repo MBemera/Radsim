@@ -91,12 +91,13 @@ class TestValidateToolUseBlock:
         assert not valid
         assert "not dict" in error
 
-    def test_parse_error_marker_fails(self):
-        """Input with parse error marker should fail."""
+    def test_parse_error_marker_passes_for_agent_recovery(self):
+        """Parse-error markers pass validation so the agent loop can
+        report the failure back to the model as a tool_result."""
         block = {"id": "123", "name": "test", "input": {"__parse_error__": "JSON error"}}
         valid, error = validate_tool_use_block(block)
-        assert not valid
-        assert "parse error" in error.lower()
+        assert valid
+        assert error == ""
 
 
 class TestValidateContentForWrite:

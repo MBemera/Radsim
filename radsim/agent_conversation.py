@@ -90,10 +90,46 @@ class AgentConversationMixin:
             pruned += 2
             current, _, _ = self.get_context_usage()
 
+        # Pruning can strand a tool_result whose matching tool_use was
+        # removed — the API rejects those conversations. Drop orphaned
+        # tool messages left at the pruned boundary.
+        pruned += self._drop_orphaned_tool_messages(start_index=2)
+
         if pruned > 0:
             print_info(f"Session pruned: removed {pruned} old messages")
 
         return pruned
+
+    def _drop_orphaned_tool_messages(self, start_index=2):
+        """Remove tool_result messages orphaned by pruning.
+
+        After pruning, the message at start_index must not be a
+        tool_result whose tool_use was deleted.
+
+        Returns:
+            int: Number of messages removed.
+        """
+
+        def contains_block_type(message, block_type):
+            content = message.get("content")
+            if not isinstance(content, list):
+                return False
+            return any(
+                isinstance(block, dict) and block.get("type") == block_type
+                for block in content
+            )
+
+        removed = 0
+        while len(self.messages) > start_index:
+            boundary_message = self.messages[start_index]
+            is_orphan_result = boundary_message.get(
+                "role"
+            ) == "user" and contains_block_type(boundary_message, "tool_result")
+            if not is_orphan_result:
+                break
+            self.messages.pop(start_index)
+            removed += 1
+        return removed
 
     def check_and_prune(self, threshold=80):
         """Check context usage and prune if over threshold."""
@@ -121,7 +157,7 @@ class AgentConversationMixin:
         self._rejected_writes.clear()
         self._current_task_start = time.time()
         self._current_task_tools = []
-        self._refresh_session_activity()
+        self._refresh_session_activity(active_task=user_input)
 
         background_results = self._collect_finished_background_results()
         if background_results:
@@ -208,11 +244,19 @@ class AgentConversationMixin:
 
         return result
 
-    def _refresh_session_activity(self):
-        """Mark the current session active for memory expiry."""
+    def _refresh_session_activity(self, active_task=None):
+        """Mark the current session active for memory expiry.
+
+        Also records what we're working on so an interrupted session can
+        resume with "Active Task: ..." context.
+        """
         try:
             from .runtime_context import get_runtime_context
 
-            get_runtime_context().get_memory().session_mem.update_activity()
+            session_memory = get_runtime_context().get_memory().session_mem
+            if active_task:
+                session_memory.set_active_task(active_task.strip()[:100])
+            else:
+                session_memory.update_activity()
         except Exception:
             logger.debug("Session memory activity update failed", exc_info=True)

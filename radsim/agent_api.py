@@ -278,10 +278,10 @@ class AgentApiMixin:
         self.messages.append({"role": "user", "content": tool_results})
 
         if user_rejected:
-            return text_output or "Understood — action cancelled."
+            return "\n".join(text_output) or "Understood — action cancelled."
 
         if self._interrupted.is_set():
-            return text_output or "Cancelled."
+            return "\n".join(text_output) or "Cancelled."
 
         follow_up = self._call_api()
         return self._handle_response(follow_up)

@@ -4,7 +4,7 @@ import json
 import logging
 import time
 
-from .agent_constants import READ_ONLY_TOOLS
+from .agent_constants import CONFIRMATION_TOOLS, LIGHT_CONFIRM_TOOLS, READ_ONLY_TOOLS
 from .output import Spinner, print_error, print_info, print_success, print_warning
 from .safety import confirm_action
 from .tools import execute_tool
@@ -182,8 +182,26 @@ class AgentPolicyMixin:
             print_tool_result_verbose(tool_handle, tool_name, result, duration_ms)
             return result
 
-        print_warning(f"Unknown tool: {tool_name}")
-        return execute_tool(tool_name, tool_input)
+        # Confirmation-required tools without a dedicated handler above
+        # (run_docker, database_query, deploy, refactor_code, npm_install, ...)
+        # must never fall through to unconfirmed execution.
+        if tool_name in CONFIRMATION_TOOLS or tool_name in LIGHT_CONFIRM_TOOLS:
+            return self._run_tool_with_confirmation(
+                tool_name,
+                tool_input,
+                description=f"Run {tool_name}",
+                use_spinner=True,
+            )
+
+        # Unknown tools - fail closed: always ask before executing
+        print_warning(f"Unknown tool requested: {tool_name}")
+        return self._run_tool_with_confirmation(
+            tool_name,
+            tool_input,
+            description=f"Run unrecognized tool '{tool_name}'",
+            force_confirm=True,
+            use_spinner=True,
+        )
 
     def _print_tool_result(self, tool_name, tool_input, result):
         """Print the result of a tool execution."""

@@ -74,9 +74,15 @@ def validate_tool_use_block(block: dict) -> tuple[bool, str]:
 
     tool_input = block["input"]
 
-    # Check for parse error marker
+    # A parse-error marker is structurally valid — the agent loop sends
+    # the error back as a tool_result so the model can retry, instead of
+    # discarding the whole response.
     if isinstance(tool_input, dict) and "__parse_error__" in tool_input:
-        return False, f"Tool input had parse error: {tool_input.get('__parse_error__')}"
+        logger.warning(
+            f"Tool input for '{block['name']}' had a parse error; "
+            "the agent will report it back to the model"
+        )
+        return True, ""
 
     # Input must be a dict
     if not isinstance(tool_input, dict):
