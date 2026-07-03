@@ -6,7 +6,8 @@
 
 from importlib import import_module
 
-__version__ = "1.4.1"
+from .version import __version__, get_radsim_version
+
 __author__ = "Emera Digital Tools"
 
 _MODULE_EXPORTS = {
@@ -81,6 +82,7 @@ _LAZY_EXPORTS = {
 
 __all__ = [
     "__version__",
+    "get_radsim_version",
     "__author__",
     *_LAZY_EXPORTS.keys(),
 ]

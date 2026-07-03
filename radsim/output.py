@@ -3,7 +3,6 @@
 import shutil
 import sys
 import time
-from importlib.metadata import version as get_version
 
 from .terminal import colorize_ansi, supports_color
 from .theme import glyph, load_active_animation_level
@@ -16,6 +15,7 @@ from .ui import (
     print_warning,  # noqa: F401 — re-exported
     tool_event,
 )
+from .version import get_radsim_version
 
 # ANSI color codes
 COLORS = {
@@ -197,7 +197,7 @@ def print_boot_sequence(provider, model, animated=True):
     )
 
     # Version line
-    version_val = get_version("radsimcli")
+    version_val = get_radsim_version()
     version_padding = inner_width - 10 - len(version_val)
     print(
         colorize("  │", "dim")

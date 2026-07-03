@@ -10,7 +10,8 @@ import os
 import signal
 import sys
 import warnings
-from importlib.metadata import version
+
+from .version import get_radsim_version
 
 # Track Ctrl+C presses for emergency stop
 _interrupt_count = 0
@@ -142,6 +143,12 @@ Environment variables:
     )
 
     parser.add_argument(
+        "--model",
+        "-m",
+        help="Model ID for the selected provider (or use RADSIM_MODEL env var)",
+    )
+
+    parser.add_argument(
         "--yes",
         "-y",
         action="store_true",
@@ -170,7 +177,7 @@ Environment variables:
         "--version",
         "-v",
         action="version",
-        version=f"RadSim {version('radsimcli')}",
+        version=f"RadSim {get_radsim_version()}",
     )
 
     parser.add_argument(
@@ -287,6 +294,7 @@ def main():
         config = load_config(
             provider_override=args.provider,
             api_key_override=args.api_key,
+            model_override=args.model,
             auto_confirm=args.yes,
             verbose=args.verbose,
             stream=not args.no_stream,
@@ -317,7 +325,7 @@ def main():
         from .update_checker import check_for_updates, format_update_notice
 
         try:
-            current_ver = version("radsimcli")
+            current_ver = get_radsim_version()
             latest_ver = check_for_updates(current_ver)
             if latest_ver:
                 print(format_update_notice(latest_ver, current_ver))
