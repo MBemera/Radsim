@@ -709,11 +709,13 @@ class LearningCommandHandlersMixin:
             if choice:
                 editor = os.environ.get("EDITOR", "nano")
                 try:
-                    target_file = (
-                        memory.project_mem.agents_file
-                        if choice == "project"
-                        else memory.global_mem.file_path
-                    )
+                    if choice == "project":
+                        # Explicit user action — create the .radsim
+                        # scaffolding (skeleton agents.md) if missing
+                        memory.project_mem.ensure_initialized()
+                        target_file = memory.project_mem.agents_file
+                    else:
+                        target_file = memory.global_mem.file_path
                     subprocess.call([editor, str(target_file)])
                     print_info("Memory file updated. Reloading memory system.")
                     memory.global_mem.data = memory.global_mem._load_json(memory.global_mem.file_path)

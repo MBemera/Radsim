@@ -4,6 +4,7 @@ Stores user preferences, project context, and learned patterns
 across sessions using a 3-level hierarchy: Global, Project, and Session.
 """
 
+import hashlib
 import json
 import re
 from datetime import datetime, timedelta
@@ -11,11 +12,17 @@ from pathlib import Path
 
 from .config import CONFIG_DIR
 
-# Regex patterns for sanitization
+# Regex patterns for sanitization.
+# Covers current key formats: OpenAI (sk-proj-...), Anthropic (sk-ant-...),
+# OpenRouter (sk-or-v1-...), Google, GitHub, AWS, Slack, and Telegram bots.
 SECRET_PATTERNS = [
-    r"sk-[a-zA-Z0-9]{32,}",          # Common API keys (OpenAI)
-    r"sk-ant-[a-zA-Z0-9\-_]{32,}",   # Anthropic keys
-    r"AIza[0-9A-Za-z\-_]{35}",       # Google API keys
+    r"sk-[A-Za-z0-9_\-]{20,}",                    # OpenAI/Anthropic/OpenRouter keys
+    r"AIza[0-9A-Za-z\-_]{35}",                    # Google API keys
+    r"\bgh[pousr]_[A-Za-z0-9]{36,255}\b",         # GitHub tokens (ghp_, gho_, ...)
+    r"\bgithub_pat_[A-Za-z0-9_]{22,255}\b",       # GitHub fine-grained PATs
+    r"\bAKIA[0-9A-Z]{16}\b",                      # AWS access key IDs
+    r"\bxox[baprs]-[A-Za-z0-9\-]{10,}\b",         # Slack tokens
+    r"\b\d{8,10}:[A-Za-z0-9_\-]{35}\b",           # Telegram bot tokens
     r"(?i)(password|secret|bearer|token)[\w\s]*=[\s]*[\"']?([a-zA-Z0-9\-_=]{16,})[\"']?", # Generic secrets
 ]
 
@@ -163,7 +170,6 @@ class ProjectMemory(BaseMemory):
         self.agents_file = self.radsim_dir / "agents.md"
         self.gitignore_file = self.radsim_dir / ".gitignore"
 
-        self._ensure_init()
         self.data = self._load_json(self.json_file)
 
         # Initialize defaults if empty
@@ -180,20 +186,33 @@ class ProjectMemory(BaseMemory):
                 "tags": []
             }
 
-    def _ensure_init(self):
-        """Ensure project memory directory and files exist."""
-        if not self.radsim_dir.exists():
-            try:
-                self.radsim_dir.mkdir(parents=True, exist_ok=True)
-            except OSError:
-                return # Can't create directory, skip init
+    def _save_json(self, path: Path, data: dict):
+        """Save project memory, creating the .radsim scaffolding on first write.
 
-        # Create .gitignore to hide machine layer
-        if not self.gitignore_file.exists():
-            try:
-                self.gitignore_file.write_text("memory.json\n")
-            except OSError:
-                pass
+        Creating .radsim/ lazily (on write, not on construction) prevents
+        RadSim from scattering directories into every folder it merely
+        reads from or is launched in.
+        """
+        self._ensure_gitignore()
+        return super()._save_json(path, data)
+
+    def _ensure_gitignore(self):
+        """Keep the machine layer (memory.json) out of version control."""
+        if self.gitignore_file.exists():
+            return
+        try:
+            self.radsim_dir.mkdir(parents=True, exist_ok=True)
+            self.gitignore_file.write_text("memory.json\n")
+        except OSError:
+            pass
+
+    def ensure_initialized(self):
+        """Explicitly create the project memory scaffolding.
+
+        Called by user-initiated actions (e.g. /memory edit) — never as a
+        hidden side effect of constructing a Memory object.
+        """
+        self._ensure_gitignore()
 
         # Create skeleton agents.md if not exists
         if not self.agents_file.exists():
@@ -291,7 +310,12 @@ class SessionMemory(BaseMemory):
     def __init__(self, session_id: str = None):
         if not session_id:
             # E.g., named by project dir + "session"
-            session_id = f"{Path.cwd().name}_current"
+            # Include a hash of the full path so two projects with the
+            # same folder name (e.g. ~/work/api and ~/personal/api)
+            # never share session state.
+            cwd = Path.cwd()
+            path_hash = hashlib.sha256(str(cwd).encode()).hexdigest()[:8]
+            session_id = f"{cwd.name}_{path_hash}"
 
         self.session_id = session_id
         self.cache_dir = CONFIG_DIR / "cache" / "session_snapshots"

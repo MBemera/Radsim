@@ -39,10 +39,17 @@ def run_interactive(config, context_file=None):
             print_info(f"Welcome back, {user_name}!")
 
     memory = get_runtime_context().get_memory()
-    agents_md_path = memory.project_mem.agents_file
 
-    if agents_md_path.exists() and not context_file:
-        agent.load_initial_context(str(agents_md_path))
+    # agents.md is injected via the system prompt (get_system_prompt),
+    # so it is NOT loaded into the message history here — doing both
+    # sent the same content twice on every request.
+
+    # Track how many sessions this project has seen (only for projects
+    # that already opted into project memory — no directory scattering)
+    if memory.project_mem.radsim_dir.exists():
+        project_info = memory.project_mem.data.setdefault("project", {})
+        project_info["session_count"] = project_info.get("session_count", 0) + 1
+        memory.project_mem._save_json(memory.project_mem.json_file, memory.project_mem.data)
 
     if memory.session_mem.is_expired():
         print_info("Started new session (previous session expired).")

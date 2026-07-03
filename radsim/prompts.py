@@ -580,6 +580,11 @@ def _build_memory_prompt_fragment(memory):
     global_prefs = memory.global_mem.data.get("preferences", {})
     if global_prefs:
         prefs_str = "\n".join(f"- {key}: {value}" for key, value in global_prefs.items())
+        # Size-cap like agents.md below — stored preferences are
+        # persisted input and must not be able to stuff the prompt
+        max_prefs_size = 2000
+        if len(prefs_str) > max_prefs_size:
+            prefs_str = prefs_str[:max_prefs_size] + "\n[preferences truncated]"
         prompt_parts.append(f"\n\n## Global User Preferences\n{prefs_str}")
 
     agents_content = memory.project_mem.read_agents_md()

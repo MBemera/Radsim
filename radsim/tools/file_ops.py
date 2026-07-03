@@ -11,8 +11,17 @@ from .validation import is_protected_path, validate_path
 
 
 def _track_recent_file(path, intent="accessed"):
-    """Update recent file tracking without constructing fresh Memory objects."""
+    """Update recent file tracking without constructing fresh Memory objects.
+
+    Only records when the project already opted into project memory
+    (a .radsim directory exists) — file operations must never scatter
+    .radsim directories as a side effect.
+    """
     try:
+        from pathlib import Path
+
+        if not (Path.cwd() / ".radsim").exists():
+            return
         memory = get_runtime_context().get_memory()
         memory.project_mem.update_recent_file(str(path), intent=intent)
     except Exception:
