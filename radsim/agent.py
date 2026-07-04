@@ -46,46 +46,12 @@ class RadSimAgent(
     AgentPolicyMixin,
     AgentSubAgentMixin,
 ):
-    """The RadSim coding agent."""
+    """The RadSim coding agent.
 
-    # =========================================================================
-    # GENERIC TOOL EXECUTION HELPERS
-    # =========================================================================
-
-    def _run_tool_with_confirmation(
-        self,
-        tool_name,
-        tool_input,
-        description,
-        force_confirm=False,
-        use_spinner=False,
-        success_message=None,
-        error_message=None,
-    ):
-        """Execute a tool with optional confirmation and spinner.
-
-        Args:
-            tool_name: Name of the tool to execute
-            tool_input: Input dict for the tool
-            description: Human-readable description for confirmation prompt
-            force_confirm: If True, always prompt (ignore auto_confirm)
-            use_spinner: If True, show spinner during execution
-            success_message: Custom success message (optional)
-            error_message: Custom error message (optional)
-
-        Returns:
-            dict with tool result
-        """
-        return AgentPolicyMixin._run_tool_with_confirmation(
-            self,
-            tool_name,
-            tool_input,
-            description,
-            force_confirm=force_confirm,
-            use_spinner=use_spinner,
-            success_message=success_message,
-            error_message=error_message,
-        )
+    Conversation lifecycle, API orchestration, tool policy, and sub-agent
+    delegation live in the mixins above. This class holds construction
+    and the per-tool confirmation handlers.
+    """
 
     def __init__(self, config, context_file=None):
         self.config = config
@@ -170,164 +136,6 @@ class RadSimAgent(
         from .agent_telegram import start_telegram_processor
 
         start_telegram_processor(self)
-
-    def load_initial_context(self, file_path):
-        """Load initial context from a file."""
-        return AgentConversationMixin.load_initial_context(self, file_path)
-
-    def update_config(self, provider, api_key, model):
-        """Update agent configuration and client."""
-        return AgentConversationMixin.update_config(self, provider, api_key, model)
-
-    def reset(self):
-        """Clear conversation history."""
-        return AgentConversationMixin.reset(self)
-
-    def estimate_tokens(self, text):
-        """Estimate token count for text (rough approximation).
-
-        Uses ~4 chars per token as a rough estimate.
-        """
-        return AgentConversationMixin.estimate_tokens(self, text)
-
-    def get_context_usage(self):
-        """Get current context usage as percentage.
-
-        Returns:
-            tuple: (current_tokens, max_tokens, percentage)
-        """
-        return AgentConversationMixin.get_context_usage(self)
-
-    def prune_session(self, target_percentage=70):
-        """Prune old messages to reduce context size.
-
-        Keeps the first message (if it's context) and removes oldest
-        messages until we're under target percentage.
-
-        Args:
-            target_percentage: Target context usage percentage (default 70%)
-
-        Returns:
-            int: Number of messages pruned
-        """
-        return AgentConversationMixin.prune_session(self, target_percentage=target_percentage)
-
-    def check_and_prune(self, threshold=80):
-        """Check context usage and prune if over threshold.
-
-        Called before API calls to prevent context overflow.
-
-        Args:
-            threshold: Percentage threshold to trigger pruning
-        """
-        return AgentConversationMixin.check_and_prune(self, threshold=threshold)
-
-    def process_message(self, user_input):
-        """Process a user message and return the response."""
-        return AgentConversationMixin.process_message(self, user_input)
-
-    def _process_message_inner(self, user_input):
-        """Inner message processing (wrapped by process_message for interrupt tracking)."""
-        return AgentConversationMixin._process_message_inner(self, user_input)
-
-    def _get_all_tools(self):
-        """Return native tool definitions plus any MCP tools."""
-        return AgentApiMixin._get_all_tools(self)
-
-    def _call_api(self):
-        """Call the API with current messages."""
-        return AgentApiMixin._call_api(self)
-
-    def _handle_response(self, response):
-        """Handle the API response, including tool calls."""
-        return AgentApiMixin._handle_response(self, response)
-
-    def _process_tool_calls(self, response, tool_uses, text_output):
-        """Process tool calls from the response."""
-        return AgentApiMixin._process_tool_calls(self, response, tool_uses, text_output)
-
-    def _execute_with_permission(self, tool_name, tool_input):
-        """Execute a tool with appropriate permission checks."""
-        return AgentPolicyMixin._execute_with_permission(self, tool_name, tool_input)
-
-    def _resolve_subagent_model(self, requested_model):
-        """Resolve sub-agent model to an OpenRouter config model.
-
-        Sub-agents ALWAYS run via OpenRouter. The "current" option is
-        not supported — sub-agents never use the main agent's model.
-
-        Args:
-            requested_model: Model alias or ID requested for the sub-agent
-
-        Returns:
-            Tuple of (model, "openrouter", "") — always OpenRouter
-        """
-        return AgentSubAgentMixin._resolve_subagent_model(self, requested_model)
-
-    def _prompt_subagent_model(self):
-        """Prompt user to select a model for sub-agent tasks.
-
-        Shows Haiku (fast/cheap) as default, then the OpenRouter
-        config models for bigger tasks. Stores the selection in
-        self._session_capable_model for the rest of the session.
-
-        Returns:
-            Tuple of (model_id, "openrouter", "")
-        """
-        return AgentSubAgentMixin._prompt_subagent_model(self)
-
-    def _on_background_job_complete(self, job):
-        """Callback when a background job finishes. Prints notification."""
-        return AgentSubAgentMixin._on_background_job_complete(self, job)
-
-    def _collect_finished_background_results(self):
-        """Collect results from completed background jobs and inject into messages.
-
-        Called at the start of each user turn so the AI model sees
-        any results that arrived while the user was idle.
-
-        Returns:
-            str or None: Summary of completed job results, or None if no jobs finished.
-        """
-        return AgentSubAgentMixin._collect_finished_background_results(self)
-
-    def _should_stream_subagent(self):
-        """Check if sub-agent streaming output is enabled in agent config."""
-        return AgentSubAgentMixin._should_stream_subagent(self)
-
-    def _stream_delegate_task(self, task_desc, model, provider, api_key, system_prompt,
-                              tools=None, max_iterations=10):
-        """Execute a sub-agent task with live streaming output to terminal.
-
-        Shows the sub-agent's response as it generates, so the user
-        can watch the work in real time.
-
-        Args:
-            task_desc: Task description for the sub-agent
-            model: Resolved model ID
-            provider: Provider name
-            api_key: API key for the provider
-            system_prompt: System prompt for the sub-agent
-            tools: Tool definitions for the sub-agent (None = text-only)
-            max_iterations: Safety limit for agentic loop
-
-        Returns:
-            SubAgentResult with full execution results
-        """
-        return AgentSubAgentMixin._stream_delegate_task(
-            self,
-            task_desc,
-            model,
-            provider,
-            api_key,
-            system_prompt,
-            tools=tools,
-            max_iterations=max_iterations,
-        )
-
-    def _handle_delegate_task(self, tool_input):
-        """Handle delegation to a sub-agent with model selection and parallel support."""
-        return AgentSubAgentMixin._handle_delegate_task(self, tool_input)
 
     def _handle_browser_tool(self, tool_name, tool_input):
         """Handle browser automation tools."""
@@ -1220,9 +1028,6 @@ class RadSimAgent(
                 "error": "STOPPED: User rejected task scheduling. Do NOT retry.",
             }
 
-    def _print_tool_result(self, tool_name, tool_input, result):
-        """Print the result of a tool execution."""
-        return AgentPolicyMixin._print_tool_result(self, tool_name, tool_input, result)
 
 def run_single_shot(config, prompt, context_file=None):
     """Run a single-shot command and return the result."""
