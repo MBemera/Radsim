@@ -426,7 +426,6 @@ class RadSimAgent(
             print(f"NEW: {new_preview}")
             confirmed = confirm_action("Apply this self-modification?", config=None)
         elif self.config.auto_confirm:
-            print_info(f"Auto-replacing in: {file_path}")
             confirmed = True
         else:
             print(f"\nREPLACE IN: {file_path}")
@@ -518,7 +517,6 @@ class RadSimAgent(
                 print_warning("Explicit permission required.")
 
         if self.config.auto_confirm and not is_destructive:
-            print_info(f"Auto-executing: {command}")
             confirmed = True
         else:
             # If destructive, we force prompt by NOT passing config (or passing None) if auto_confirm is enabled?
@@ -560,13 +558,11 @@ class RadSimAgent(
         url = tool_input.get("url", "")
 
         if self.config.auto_confirm:
-            print_info(f"Fetching: {url}")
             confirmed = True
         else:
             confirmed = confirm_action(f"Fetch URL: '{url}'?", config=self.config)
 
         if confirmed:
-            print_info(f"Fetching: {url} ...")
             spinner = Spinner("Downloading...")
             spinner.start()
             try:
@@ -591,7 +587,6 @@ class RadSimAgent(
         directory_path = tool_input.get("directory_path", "")
 
         if self.config.auto_confirm:
-            print_info(f"Creating directory: {directory_path}")
             confirmed = True
         else:
             confirmed = self._confirm_action_with_trust(
@@ -628,7 +623,6 @@ class RadSimAgent(
             desc += f" (+{len(file_paths) - 3} more)"
 
         if self.config.auto_confirm:
-            print_info(f"Staging: {desc}")
             confirmed = True
         else:
             confirmed = self._confirm_action_with_trust("git_add", tool_input, f"Stage {desc}?")
@@ -654,7 +648,6 @@ class RadSimAgent(
         action = "Amend commit" if amend else "Commit"
 
         if self.config.auto_confirm:
-            print_info(f"{action}: {preview}")
             confirmed = True
         else:
             confirmed = confirm_action(f"{action} with message: '{preview}'?", config=self.config)
@@ -684,7 +677,6 @@ class RadSimAgent(
             action = f"Switch to branch: {branch}"
 
         if self.config.auto_confirm:
-            print_info(action)
             confirmed = True
         else:
             confirmed = confirm_action(f"{action}?", config=self.config)
@@ -738,7 +730,6 @@ class RadSimAgent(
             )
 
         if confirmed:
-            print_info("Running tests...")
             spinner = Spinner("Testing...")
             spinner.start()
             try:
@@ -780,7 +771,6 @@ class RadSimAgent(
             )
 
         if confirmed:
-            print_info("Running linter...")
             result = execute_tool("lint_code", tool_input)
             if result["success"]:
                 print_success(f"Lint passed ({result.get('linter', 'unknown')})")
@@ -812,7 +802,6 @@ class RadSimAgent(
             )
 
         if confirmed:
-            print_info("Running formatter...")
             result = execute_tool("format_code", tool_input)
             if result["success"]:
                 print_success(f"Formatting {'check passed' if check_only else 'applied'}")
@@ -938,7 +927,6 @@ class RadSimAgent(
         memory_type = tool_input.get("memory_type", "preference")
 
         if self.config.auto_confirm:
-            print_info(f"Saving to {memory_type} memory: {key}")
             confirmed = True
         else:
             preview = str(value)[:50] + "..." if len(str(value)) > 50 else str(value)
@@ -1006,7 +994,6 @@ class RadSimAgent(
         command = tool_input.get("command", "")
 
         if self.config.auto_confirm:
-            print_info(f"Scheduling task: {name}")
             confirmed = True
         else:
             confirmed = confirm_action(

@@ -62,7 +62,6 @@ class AgentPolicyMixin:
     ):
         """Execute a tool with optional confirmation and spinner."""
         if self.config.auto_confirm and not force_confirm:
-            print_info(f"Auto-executing: {description}")
             confirmed = True
         elif force_confirm:
             confirmed = confirm_action(f"{description}?", config=None)
