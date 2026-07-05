@@ -70,6 +70,7 @@ PROVIDER_MODELS = {
         ("moonshotai/kimi-k2.5", "Kimi K2.5 (Capable & cheap)"),
         ("openai/gpt-5.4", "GPT-5.4 via OpenRouter"),
         ("openai/gpt-5.3-codex", "GPT-5.3 Codex via OpenRouter"),
+        ("z-ai/glm-5.2", "GLM 5.2 (Capable, 1M context)"),
         ("z-ai/glm-4.7", "GLM 4.7 (Capable)"),
     ],
 }
@@ -146,8 +147,33 @@ MODEL_PRICING = {
     "openai/gpt-5.3-codex": (1.75, 14.00),
     "openai/gpt-5.2-codex": (1.75, 14.00),
     "minimax/minimax-m2.1": (0.30, 1.20),
+    "z-ai/glm-5.2": (0.77, 2.42),
     "z-ai/glm-4.7": (0.40, 1.75),
 }
+
+
+def get_model_pricing(model):
+    """Return (input, output) USD per 1M tokens, or None when unknown.
+
+    Checks the static table first, then the OpenRouter catalogue cache.
+    Returning None (instead of zeros) lets callers distinguish "unknown
+    cost" from "genuinely free" — unknown models must never display as
+    free.
+    """
+    if model in MODEL_PRICING:
+        return MODEL_PRICING[model]
+    try:
+        from .openrouter_models import find_model
+
+        entry = find_model(model)
+    except Exception:
+        return None
+    if not entry:
+        return None
+    return (
+        entry.get("input_price", 0.0) * 1_000_000,
+        entry.get("output_price", 0.0) * 1_000_000,
+    )
 
 # Context window limits per model (in tokens) - Updated Jul 2026
 CONTEXT_LIMITS = {
@@ -174,8 +200,28 @@ CONTEXT_LIMITS = {
     "openai/gpt-5.4": 1050000,
     "openai/gpt-5.3-codex": 400000,
     "openai/gpt-5.2-codex": 400000,
+    "z-ai/glm-5.2": 1048576,
     "z-ai/glm-4.7": 202752,
 }
+
+
+def get_context_limit(model, default=100000):
+    """Return the context window for a model in tokens.
+
+    Checks the static table first, then the OpenRouter catalogue cache,
+    then falls back to a conservative default.
+    """
+    if model in CONTEXT_LIMITS:
+        return CONTEXT_LIMITS[model]
+    try:
+        from .openrouter_models import find_model
+
+        entry = find_model(model)
+    except Exception:
+        return default
+    if entry and entry.get("context_length"):
+        return entry["context_length"]
+    return default
 
 # Model-specific capabilities and settings per provider documentation
 # RadSim Principle: Explicit Configuration Over Implicit Defaults
@@ -427,9 +473,15 @@ def save_config(api_key, provider, model):
     # Get provider-specific env var name
     env_var = PROVIDER_ENV_VARS.get(provider, "RADSIM_API_KEY")
 
-    # Load existing keys to preserve them
+    # Load existing config to preserve keys and, when the caller passes no
+    # model (e.g. /login), the previously-saved model. Never persist a
+    # falsy/None model — doing so wrote the literal RADSIM_MODEL="None"
+    # and corrupted the user's model preference.
     existing_config = load_env_file()
     existing_keys = existing_config.get("keys", {})
+
+    if not model:
+        model = existing_config.get("model") or DEFAULT_MODELS.get(provider, "")
 
     # Update with the new key
     existing_keys[env_var] = api_key

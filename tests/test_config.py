@@ -244,3 +244,44 @@ def test_model_override_wins(tmp_path, monkeypatch):
 
     config = load_config(provider_override="openai", model_override="gpt-5-mini")
     assert config.model == "gpt-5-mini"
+
+
+def _isolate_config(tmp_path, monkeypatch):
+    """Point config file paths at a temp dir and return the .env path."""
+    import radsim.config
+
+    config_dir = tmp_path / ".radsim"
+    env_file = config_dir / ".env"
+    monkeypatch.setattr(radsim.config, "CONFIG_DIR", config_dir)
+    monkeypatch.setattr(radsim.config, "SETTINGS_FILE", config_dir / "settings.json")
+    monkeypatch.setattr(radsim.config, "ENV_FILE", env_file)
+    monkeypatch.setattr(radsim.config, "PROJECT_ENV_FILE", tmp_path / "nonexistent.env")
+    return env_file
+
+
+def test_save_config_never_persists_none_model(tmp_path, monkeypatch):
+    """A None model (from /login) must not overwrite the saved model."""
+    from radsim.config import load_env_file, save_config
+
+    _isolate_config(tmp_path, monkeypatch)
+
+    save_config("test-key", "openrouter", "z-ai/glm-5.2")
+    assert load_env_file()["model"] == "z-ai/glm-5.2"
+
+    # Simulate /login: credentials change, model is None
+    save_config("test-key", "openrouter", None)
+
+    saved = load_env_file()
+    assert saved["model"] == "z-ai/glm-5.2"  # preserved, not "None"
+    assert 'RADSIM_MODEL="None"' not in (tmp_path / ".radsim" / ".env").read_text()
+
+
+def test_save_config_falls_back_to_default_when_no_prior_model(tmp_path, monkeypatch):
+    """With no prior saved model, a None model uses the provider default."""
+    from radsim.config import DEFAULT_MODELS, load_env_file, save_config
+
+    _isolate_config(tmp_path, monkeypatch)
+
+    save_config("test-key", "openrouter", None)
+
+    assert load_env_file()["model"] == DEFAULT_MODELS["openrouter"]

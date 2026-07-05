@@ -18,6 +18,20 @@ def test_composed_prompt_names_voice_tools_and_memory_operations():
     assert "radsim/prompt_fragments/personality.md" in prompt
 
 
+def test_prompt_requires_affirmative_consent_before_acting():
+    """The prompt must tell the model to stop on no/pause/wait, not proceed."""
+    from radsim.prompts import get_system_prompt
+
+    prompt = get_system_prompt().lower()
+
+    # The fail-closed consent rule must be present in the composed prompt
+    assert "go-ahead" in prompt or "affirmative consent" in prompt
+    for stop_word in ("no", "stop", "pause", "wait"):
+        assert stop_word in prompt
+    # Explicitly covers the ambiguous "no pause" case from the field report
+    assert "no pause" in prompt
+
+
 def test_prompt_stats_match_layer_lengths():
     """Test that prompt stats report layer sizes consistently."""
     from radsim.prompts import get_prompt_stats

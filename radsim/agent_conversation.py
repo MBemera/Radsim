@@ -36,7 +36,16 @@ class AgentConversationMixin:
             print_warning(f"Context file not found: {file_path}")
 
     def update_config(self, provider, api_key, model):
-        """Update agent configuration, client, and persist provider/model."""
+        """Update agent configuration, client, and persist provider/model.
+
+        A None model (e.g. from /login, which only changes credentials)
+        keeps the current model rather than nulling the live client.
+        """
+        if not model:
+            from .config import DEFAULT_MODELS
+
+            model = self.config.model or DEFAULT_MODELS.get(provider)
+
         self.config.provider = provider
         self.config.api_key = api_key
         self.config.model = model
@@ -66,9 +75,9 @@ class AgentConversationMixin:
 
     def get_context_usage(self):
         """Get current context usage as percentage."""
-        from .config import CONTEXT_LIMITS
+        from .config import get_context_limit
 
-        max_tokens = CONTEXT_LIMITS.get(self.config.model, 100000)
+        max_tokens = get_context_limit(self.config.model)
         current_tokens = sum(self.estimate_tokens(str(message.get("content", ""))) for message in self.messages)
         percentage = (current_tokens / max_tokens) * 100 if max_tokens > 0 else 0
         return current_tokens, max_tokens, percentage

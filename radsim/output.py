@@ -212,9 +212,22 @@ def print_boot_sequence(provider, model, animated=True):
 
     print(colorize("  Type your request or use commands:", "dim"))
     print(colorize("    /help", "cyan") + colorize(" - Show all commands", "dim"))
-    print(colorize("    /tools", "cyan") + colorize(" - List available tools (35 total)", "dim"))
+    print(
+        colorize("    /tools", "cyan")
+        + colorize(f" - List available tools ({_count_tools()} total)", "dim")
+    )
     print(colorize("    /exit", "cyan") + colorize(" - Quit RadSim", "dim"))
     print()
+
+
+def _count_tools():
+    """Return the live native tool count so help text never goes stale."""
+    try:
+        from .tools import TOOL_DEFINITIONS
+
+        return len(TOOL_DEFINITIONS)
+    except Exception:
+        return "many"
 
 
 def print_header(provider, model):
@@ -229,23 +242,21 @@ def print_status_bar(model, input_tokens, output_tokens):
 
     import shutil
 
-    from .config import MODEL_PRICING
+    from .config import get_model_pricing
 
     columns, _ = shutil.get_terminal_size()
 
     total_tokens = input_tokens + output_tokens
 
-    # Calculate cost estimate
-    pricing = MODEL_PRICING.get(model, (0.0, 0.0))
-    input_cost = (input_tokens / 1_000_000) * pricing[0]
-    output_cost = (output_tokens / 1_000_000) * pricing[1]
-    total_cost = input_cost + output_cost
-
-    # Format cost string
-    if total_cost > 0:
-        cost_str = f" | ~${total_cost:.4f}"
+    # Unknown pricing must show as unknown — never as "Free"
+    pricing = get_model_pricing(model)
+    if pricing is None:
+        cost_str = " | cost n/a"
     else:
-        cost_str = " | Free"
+        input_cost = (input_tokens / 1_000_000) * pricing[0]
+        output_cost = (output_tokens / 1_000_000) * pricing[1]
+        total_cost = input_cost + output_cost
+        cost_str = f" | ~${total_cost:.4f}" if total_cost > 0 else " | Free"
 
     status = f" {model} | Tokens: {total_tokens:,} (In: {input_tokens:,} / Out: {output_tokens:,}){cost_str} "
 
@@ -886,17 +897,131 @@ HELP_DETAILS = {
         "related": ["/switch", "/setup", "/free"],
     },
     "free": {
-        "title": "Free Model",
+        "title": "Cheapest Model",
         "aliases": [],
         "summary": "Instantly switch to the cheapest OpenRouter model.",
         "usage": ["/free"],
         "details": (
-            "Switches to Kimi K2.5 on OpenRouter ($0.14/$0.28 per 1M tokens).\n"
+            "Switches to DeepSeek V4 Flash on OpenRouter ($0.09/$0.18 per 1M tokens).\n"
             "Requires an OPENROUTER_API_KEY in your .env file."
         ),
         "examples": ["/free"],
         "related": ["/switch", "/config"],
         "tips": ["Great for quick tasks where you don't need a top-tier model."],
+    },
+    "login": {
+        "title": "Provider Login",
+        "aliases": [],
+        "summary": "Log in to a provider with an API key.",
+        "usage": ["/login", "/login <provider>"],
+        "details": (
+            "Configures API credentials from inside RadSim:\n\n"
+            "  • (no args)    — Pick a provider from a numbered menu\n"
+            "  • <provider>   — Run the API-key wizard for that provider\n\n"
+            "After login, RadSim hot-swaps to the newly configured provider."
+        ),
+        "examples": ["/login", "/login openrouter", "/login claude"],
+        "related": ["/logout", "/config", "/switch"],
+    },
+    "logout": {
+        "title": "Provider Logout",
+        "aliases": [],
+        "summary": "Remove a provider's saved API key and cached tokens.",
+        "usage": ["/logout", "/logout <provider>"],
+        "details": (
+            "Removes the stored API key (and any cached OAuth tokens) for a\n"
+            "provider. Pick from a menu or name the provider directly."
+        ),
+        "examples": ["/logout", "/logout openai"],
+        "related": ["/login", "/config"],
+    },
+    "theme": {
+        "title": "Color Theme",
+        "aliases": ["/palette"],
+        "summary": "Pick the UI color palette.",
+        "usage": ["/theme", "/theme <name>"],
+        "details": (
+            "Changes RadSim's terminal color palette. Run without arguments\n"
+            "for an interactive picker, or pass a palette name directly.\n"
+            "The choice is saved in ~/.radsim/settings.json."
+        ),
+        "examples": ["/theme", "/palette"],
+        "related": ["/font", "/animations"],
+    },
+    "font": {
+        "title": "Font / Glyph Profile",
+        "aliases": ["/glyphs"],
+        "summary": "Pick the glyph profile (Nerd Font, Unicode, ASCII).",
+        "usage": ["/font", "/font <profile>"],
+        "details": (
+            "Selects which glyph set RadSim uses for icons and symbols.\n"
+            "Pick ASCII if your terminal font shows broken characters."
+        ),
+        "examples": ["/font", "/glyphs"],
+        "related": ["/theme", "/animations"],
+    },
+    "animations": {
+        "title": "Animation Level",
+        "aliases": ["/anim"],
+        "summary": "Set the animation level (full, subtle, off).",
+        "usage": ["/animations", "/animations <level>"],
+        "details": (
+            "Controls spinners and boot animations:\n\n"
+            "  • full   — Animated spinners and boot sequence\n"
+            "  • subtle — Static indicators, no motion\n"
+            "  • off    — Plain text only"
+        ),
+        "examples": ["/animations", "/anim off"],
+        "related": ["/theme", "/font"],
+    },
+    "trust": {
+        "title": "Confirmation Trust",
+        "aliases": [],
+        "summary": "View or reset learned confirmation trust.",
+        "usage": ["/trust", "/trust reset [tool]", "/trust low", "/trust medium"],
+        "details": (
+            "RadSim learns which safe actions you routinely approve and can\n"
+            "auto-confirm them (trust bandit). This command shows what has\n"
+            "been learned, adjusts the trust threshold, or resets it."
+        ),
+        "examples": ["/trust", "/trust reset", "/trust reset write_file"],
+        "related": ["/settings", "/preferences"],
+    },
+    "background": {
+        "title": "Background Jobs",
+        "aliases": ["/bg"],
+        "summary": "View and manage background sub-agent jobs.",
+        "usage": ["/background", "/bg", "/bg<N>"],
+        "details": (
+            "Lists background sub-agent jobs with status and runtime.\n"
+            "Use /bg<N> (e.g. /bg2) to view the result of job N.\n"
+            "Job results are also injected into the conversation when done."
+        ),
+        "examples": ["/background", "/bg1"],
+        "related": ["/job"],
+    },
+    "job": {
+        "title": "Scheduled Jobs",
+        "aliases": ["/jobs", "/cron"],
+        "summary": "Manage scheduled cron jobs.",
+        "usage": [
+            "/job",
+            "/job add",
+            "/job remove <id>",
+            "/job pause <id>",
+            "/job resume <id>",
+            "/job run <id>",
+        ],
+        "details": (
+            "Schedules recurring commands (cron-style):\n\n"
+            "  • (no args)   — List all scheduled jobs\n"
+            "  • add         — Create a new scheduled job\n"
+            "  • remove      — Delete a job by id\n"
+            "  • pause/resume— Toggle a job without deleting it\n"
+            "  • run         — Run a job immediately"
+        ),
+        "examples": ["/job", "/job add", "/job run 2"],
+        "related": ["/background", "/telegram"],
     },
     "ratelimit": {
         "title": "Rate Limit Settings",
@@ -1540,7 +1665,10 @@ def print_help(topic=None):
     print(colorize("  Essential Commands:", "bright_cyan"))
     print(colorize("    /help      ", "cyan") + colorize("Show this help", "dim"))
     print(colorize("    /commands  ", "cyan") + colorize("List ALL available commands", "dim"))
-    print(colorize("    /tools     ", "cyan") + colorize("List all 35 available tools", "dim"))
+    print(
+        colorize("    /tools     ", "cyan")
+        + colorize(f"List all {_count_tools()} available tools", "dim")
+    )
     print()
 
     print(colorize("  Model & Provider:", "bright_cyan"))
