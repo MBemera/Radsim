@@ -150,36 +150,100 @@ def run_interactive(config, context_file=None):
             print_error(str(error))
 
 
+TOOL_CATEGORIES = {
+    "File Operations": [
+        "read_file",
+        "read_many_files",
+        "write_file",
+        "replace_in_file",
+        "rename_file",
+        "delete_file",
+        "multi_edit",
+        "batch_replace",
+        "apply_patch",
+    ],
+    "Directory": ["list_directory", "create_directory"],
+    "Search": ["glob_files", "grep_search", "search_files"],
+    "Code Intelligence": ["find_definition", "find_references", "repo_map", "analyze_code"],
+    "Shell & System": ["run_shell_command", "install_system_tool", "run_docker"],
+    "Web & Browser": [
+        "web_fetch",
+        "browser_open",
+        "browser_click",
+        "browser_type",
+        "browser_screenshot",
+    ],
+    "Git (Read)": ["git_status", "git_diff", "git_log", "git_branch"],
+    "Git (Write)": ["git_add", "git_commit", "git_checkout", "git_stash"],
+    "Testing & Validation": [
+        "run_tests",
+        "lint_code",
+        "format_code",
+        "type_check",
+        "generate_tests",
+    ],
+    "Dependencies & Setup": [
+        "list_dependencies",
+        "add_dependency",
+        "remove_dependency",
+        "npm_install",
+        "pip_install",
+        "init_project",
+        "get_project_info",
+    ],
+    "Task Planning": [
+        "plan_task",
+        "save_context",
+        "load_context",
+        "todo_read",
+        "todo_write",
+    ],
+    "Sub-Agents & Scheduling": [
+        "delegate_task",
+        "submit_completion",
+        "schedule_task",
+        "list_schedules",
+    ],
+    "Skills & Memory": [
+        "add_skill",
+        "remove_skill",
+        "list_skills",
+        "save_memory",
+        "load_memory",
+        "forget_memory",
+    ],
+    "Custom Tools": ["add_tool", "list_custom_tools", "remove_tool"],
+    "Integrations": ["send_telegram", "database_query", "deploy", "refactor_code"],
+}
+
+
 def print_tools_list():
-    """Print list of available tools."""
-    print("\n Available Tools:")
+    """Print every available tool, grouped by category.
+
+    Category membership is validated against TOOL_DEFINITIONS so removed
+    tools disappear automatically and any new tool still shows up (under
+    "Other" until it is placed in a category).
+    """
+    from .tools import TOOL_DEFINITIONS
+
+    available = {tool["name"] for tool in TOOL_DEFINITIONS}
+
+    print(f"\n Available Tools ({len(available)} total):")
     print("-" * 50)
 
-    categories = {
-        "File Operations": [
-            "read_file",
-            "read_many_files",
-            "write_file",
-            "replace_in_file",
-            "rename_file",
-            "delete_file",
-        ],
-        "Directory": ["list_directory", "create_directory"],
-        "Search": ["glob_files", "grep_search", "search_files"],
-        "Shell": ["run_shell_command"],
-        "Web": ["web_fetch"],
-        "Git (Read)": ["git_status", "git_diff", "git_log", "git_branch"],
-        "Git (Write)": ["git_add", "git_commit", "git_checkout", "git_stash"],
-        "Testing & Validation": ["run_tests", "lint_code", "format_code", "type_check"],
-        "Dependencies": ["list_dependencies", "add_dependency", "remove_dependency"],
-        "Project": ["get_project_info", "batch_replace", "multi_edit"],
-        "Task Planning": ["plan_task", "save_context", "load_context", "todo_read", "todo_write"],
-        "Code Intelligence": ["find_definition", "find_references"],
-    }
+    categorized = set()
+    for category, tools in TOOL_CATEGORIES.items():
+        existing = [tool for tool in tools if tool in available]
+        categorized.update(existing)
+        if existing:
+            print(f"\n  {category}:")
+            for tool in existing:
+                print(f"    - {tool}")
 
-    for category, tools in categories.items():
-        print(f"\n  {category}:")
-        for tool in tools:
+    uncategorized = sorted(available - categorized)
+    if uncategorized:
+        print("\n  Other:")
+        for tool in uncategorized:
             print(f"    - {tool}")
 
     try:

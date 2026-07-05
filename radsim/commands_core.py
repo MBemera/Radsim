@@ -253,7 +253,7 @@ class CoreCommandHandlersMixin:
 
     def _cmd_free(self, agent):
         """Instantly switch to the cheapest OpenRouter model."""
-        from .config import MODEL_PRICING, load_env_file
+        from .config import get_model_pricing, load_env_file
         from .output import print_header
 
         env_config = load_env_file()
@@ -267,10 +267,11 @@ class CoreCommandHandlersMixin:
         model = self.CHEAPEST_OPENROUTER_MODEL
         agent.update_config("openrouter", api_key, model)
 
-        input_price, output_price = MODEL_PRICING.get(model, (0.0, 0.0))
+        pricing = get_model_pricing(model)
         print()
         print(f"  ok Switched to cheapest model: {model}")
-        print(f"    (${input_price} input / ${output_price} output per 1M tokens)")
+        if pricing:
+            print(f"    (${pricing[0]} input / ${pricing[1]} output per 1M tokens)")
         print_header("openrouter", model)
 
     def _cmd_ratelimit(self, agent, args=None):
