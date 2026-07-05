@@ -4,6 +4,8 @@
 
 # RadSim
 
+> Radically simple by default — a coding agent that stays out of its own way.
+
 RadSim (`radsimcli` on PyPI) is a coding agent that runs in your terminal. You
 configure a provider API key, type a task, and the agent edits files, runs
 commands, uses git, and reports back. The model never holds your code — it
@@ -11,7 +13,7 @@ sits on your machine, calls a model over the network, and sends back tool
 results until the task is done.
 
 It works on Python 3.10+, macOS, Linux, and Windows. The current version on
-`main` is `1.4.1`.
+`main` is `1.5.1`.
 
 ## Why RadSim exists
 
