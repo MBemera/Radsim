@@ -473,9 +473,15 @@ def save_config(api_key, provider, model):
     # Get provider-specific env var name
     env_var = PROVIDER_ENV_VARS.get(provider, "RADSIM_API_KEY")
 
-    # Load existing keys to preserve them
+    # Load existing config to preserve keys and, when the caller passes no
+    # model (e.g. /login), the previously-saved model. Never persist a
+    # falsy/None model — doing so wrote the literal RADSIM_MODEL="None"
+    # and corrupted the user's model preference.
     existing_config = load_env_file()
     existing_keys = existing_config.get("keys", {})
+
+    if not model:
+        model = existing_config.get("model") or DEFAULT_MODELS.get(provider, "")
 
     # Update with the new key
     existing_keys[env_var] = api_key
