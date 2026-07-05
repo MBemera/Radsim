@@ -11,6 +11,41 @@ from .tools import execute_tool
 
 logger = logging.getLogger(__name__)
 
+# Tools with a dedicated confirmation handler on the agent.
+# Every entry routes through a handler that asks the user (or honors
+# auto_confirm) before executing — never add a write-capable tool to
+# READ_ONLY_TOOLS instead of here.
+TOOL_HANDLERS = {
+    "delegate_task": "_handle_delegate_task",
+    "install_system_tool": "_handle_system_tool",
+    "write_file": "_handle_write_file",
+    "replace_in_file": "_handle_replace",
+    "rename_file": "_handle_rename",
+    "delete_file": "_handle_delete",
+    "run_shell_command": "_handle_shell_command",
+    "web_fetch": "_handle_web_fetch",
+    "create_directory": "_handle_create_directory",
+    "git_add": "_handle_git_add",
+    "git_commit": "_handle_git_commit",
+    "git_checkout": "_handle_git_checkout",
+    "git_stash": "_handle_git_stash",
+    "run_tests": "_handle_run_tests",
+    "lint_code": "_handle_lint_code",
+    "format_code": "_handle_format_code",
+    "type_check": "_handle_type_check",
+    "add_dependency": "_handle_add_dependency",
+    "remove_dependency": "_handle_remove_dependency",
+    "batch_replace": "_handle_batch_replace",
+    "multi_edit": "_handle_multi_edit",
+    "apply_patch": "_handle_apply_patch",
+    "save_context": "_handle_save_context",
+    "save_memory": "_handle_save_memory",
+    "forget_memory": "_handle_forget_memory",
+    "schedule_task": "_handle_schedule_task",
+    "add_tool": "_handle_add_tool",
+    "remove_tool": "_handle_remove_tool",
+}
+
 
 class AgentPolicyMixin:
     """Permission checks and generic tool execution policy."""
@@ -27,7 +62,6 @@ class AgentPolicyMixin:
     ):
         """Execute a tool with optional confirmation and spinner."""
         if self.config.auto_confirm and not force_confirm:
-            print_info(f"Auto-executing: {description}")
             confirmed = True
         elif force_confirm:
             confirmed = confirm_action(f"{description}?", config=None)
@@ -68,8 +102,8 @@ class AgentPolicyMixin:
             logger.debug("Trust-bandit confirmation failed, using normal prompt", exc_info=True)
             return confirm_action(message, config=self.config)
 
-    def _execute_with_permission(self, tool_name, tool_input):
-        """Execute a tool with appropriate permission checks."""
+    def _warn_if_known_error(self, tool_name, tool_input):
+        """Surface a warning when the planned action matches a past error."""
         try:
             from .learning.error_analyzer import check_similar_error
 
@@ -82,6 +116,8 @@ class AgentPolicyMixin:
         except Exception:
             logger.debug("Learning error check failed during tool execution")
 
+    def _check_tool_disabled(self, tool_name):
+        """Return an error result if the tool is disabled in settings, else None."""
         try:
             from .agent_config import get_agent_config_manager
 
@@ -96,91 +132,52 @@ class AgentPolicyMixin:
                 }
         except Exception:
             logger.debug("Agent config check failed, allowing tool execution")
+        return None
 
-        if tool_name == "delegate_task":
-            return self._handle_delegate_task(tool_input)
+    def _execute_mcp_tool(self, tool_name, tool_input):
+        """Confirm and execute an MCP tool with a live tool-event line."""
+        if not self.config.auto_confirm:
+            params_preview = json.dumps(tool_input, indent=2)[:200]
+            if not confirm_action(f"Execute MCP tool: {tool_name}?\n  {params_preview}"):
+                return {
+                    "success": False,
+                    "error": "STOPPED: User rejected MCP tool. Do NOT retry.",
+                }
+
+        from .output import print_tool_call, print_tool_result_verbose
+
+        tool_handle = print_tool_call(tool_name, tool_input)
+        start_time = time.time()
+        result = self._mcp_manager.call_tool(tool_name, tool_input)
+        duration_ms = (time.time() - start_time) * 1000
+        print_tool_result_verbose(tool_handle, tool_name, result, duration_ms)
+        return result
+
+    def _execute_with_permission(self, tool_name, tool_input):
+        """Execute a tool with appropriate permission checks."""
+        self._warn_if_known_error(tool_name, tool_input)
+
+        disabled_result = self._check_tool_disabled(tool_name)
+        if disabled_result:
+            return disabled_result
+
+        handler_name = TOOL_HANDLERS.get(tool_name)
+        if handler_name:
+            return getattr(self, handler_name)(tool_input)
+
         if tool_name.startswith("browser_"):
             return self._handle_browser_tool(tool_name, tool_input)
-        if tool_name == "install_system_tool":
-            return self._handle_system_tool(tool_input)
-        if tool_name == "write_file":
-            return self._handle_write_file(tool_input)
-        if tool_name == "replace_in_file":
-            return self._handle_replace(tool_input)
-        if tool_name == "rename_file":
-            return self._handle_rename(tool_input)
-        if tool_name == "delete_file":
-            return self._handle_delete(tool_input)
-        if tool_name == "run_shell_command":
-            return self._handle_shell_command(tool_input)
-        if tool_name == "web_fetch":
-            return self._handle_web_fetch(tool_input)
-        if tool_name == "create_directory":
-            return self._handle_create_directory(tool_input)
-        if tool_name == "git_add":
-            return self._handle_git_add(tool_input)
-        if tool_name == "git_commit":
-            return self._handle_git_commit(tool_input)
-        if tool_name == "git_checkout":
-            return self._handle_git_checkout(tool_input)
-        if tool_name == "git_stash":
-            return self._handle_git_stash(tool_input)
-        if tool_name == "run_tests":
-            return self._handle_run_tests(tool_input)
-        if tool_name == "lint_code":
-            return self._handle_lint_code(tool_input)
-        if tool_name == "format_code":
-            return self._handle_format_code(tool_input)
-        if tool_name == "type_check":
-            return self._handle_type_check(tool_input)
-        if tool_name == "add_dependency":
-            return self._handle_add_dependency(tool_input)
-        if tool_name == "remove_dependency":
-            return self._handle_remove_dependency(tool_input)
-        if tool_name == "batch_replace":
-            return self._handle_batch_replace(tool_input)
-        if tool_name == "multi_edit":
-            return self._handle_multi_edit(tool_input)
-        if tool_name == "apply_patch":
-            return self._handle_apply_patch(tool_input)
+
         if tool_name in ("todo_read", "todo_write"):
             result = execute_tool(tool_name, tool_input)
             self._print_tool_result(tool_name, tool_input, result)
             return result
-        if tool_name == "save_context":
-            return self._handle_save_context(tool_input)
-        if tool_name == "save_memory":
-            return self._handle_save_memory(tool_input)
-        if tool_name == "forget_memory":
-            return self._handle_forget_memory(tool_input)
-        if tool_name == "schedule_task":
-            return self._handle_schedule_task(tool_input)
-        if tool_name == "add_tool":
-            return self._handle_add_tool(tool_input)
-        if tool_name == "remove_tool":
-            return self._handle_remove_tool(tool_input)
+
         if tool_name in READ_ONLY_TOOLS:
             return execute_tool(tool_name, tool_input)
+
         if self._mcp_manager and self._mcp_manager.is_mcp_tool(tool_name):
-            description = f"MCP tool: {tool_name}"
-            if not self.config.auto_confirm:
-                params_preview = json.dumps(tool_input, indent=2)[:200]
-                if not confirm_action(f"Execute {description}?\n  {params_preview}"):
-                    return {
-                        "success": False,
-                        "error": "STOPPED: User rejected MCP tool. Do NOT retry.",
-                    }
-            else:
-                print_info(f"Auto-executing: {description}")
-
-            from .output import print_tool_call, print_tool_result_verbose
-
-            tool_handle = print_tool_call(tool_name, tool_input)
-            start_time = time.time()
-            result = self._mcp_manager.call_tool(tool_name, tool_input)
-            duration_ms = (time.time() - start_time) * 1000
-            print_tool_result_verbose(tool_handle, tool_name, result, duration_ms)
-            return result
+            return self._execute_mcp_tool(tool_name, tool_input)
 
         # Confirmation-required tools without a dedicated handler above
         # (run_docker, database_query, deploy, refactor_code, npm_install, ...)

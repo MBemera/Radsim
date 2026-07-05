@@ -1,12 +1,15 @@
 """Integration tests for the agentic harness.
 
 Drives the real RadSimAgent loop (_call_api → _handle_response →
-_process_tool_calls recursion) with a scripted fake client — no network.
+_process_tool_calls iteration) with a scripted fake client — no network.
 Verifies multi-turn conversations, tool round-trips, message-history
-integrity, rejection handling, streaming, and loop protection.
+integrity, rejection handling, streaming, crash resilience, and loop
+protection.
 """
 
 import json
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -286,6 +289,92 @@ class TestMultiTurn:
                     elif block.get("type") == "tool_result":
                         tool_result_ids.append(block["tool_use_id"])
         assert tool_use_ids == tool_result_ids == ["tool_w", "tool_r"]
+
+
+class TestHarnessResilience:
+    def test_crashing_tool_returns_error_result_not_exception(
+        self, agent_factory, tmp_path, monkeypatch
+    ):
+        """A tool handler crash must become an error tool_result, not abort the turn."""
+
+        def explode(tool_name, tool_input):
+            raise RuntimeError("disk exploded")
+
+        monkeypatch.setattr("radsim.agent_policy.execute_tool", explode)
+
+        agent = agent_factory([
+            make_response(
+                tool_block(
+                    "tool_1", "read_file", {"file_path": str(tmp_path / "any.txt")}
+                ),
+                stop_reason="tool_use",
+            ),
+            make_response(text_block("recovered from crash")),
+        ])
+
+        result = agent.process_message("read it")
+
+        assert result == "recovered from crash"
+        payload = json.loads(agent.messages[2]["content"][0]["content"])
+        assert payload["success"] is False
+        assert "disk exploded" in payload["error"]
+
+    def test_non_json_tool_result_is_serialized_not_crashed(
+        self, agent_factory, tmp_path, monkeypatch
+    ):
+        """Tool results with non-JSON types (Path, bytes) must still serialize."""
+        monkeypatch.setattr(
+            "radsim.agent_policy.execute_tool",
+            lambda tool_name, tool_input: {
+                "success": True,
+                "content": Path(tmp_path / "weird.txt"),
+            },
+        )
+
+        agent = agent_factory([
+            make_response(
+                tool_block(
+                    "tool_1", "read_file", {"file_path": str(tmp_path / "weird.txt")}
+                ),
+                stop_reason="tool_use",
+            ),
+            make_response(text_block("handled odd payload")),
+        ])
+
+        result = agent.process_message("go")
+
+        assert result == "handled odd payload"
+        payload = json.loads(agent.messages[2]["content"][0]["content"])
+        assert payload["success"] is True
+        assert "weird.txt" in payload["content"]
+
+    def test_long_tool_chain_runs_at_constant_stack_depth(
+        self, agent_factory, tmp_path
+    ):
+        """200 tool rounds must not deepen the stack (loop, not recursion)."""
+        target = tmp_path / "chain.txt"
+        target.write_text("x")
+
+        rounds = 200
+        responses = [
+            make_response(
+                tool_block(f"tool_{i}", "read_file", {"file_path": str(target)}),
+                stop_reason="tool_use",
+            )
+            for i in range(rounds)
+        ]
+        responses.append(make_response(text_block("chain done")))
+        agent = agent_factory(responses, max_calls=rounds + 5)
+
+        import inspect
+
+        original_limit = sys.getrecursionlimit()
+        current_depth = len(inspect.stack())
+        sys.setrecursionlimit(current_depth + 150)
+        try:
+            assert agent.process_message("chain") == "chain done"
+        finally:
+            sys.setrecursionlimit(original_limit)
 
 
 class TestLoopProtection:

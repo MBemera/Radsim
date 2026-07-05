@@ -22,6 +22,19 @@ from .tools import TOOL_DEFINITIONS
 logger = logging.getLogger(__name__)
 
 
+def serialize_tool_result(result):
+    """Serialize a tool result to JSON without ever crashing the turn.
+
+    Tool results can contain non-JSON types (bytes, Path, datetime).
+    Falling back to default=str keeps the tool_use/tool_result pairing
+    intact so the conversation stays valid for the API.
+    """
+    try:
+        return json.dumps(result)
+    except (TypeError, ValueError):
+        return json.dumps(result, default=str)
+
+
 class AgentApiMixin:
     """API call and response handling methods for the main agent."""
 
@@ -136,33 +149,79 @@ class AgentApiMixin:
             raise error
 
     def _handle_response(self, response):
-        """Handle the API response, including tool calls."""
+        """Handle API responses, looping through tool rounds until a final answer.
+
+        Iterative rather than recursive so long tool chains cannot hit
+        Python's recursion limit; the rate limiter bounds total API calls.
+        """
         from .response_validator import validate_response_structure
 
-        valid, error = validate_response_structure(response)
-        if not valid:
-            print_error(f"Invalid API response: {error}")
-            return f"Error: Received malformed response from API. {error}"
+        while True:
+            valid, error = validate_response_structure(response)
+            if not valid:
+                print_error(f"Invalid API response: {error}")
+                return f"Error: Received malformed response from API. {error}"
 
-        text_output = []
-        tool_uses = []
+            text_output = []
+            tool_uses = []
 
-        for block in response["content"]:
-            if block["type"] == "text":
-                text_output.append(block["text"])
-            elif block["type"] == "tool_use":
-                tool_uses.append(block)
+            for block in response["content"]:
+                if block["type"] == "text":
+                    text_output.append(block["text"])
+                elif block["type"] == "tool_use":
+                    tool_uses.append(block)
 
-        if tool_uses:
-            return self._process_tool_calls(response, tool_uses, text_output)
+            if not tool_uses:
+                final_text = "\n".join(text_output)
+                self.messages.append({"role": "assistant", "content": final_text})
+                self._last_response = final_text
+                return final_text
 
-        final_text = "\n".join(text_output)
-        self.messages.append({"role": "assistant", "content": final_text})
-        self._last_response = final_text
-        return final_text
+            stop_message = self._process_tool_calls(response, tool_uses, text_output)
+            if stop_message is not None:
+                return stop_message
+
+            response = self._call_api()
+
+    def _execute_tool_guarded(self, tool_name, tool_input):
+        """Run one tool call, converting crashes into error results.
+
+        A handler exception must not abort the turn: the assistant
+        message with the tool_use is already in history, so failing to
+        append a matching tool_result would corrupt the conversation.
+        Protection exceptions still propagate — they are deliberate stops.
+        """
+        try:
+            return self._execute_with_permission(tool_name, tool_input)
+        except (RateLimitExceeded, CircuitBreakerOpen, BudgetExceeded):
+            raise
+        except Exception as error:
+            logger.exception("Tool %s crashed during execution", tool_name)
+            print_error(f"{tool_name} crashed: {type(error).__name__}: {error}")
+            try:
+                record_error(
+                    error_type=type(error).__name__,
+                    error_message=str(error),
+                    context={"action": "tool_execution", "tool": tool_name},
+                )
+            except Exception:
+                logger.debug("Learning error recording failed during tool crash handling")
+            return {
+                "success": False,
+                "error": (
+                    f"Tool crashed: {type(error).__name__}: {error}. "
+                    "The error was caught — continue with a different approach."
+                ),
+            }
 
     def _process_tool_calls(self, response, tool_uses, text_output):
-        """Process tool calls from the response."""
+        """Run one round of tool calls.
+
+        Returns:
+            str: A final message when the turn must stop (user rejected
+                 an action or interrupted).
+            None: All tools ran; the caller should request a follow-up.
+        """
         self.messages.append({"role": "assistant", "content": response["content"]})
 
         tool_results = []
@@ -181,7 +240,7 @@ class AgentApiMixin:
                     {
                         "type": "tool_result",
                         "tool_use_id": tool_id,
-                        "content": json.dumps(
+                        "content": serialize_tool_result(
                             {
                                 "success": False,
                                 "error": "STOPPED: User cancelled a previous action this turn. All remaining tool calls skipped.",
@@ -201,7 +260,7 @@ class AgentApiMixin:
                     {
                         "type": "tool_result",
                         "tool_use_id": tool_id,
-                        "content": json.dumps(
+                        "content": serialize_tool_result(
                             {
                                 "success": False,
                                 "error": f"Tool input was corrupted: {tool_input.get('__parse_error__')}",
@@ -221,11 +280,11 @@ class AgentApiMixin:
                 spinner = Spinner("Executing...")
                 spinner.start()
                 try:
-                    result = self._execute_with_permission(tool_name, tool_input)
+                    result = self._execute_tool_guarded(tool_name, tool_input)
                 finally:
                     spinner.stop()
             else:
-                result = self._execute_with_permission(tool_name, tool_input)
+                result = self._execute_tool_guarded(tool_name, tool_input)
 
             duration_ms = (time.time() - tool_start_time) * 1000
             tool_success = result.get("success", False)
@@ -271,7 +330,7 @@ class AgentApiMixin:
                 {
                     "type": "tool_result",
                     "tool_use_id": tool_id,
-                    "content": json.dumps(result),
+                    "content": serialize_tool_result(result),
                 }
             )
 
@@ -283,5 +342,4 @@ class AgentApiMixin:
         if self._interrupted.is_set():
             return "\n".join(text_output) or "Cancelled."
 
-        follow_up = self._call_api()
-        return self._handle_response(follow_up)
+        return None

@@ -390,19 +390,19 @@ def print_teach(message):
 
 
 def print_success(message):
-    console.print(f"[success]ok[/success] {message}")
+    console.print(f"  [success]ok[/success] {message}")
 
 
 def print_error(message):
-    console.print(f"[error]error:[/error] {message}")
+    console.print(f"  [error]error:[/error] {message}")
 
 
 def print_warning(message):
-    console.print(f"[warning]warning:[/warning] {message}")
+    console.print(f"  [warning]warning:[/warning] {message}")
 
 
 def print_info(message):
-    console.print(f"[muted]{message}[/muted]")
+    console.print(f"  [muted]{message}[/muted]")
 
 
 class LiveStatusTable:

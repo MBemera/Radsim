@@ -22,7 +22,14 @@ def run_interactive(config, context_file=None):
     from .keybindings import check_action_hotkey, check_hotkey
     from .memory import load_memory
     from .modes import get_active_modes, toggle_mode
-    from .output import print_header, print_help, print_info, print_prompt, print_status_bar
+    from .output import (
+        print_header,
+        print_help,
+        print_info,
+        print_prompt,
+        print_status_bar,
+        print_success,
+    )
 
     agent = RadSimAgent(config, context_file)
     registry = CommandRegistry()
@@ -92,9 +99,9 @@ def run_interactive(config, context_file=None):
         if hotkey_mode:
             is_active, message = toggle_mode(hotkey_mode)
             if is_active:
-                print_info(f"ok {message} - teaching in ALL responses enabled")
+                print_success(f"{message} - teaching in ALL responses enabled")
             else:
-                print_info(f"ok {message}")
+                print_success(message)
             agent.system_prompt = get_system_prompt()
             continue
 
