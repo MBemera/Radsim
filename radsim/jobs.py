@@ -14,6 +14,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .tools.shell import run_shell_command
+
 logger = logging.getLogger(__name__)
 
 JOBS_FILE = Path.home() / ".radsim" / "jobs.json"
@@ -387,6 +389,13 @@ def _cron_to_schtasks(cron_expr: str) -> tuple[str, list[str]]:
 
 # --- Public API ---
 
+def _reject_crontab_injection(schedule: str, command: str):
+    """Raise if a schedule or command could inject extra crontab lines."""
+    for value in (schedule, command):
+        if any(char in value for char in ("\n", "\r", "\x00")):
+            raise ValueError("Schedule and command must not contain newlines or null bytes")
+
+
 def add_job(schedule: str, command: str, description: str, is_radsim_task: bool) -> CronJob:
     """Add a new scheduled job.
 
@@ -399,6 +408,8 @@ def add_job(schedule: str, command: str, description: str, is_radsim_task: bool)
     Returns:
         The created CronJob.
     """
+    _reject_crontab_injection(schedule, command)
+
     jobs = _load_jobs()
     job_id = _next_job_id(jobs)
 
@@ -490,29 +501,25 @@ def run_job_now(job_id: int) -> tuple[bool, str]:
 
     shell_command = _build_shell_command(job)
 
-    try:
-        result = subprocess.run(
-            shell_command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
+    # Route through the hardened shell runner so on-demand runs get the same
+    # validation, secret-scrubbed environment, and process isolation as the
+    # agent's own commands — instead of a raw shell=True call.
+    result = run_shell_command(shell_command, timeout=300)
 
-        # Update last_run timestamp
-        jobs = _load_jobs()
-        for stored_job in jobs:
-            if stored_job.job_id == job_id:
-                stored_job.last_run = datetime.now().isoformat()
-                break
-        _save_jobs(jobs)
+    # Record the attempt regardless of outcome.
+    jobs = _load_jobs()
+    for stored_job in jobs:
+        if stored_job.job_id == job_id:
+            stored_job.last_run = datetime.now().isoformat()
+            break
+    _save_jobs(jobs)
 
-        output = result.stdout or result.stderr or "(no output)"
-        return result.returncode == 0, output.strip()
-    except subprocess.TimeoutExpired:
-        return False, "Job timed out after 5 minutes"
-    except Exception as error:
-        return False, str(error)
+    if not result.get("success"):
+        error = result.get("error") or result.get("stderr") or "Job failed"
+        return False, error.strip()
+
+    output = result.get("stdout") or result.get("stderr") or "(no output)"
+    return True, output.strip()
 
 
 def describe_schedule(cron_expr: str) -> str:

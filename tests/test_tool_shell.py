@@ -118,3 +118,33 @@ class TestDangerousCommandValidation:
         result = run_shell_command("ls -la")
 
         assert result["success"] is True
+
+
+class TestRunnerHardening:
+    """The runner isolates the environment, validates cwd, and isolates signals."""
+
+    def test_missing_working_dir_is_rejected(self):
+        result = run_shell_command("ls", working_dir="/no/such/dir/here")
+        assert result["success"] is False
+        assert "does not exist" in result["error"].lower()
+
+    @patch("radsim.tools.shell.subprocess.run")
+    def test_secrets_are_stripped_from_child_env(self, mock_run, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+        monkeypatch.setenv("PATH", "/usr/bin")
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        run_shell_command("ls")
+
+        child_env = mock_run.call_args.kwargs["env"]
+        assert "ANTHROPIC_API_KEY" not in child_env
+        assert "PATH" in child_env
+
+    @patch("radsim.tools.shell.os.name", "posix")
+    @patch("radsim.tools.shell.subprocess.run")
+    def test_child_runs_in_new_session_on_posix(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        run_shell_command("ls")
+
+        assert mock_run.call_args.kwargs.get("start_new_session") is True

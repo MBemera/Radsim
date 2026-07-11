@@ -36,6 +36,7 @@ from .rate_limiter import (
 )
 from .safety import confirm_action, confirm_write, is_path_safe
 from .tools import DESTRUCTIVE_COMMANDS, execute_tool
+from .tools.command_analysis import is_destructive_command
 
 logger = logging.getLogger(__name__)
 
@@ -505,16 +506,13 @@ class RadSimAgent(
         """Handle shell command with confirmation."""
         command = tool_input.get("command", "")
 
-        # Check for destructive commands
-        is_destructive = False
-        parts = command.split()
-        if parts:
-            cmd = parts[0]
-            full_cmd = " ".join(parts[:2]) if len(parts) > 1 else cmd
-            if cmd in DESTRUCTIVE_COMMANDS or full_cmd in DESTRUCTIVE_COMMANDS:
-                is_destructive = True
-                print_warning(f"DESTRUCTIVE COMMAND: {command}")
-                print_warning("Explicit permission required.")
+        # Check for destructive commands. Uses structural analysis so wrapped
+        # or absolute-path forms ("env sudo", "/usr/bin/sudo") and destructive
+        # commands in any pipeline segment cannot bypass confirmation.
+        is_destructive = is_destructive_command(command, DESTRUCTIVE_COMMANDS)
+        if is_destructive:
+            print_warning(f"DESTRUCTIVE COMMAND: {command}")
+            print_warning("Explicit permission required.")
 
         if self.config.auto_confirm and not is_destructive:
             confirmed = True
