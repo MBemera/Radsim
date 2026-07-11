@@ -6,7 +6,6 @@ Provides cron-style scheduling for recurring tasks.
 import json
 import logging
 import re
-import shlex
 import subprocess
 from datetime import datetime
 
@@ -50,21 +49,29 @@ def validate_cron_schedule(schedule):
 
 
 def sanitize_cron_command(command):
-    """Sanitize a command for safe use in a cron entry.
+    """Validate a command for safe use in a single cron entry.
+
+    A cron line hands the whole command to /bin/sh, so the command must be
+    kept intact (NOT wrapped as one shlex-quoted token, which would make cron
+    try to execute the entire string as one program name). We only reject
+    control characters that could inject extra crontab lines.
 
     Args:
         command: Shell command string
 
     Returns:
-        Shell-escaped command string safe for cron
+        The command, stripped and safe to place on a cron line.
 
     Raises:
-        ValueError if command is empty
+        ValueError if the command is empty or contains control characters.
     """
     if not command or not command.strip():
         raise ValueError("Cron command cannot be empty")
 
-    return shlex.quote(command)
+    if any(char in command for char in ("\n", "\r", "\x00")):
+        raise ValueError("Cron command must not contain newlines or null bytes")
+
+    return command.strip()
 
 
 class Scheduler:

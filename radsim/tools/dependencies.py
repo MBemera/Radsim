@@ -4,9 +4,12 @@ RadSim Principle: One Function, One Purpose
 """
 
 import logging
-import os
+import re
 import shlex
+import shutil
+from pathlib import Path
 
+from .platform_detect import detect_os, detect_package_manager
 from .shell import run_shell_command
 from .testing import detect_project_type
 
@@ -154,6 +157,51 @@ def remove_dependency(package):
     }
 
 
+# Tools installable with npm on every OS.
+_NPM_SYSTEM_TOOLS = {
+    "claude-code": "@anthropic-ai/claude-code",
+    "gemini-cli": "@google/gemini-cli",
+    "vercel": "vercel",
+    "heroku": "heroku",
+}
+
+# OS-specific install commands for tools not available via npm.
+_NATIVE_SYSTEM_TOOLS = {
+    "gh": {
+        "macos": "brew install gh",
+        "windows": "winget install --id GitHub.cli",
+        "dnf": "dnf install -y gh",
+        "yum": "yum install -y gh",
+        "pacman": "pacman -S --noconfirm github-cli",
+        "zypper": "zypper install -y gh",
+    },
+}
+
+
+def _resolve_native_install_command(tool_name):
+    """Return (command, error) for an OS-native system tool.
+
+    Picks a command that fits the detected OS and package manager instead of
+    assuming Homebrew. Returns an error with guidance when no safe automated
+    command exists for the current platform.
+    """
+    per_os = _NATIVE_SYSTEM_TOOLS[tool_name]
+    os_family = detect_os()
+
+    if os_family in per_os:
+        return per_os[os_family], None
+
+    manager = detect_package_manager(os_family)
+    if manager and manager in per_os:
+        return per_os[manager], None
+
+    hint = manager or "your system package manager"
+    return None, (
+        f"No automated install for '{tool_name}' on {os_family}. "
+        f"Install it manually with {hint}."
+    )
+
+
 def install_system_tool(tool_name):
     """Install a system-level CLI tool (e.g., claude-code, gemini-cli).
 
@@ -163,32 +211,30 @@ def install_system_tool(tool_name):
     Returns:
         dict with success, stdout
     """
-    # Mappings for known tools
-    tool_map = {
-        "claude-code": "npm install -g @anthropic-ai/claude-code",
-        "gemini-cli": "npm install -g @google/gemini-cli",
-        "gh": "brew install gh" if os.name != "nt" else "winget install GitHub.cli",
-        "heroku": "brew install heroku/brew/heroku",
-        "vercel": "npm install -g vercel",
-    }
-
-    # Check if mapped
-    if tool_name in tool_map:
-        cmd = tool_map[tool_name]
-    else:
-        # Generic installation strategy
-        if tool_name.startswith("npm:"):
-            cmd = f"npm install -g {shlex.quote(tool_name[4:])}"
-        elif tool_name.startswith("pip:"):
-            cmd = f"pip install {shlex.quote(tool_name[4:])}"
-        elif tool_name.startswith("brew:"):
-            cmd = f"brew install {shlex.quote(tool_name[5:])}"
-        else:
-            # Default fallback try
+    if tool_name in _NPM_SYSTEM_TOOLS:
+        cmd = f"npm install -g {shlex.quote(_NPM_SYSTEM_TOOLS[tool_name])}"
+    elif tool_name in _NATIVE_SYSTEM_TOOLS:
+        cmd, error = _resolve_native_install_command(tool_name)
+        if error:
+            return {"success": False, "tool": tool_name, "error": error}
+    elif tool_name.startswith("npm:"):
+        cmd = f"npm install -g {shlex.quote(tool_name[4:])}"
+    elif tool_name.startswith("pip:"):
+        cmd = f"pip install {shlex.quote(tool_name[4:])}"
+    elif tool_name.startswith("brew:"):
+        if not shutil.which("brew"):
             return {
                 "success": False,
-                "error": f"Unknown tool '{tool_name}'. Use prefix like 'npm:package', 'pip:package', or 'brew:package'.",
+                "tool": tool_name,
+                "error": "Homebrew is not installed. Use 'npm:' or 'pip:' prefixes, "
+                "or install the tool with your system package manager.",
             }
+        cmd = f"brew install {shlex.quote(tool_name[5:])}"
+    else:
+        return {
+            "success": False,
+            "error": f"Unknown tool '{tool_name}'. Use prefix like 'npm:package', 'pip:package', or 'brew:package'.",
+        }
 
     result = run_shell_command(cmd, timeout=300)
 
@@ -196,6 +242,7 @@ def install_system_tool(tool_name):
         "success": result.get("returncode", 1) == 0,
         "tool": tool_name,
         "command": cmd,
+        "error": result.get("error"),
         "stdout": result.get("stdout", ""),
         "stderr": result.get("stderr", ""),
     }
@@ -298,16 +345,9 @@ def init_project(project_type, name=None, template=None, working_dir=None):
         cmd = f"npm create astro@latest {shlex.quote(project_name)} -- --yes"
 
     elif project_type == "python":
-        # Initialize Python project structure
-        project_name = name or "my_project"
-        safe_name = shlex.quote(project_name)
-        # Create basic structure
-        commands = [
-            f"mkdir -p {safe_name}",
-            f"touch {safe_name}/__init__.py",
-            f"printf '[project]\\nname = %s\\nversion = \"0.1.0\"\\n' {safe_name} > pyproject.toml",
-        ]
-        cmd = " && ".join(commands)
+        # Build the Python project structure directly with pathlib. No shell
+        # chaining, so it works identically on Linux, macOS, and Windows.
+        return _create_python_project(name or "my_project", working_dir)
 
     else:
         return {
@@ -323,6 +363,42 @@ def init_project(project_type, name=None, template=None, working_dir=None):
         "name": name,
         "template": template,
         "command": cmd,
+        "error": result.get("error"),
         "stdout": result.get("stdout", ""),
         "stderr": result.get("stderr", ""),
+    }
+
+
+def _create_python_project(project_name, working_dir):
+    """Create a minimal Python project (package dir, __init__.py, pyproject.toml).
+
+    Builds files directly instead of chaining shell commands so it is
+    cross-platform and never trips shell validation.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", project_name) or project_name in (".", ".."):
+        return {
+            "success": False,
+            "project_type": "python",
+            "name": project_name,
+            "error": "Invalid project name. Use letters, digits, '.', '_' or '-' only.",
+        }
+
+    base = Path(working_dir) if working_dir else Path.cwd()
+    package_dir = base / project_name
+
+    try:
+        package_dir.mkdir(parents=True, exist_ok=True)
+        (package_dir / "__init__.py").touch()
+        pyproject = base / "pyproject.toml"
+        pyproject.write_text(
+            f'[project]\nname = "{project_name}"\nversion = "0.1.0"\n'
+        )
+    except OSError as error:
+        return {"success": False, "project_type": "python", "name": project_name, "error": str(error)}
+
+    return {
+        "success": True,
+        "project_type": "python",
+        "name": project_name,
+        "created": [str(package_dir), str(package_dir / "__init__.py"), str(pyproject)],
     }

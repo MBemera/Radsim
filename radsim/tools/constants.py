@@ -27,6 +27,9 @@ DESTRUCTIVE_COMMANDS = {
     "docker rm",
     "docker rmi",  # Container deletion
     "kubectl delete",  # Kubernetes deletion
+    "crontab -r",  # Wipes all scheduled jobs
+    "doas",
+    "pkexec",  # Privilege escalation
 }
 
 # Catastrophic commands blocked at ALL security levels (no override)
