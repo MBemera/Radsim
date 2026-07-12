@@ -9,6 +9,7 @@ No network: web_fetch targets a closed local port, telegram's urlopen
 is stubbed, and browser tools run with playwright disabled.
 """
 
+import base64
 import subprocess
 
 import pytest
@@ -65,6 +66,11 @@ def smoke_workspace(tmp_path, monkeypatch):
     (workspace / "to_rename.txt").write_text("rename me\n")
     (workspace / "to_delete.txt").write_text("delete me\n")
     (workspace / "multi.txt").write_text("multi edit target\n")
+    (workspace / "pixel.png").write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+        )
+    )
     monkeypatch.chdir(workspace)
     return workspace
 
@@ -79,6 +85,8 @@ def build_smoke_inputs(ws):
         "install_system_tool": {"tool_name": ""},
         "read_file": {"file_path": "sample.py"},
         "read_many_files": {"file_paths": ["sample.py", "notes.txt"]},
+        "read_document": {"file_path": "notes.txt"},
+        "read_image": {"file_path": "pixel.png"},
         "write_file": {"file_path": "generated.txt", "content": "generated\n"},
         "replace_in_file": {
             "file_path": "notes.txt",

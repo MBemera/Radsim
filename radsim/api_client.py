@@ -173,6 +173,20 @@ def is_retryable_error(error) -> tuple[bool, bool]:
     return is_retryable, is_rate_limit
 
 
+def _block_to_openai_part(block):
+    """Convert one Anthropic-style content block to an OpenAI content part.
+
+    Returns None for block types with no OpenAI equivalent.
+    """
+    if block.get("type") == "text":
+        return {"type": "text", "text": block.get("text", "")}
+    if block.get("type") == "image":
+        source = block.get("source", {})
+        data_uri = f"data:{source.get('media_type', 'image/png')};base64,{source.get('data', '')}"
+        return {"type": "image_url", "image_url": {"url": data_uri}}
+    return None
+
+
 class BaseAPIClient(ABC):
     """Base class for API clients."""
 
@@ -535,17 +549,35 @@ class OpenAIClient(BaseAPIClient):
                 and msg["content"]
                 and msg["content"][0].get("type") == "tool_result"
             ):
-                # Return list of tool messages (will be flattened by caller)
-                return [
-                    {
-                        "role": "tool",
-                        "tool_call_id": item["tool_use_id"],
-                        "content": item["content"]
-                        if isinstance(item["content"], str)
-                        else json.dumps(item["content"]),
-                    }
-                    for item in msg["content"]
-                ]
+                # Tool messages first; any trailing image/text blocks (e.g.
+                # from read_image) become a follow-up user message, because
+                # OpenAI tool messages cannot carry images.
+                tool_messages = []
+                extra_parts = []
+                for item in msg["content"]:
+                    if item.get("type") == "tool_result":
+                        tool_messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": item["tool_use_id"],
+                                "content": item["content"]
+                                if isinstance(item["content"], str)
+                                else json.dumps(item["content"]),
+                            }
+                        )
+                    else:
+                        part = _block_to_openai_part(item)
+                        if part:
+                            extra_parts.append(part)
+                if extra_parts:
+                    tool_messages.append({"role": "user", "content": extra_parts})
+                return tool_messages
+
+            # User messages built from Anthropic-style blocks (text/image).
+            parts = [_block_to_openai_part(item) for item in msg["content"]]
+            parts = [part for part in parts if part]
+            if parts:
+                return {"role": "user", "content": parts}
             return {"role": "user", "content": json.dumps(msg["content"])}
 
         # Handle assistant messages with tool_use content blocks

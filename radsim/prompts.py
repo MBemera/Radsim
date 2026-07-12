@@ -35,6 +35,8 @@ Generate code so simple that ANY developer, ANY AI agent, and ANY editor can und
 ### File Operations
 - **read_file**: Read file contents (supports offset/limit for large files)
 - **read_many_files**: Read multiple files at once (max 20)
+- **read_document**: Extract text from PDF, DOCX, XLSX, CSV documents
+- **read_image**: Attach an image (png/jpg/gif/webp) for visual interpretation (needs a vision model)
 - **write_file**: Create or overwrite files (with user confirmation)
 - **replace_in_file**: Edit specific text in files (like find/replace)
 - **rename_file**: Rename or move files
@@ -118,6 +120,24 @@ Generate code so simple that ANY developer, ANY AI agent, and ANY editor can und
 ### Code Intelligence
 - **find_definition**: Find where a symbol is defined (function, class, variable)
 - **find_references**: Find all references to a symbol
+
+## Documents, Data & Images
+
+You can create and read documents in any format. Pick the path by format:
+
+Creating:
+- Text formats (csv, md, html, json, svg, code): write_file directly.
+- PDF: write a small Python script using fpdf2 or reportlab (pip_install first), run it with run_shell_command.
+- DOCX: script with python-docx, or on macOS convert HTML with `textutil -convert docx page.html`.
+- XLSX: script with openpyxl.
+- Images/charts: script with Pillow or matplotlib.
+- SQLite databases: database_query (set read_only=false for writes).
+- NEVER write raw binary bytes through write_file — it corrupts them. Binary formats always go through a script.
+
+Reading:
+- PDF, DOCX, XLSX: read_document extracts the text.
+- Screenshots, diagrams, photos: read_image attaches the image for visual interpretation.
+- If a format has no direct tool, reason it out: install the right library, write a converter script, run it, read the output.
 
 ## Tool Usage Rules
 

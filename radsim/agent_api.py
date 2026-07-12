@@ -36,6 +36,28 @@ def serialize_tool_result(result):
         return json.dumps(result, default=str)
 
 
+def extract_image_block(result):
+    """Pop a tool's private _image payload and return its message block.
+
+    Image bytes travel as message blocks, never as tool-result text: base64
+    in the transcript would burn tokens and the model could not see the
+    pixels anyway.
+    """
+    if not isinstance(result, dict):
+        return None
+    payload = result.pop("_image", None)
+    if not payload or not result.get("success"):
+        return None
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": payload["media_type"],
+            "data": payload["data"],
+        },
+    }
+
+
 class AgentApiMixin:
     """API call and response handling methods for the main agent."""
 
@@ -227,6 +249,7 @@ class AgentApiMixin:
         self.messages.append({"role": "assistant", "content": response["content"]})
 
         tool_results = []
+        image_blocks = []
         user_rejected = False
 
         for tool_use in tool_uses:
@@ -328,6 +351,10 @@ class AgentApiMixin:
                 except Exception:
                     pass
 
+            image_block = extract_image_block(result)
+            if image_block:
+                image_blocks.append(image_block)
+
             tool_results.append(
                 {
                     "type": "tool_result",
@@ -336,7 +363,8 @@ class AgentApiMixin:
                 }
             )
 
-        self.messages.append({"role": "user", "content": tool_results})
+        # tool_result blocks must precede other content in the user message.
+        self.messages.append({"role": "user", "content": tool_results + image_blocks})
 
         if user_rejected:
             return "\n".join(text_output) or "Understood — action cancelled."

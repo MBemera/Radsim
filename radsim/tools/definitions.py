@@ -95,6 +95,28 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "read_document",
+        "description": "Extract text from a document file: PDF, DOCX, XLSX, CSV, or plain text. Use this instead of read_file for binary document formats.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "Path to the document file"}
+            },
+            "required": ["file_path"],
+        },
+    },
+    {
+        "name": "read_image",
+        "description": "Load an image (png/jpg/gif/webp) and attach it to the conversation so it can be visually interpreted. Requires a vision-capable model. Use to read screenshots, diagrams, charts, or photos the user provides.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "Path to the image file"}
+            },
+            "required": ["file_path"],
+        },
+    },
+    {
         "name": "write_file",
         "description": "Write content to a file. Creates parent directories if needed.",
         "input_schema": {
