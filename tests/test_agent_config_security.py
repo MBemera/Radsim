@@ -36,6 +36,93 @@ class TestSecurityLevelPresets:
             manager.set_security_level(level)
             assert manager.destructive_confirmation_enabled() is True
 
+    def test_numeric_shortcuts_select_levels(self, tmp_path):
+        manager = make_manager(tmp_path)
+        expected = {
+            "1": "restrictive",
+            "2": "balanced",
+            "3": "permissive",
+            "4": "off",
+        }
+        for number, level in expected.items():
+            result = manager.set_security_level(number)
+            assert result["success"] is True
+            assert manager.get("security_level") == level
+
+    def test_numeric_shortcut_tolerates_whitespace(self, tmp_path):
+        manager = make_manager(tmp_path)
+        assert manager.set_security_level(" 2 ")["success"] is True
+        assert manager.get("security_level") == "balanced"
+
+    def test_off_preset_disables_both_confirmations(self, tmp_path):
+        manager = make_manager(tmp_path)
+        manager.set_security_level("off")
+        assert manager.confirmation_enabled("shell_commands") is False
+        assert manager.confirmation_enabled("file_deletion") is False
+
+    def test_balanced_preset_restores_confirmations(self, tmp_path):
+        manager = make_manager(tmp_path)
+        manager.set_security_level("off")
+        manager.set_security_level("balanced")
+        assert manager.confirmation_enabled("shell_commands") is True
+        assert manager.confirmation_enabled("file_deletion") is True
+
+
+class TestSecuritySwitches:
+    """Individual switches must toggle, persist, and mark the level custom."""
+
+    def test_switches_expose_all_tools_and_confirmations(self, tmp_path):
+        manager = make_manager(tmp_path)
+        switches = manager.get_security_switches()
+        keys = {switch["key"] for switch in switches}
+        assert "tools.shell_access" in keys
+        assert "confirmations.shell_commands" in keys
+        assert "confirmations.file_deletion" in keys
+        assert all(isinstance(switch["value"], bool) for switch in switches)
+
+    def test_toggled_switch_persists_across_restarts(self, tmp_path):
+        manager = make_manager(tmp_path)
+        states = {switch["key"]: switch["value"] for switch in manager.get_security_switches()}
+        states["confirmations.shell_commands"] = False
+
+        changed = manager.apply_security_switches(states)
+
+        assert changed == ["confirmations.shell_commands"]
+        reloaded = make_manager(tmp_path)
+        assert reloaded.confirmation_enabled("shell_commands") is False
+        assert reloaded.confirmation_enabled("file_deletion") is True
+
+    def test_any_change_marks_level_custom(self, tmp_path):
+        manager = make_manager(tmp_path)
+        manager.set_security_level("balanced")
+        manager.apply_security_switches({"tools.docker": False})
+        assert manager.get("security_level") == "custom"
+
+    def test_no_change_preserves_level(self, tmp_path):
+        manager = make_manager(tmp_path)
+        manager.set_security_level("balanced")
+        states = {switch["key"]: switch["value"] for switch in manager.get_security_switches()}
+        assert manager.apply_security_switches(states) == []
+        assert manager.get("security_level") == "balanced"
+
+    def test_unknown_keys_are_ignored(self, tmp_path):
+        manager = make_manager(tmp_path)
+        changed = manager.apply_security_switches({"tools.rootkit": True, "evil": True})
+        assert changed == []
+        assert manager.get("tools.rootkit") is None
+
+    def test_one_disabled_confirmation_disables_the_summary(self, tmp_path):
+        manager = make_manager(tmp_path)
+        manager.apply_security_switches({"confirmations.file_deletion": False})
+        assert manager.destructive_confirmation_enabled() is False
+
+    def test_display_lists_confirmations_and_warns(self, tmp_path):
+        manager = make_manager(tmp_path)
+        manager.apply_security_switches({"confirmations.shell_commands": False})
+        display = manager.get_config_display()
+        assert "Confirmations:" in display
+        assert "WITHOUT confirmation" in display
+
     def test_off_preset_keeps_blocklist_mode(self):
         # "off" must stay in blocklist mode so CommandPolicy still runs the
         # always-blocked catastrophic check on every command.

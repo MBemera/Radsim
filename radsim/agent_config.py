@@ -47,6 +47,10 @@ DEFAULT_CONFIG = {
         "blocklist": [],
         "custom_destructive": [],
     },
+    "confirmations": {
+        "shell_commands": True,
+        "file_deletion": True,
+    },
 }
 
 # Maps tool names to config keys in "tools" section
@@ -94,6 +98,10 @@ SECURITY_PRESETS = {
             "blocklist": [],
             "custom_destructive": [],
         },
+        "confirmations": {
+            "shell_commands": True,
+            "file_deletion": True,
+        },
     },
     "balanced": {
         "tools": {
@@ -116,6 +124,10 @@ SECURITY_PRESETS = {
             ],
             "custom_destructive": [],
         },
+        "confirmations": {
+            "shell_commands": True,
+            "file_deletion": True,
+        },
     },
     "permissive": {
         "tools": {
@@ -136,6 +148,10 @@ SECURITY_PRESETS = {
                 ":(){ :|:& };:",
             ],
             "custom_destructive": [],
+        },
+        "confirmations": {
+            "shell_commands": True,
+            "file_deletion": True,
         },
     },
     # "off" disables destructive-command confirmation prompts entirely.
@@ -159,8 +175,35 @@ SECURITY_PRESETS = {
             "blocklist": [],
             "custom_destructive": [],
         },
+        "confirmations": {
+            "shell_commands": False,
+            "file_deletion": False,
+        },
     },
 }
+
+# Numeric shortcuts so users can pick a preset with 1-4 instead of typing.
+SECURITY_LEVEL_NUMBERS = {
+    "1": "restrictive",
+    "2": "balanced",
+    "3": "permissive",
+    "4": "off",
+}
+
+# Individual security switches shown in the /settings customize menu.
+# Each is a (config key, display label) pair; all persist like any setting.
+SECURITY_SWITCHES = (
+    ("tools.shell_access", "Shell command tool"),
+    ("tools.file_deletion", "File deletion tool"),
+    ("tools.web_fetch", "Web fetch tool"),
+    ("tools.git_write", "Git write operations"),
+    ("tools.browser", "Browser control"),
+    ("tools.docker", "Docker tool"),
+    ("tools.database", "Database queries"),
+    ("tools.deploy", "Deploy tool"),
+    ("confirmations.shell_commands", "Confirm shell commands"),
+    ("confirmations.file_deletion", "Confirm file deletion"),
+)
 
 SECURITY_OFF_WARNING_LINES = (
     "WARNING: Security level OFF disables confirmation prompts for",
@@ -287,19 +330,59 @@ class AgentConfigManager:
             return False
         return self.get(f"learning.{module_name}", True)
 
+    def confirmation_enabled(self, kind: str) -> bool:
+        """Return True unless the user disabled this confirmation switch.
+
+        Args:
+            kind: "shell_commands" or "file_deletion"
+        """
+        return bool(self.get(f"confirmations.{kind}", True))
+
     def destructive_confirmation_enabled(self) -> bool:
-        """Return False only when the user has switched security fully off."""
-        return self.get("security_level", "balanced") != "off"
+        """Return True only while every confirmation prompt is still enabled."""
+        return self.confirmation_enabled("shell_commands") and self.confirmation_enabled(
+            "file_deletion"
+        )
+
+    def get_security_switches(self) -> list:
+        """Return the customize-menu switches with their current values."""
+        return [
+            {"key": key, "label": label, "value": bool(self.get(key, True))}
+            for key, label in SECURITY_SWITCHES
+        ]
+
+    def apply_security_switches(self, states: dict) -> list:
+        """Persist toggle states from the customize menu.
+
+        Only known switches are applied; unknown keys are ignored so the
+        config cannot be polluted. Any change marks the level "custom".
+
+        Returns:
+            List of config keys whose value actually changed.
+        """
+        changed = []
+        for key, _ in SECURITY_SWITCHES:
+            if key not in states:
+                continue
+            new_value = bool(states[key])
+            if new_value != bool(self.get(key, True)):
+                self.set(key, new_value)
+                changed.append(key)
+        if changed:
+            self.set("security_level", "custom")
+        return changed
 
     def set_security_level(self, level: str) -> dict:
         """Apply a security preset.
 
         Args:
-            level: One of "restrictive", "balanced", "permissive", "off"
+            level: "restrictive", "balanced", "permissive", "off",
+                or the numeric shortcut "1"-"4".
 
         Returns:
             Dict with success status and applied settings
         """
+        level = SECURITY_LEVEL_NUMBERS.get(str(level).strip(), level)
         if level not in SECURITY_PRESETS:
             return {
                 "success": False,
@@ -317,6 +400,10 @@ class AgentConfigManager:
         for key, value in preset["shell_commands"].items():
             self.set(f"shell_commands.{key}", value)
 
+        # Apply confirmation settings
+        for key, value in preset["confirmations"].items():
+            self.set(f"confirmations.{key}", value)
+
         # Store the level name
         self.set("security_level", level)
 
@@ -325,6 +412,7 @@ class AgentConfigManager:
             "level": level,
             "tools": preset["tools"],
             "shell_mode": preset["shell_commands"]["mode"],
+            "confirmations": preset["confirmations"],
         }
 
     def get_full_config(self) -> dict:
@@ -340,8 +428,8 @@ class AgentConfigManager:
         lines.append("")
         security_level = config.get("security_level", "balanced")
         lines.append(f"  Security Level: {security_level.upper()}")
-        if security_level == "off":
-            lines.append("  [!] Destructive commands run WITHOUT confirmation.")
+        if not self.destructive_confirmation_enabled():
+            lines.append("  [!] Some commands run WITHOUT confirmation.")
             lines.append("  [!] Catastrophic commands (rm -rf /, mkfs) stay blocked.")
         lines.append("")
 
@@ -378,6 +466,16 @@ class AgentConfigManager:
 
         lines.append("")
 
+        # Confirmations section
+        lines.append("  Confirmations:")
+        confirmations = config.get("confirmations", {})
+        for key, enabled in sorted(confirmations.items()):
+            status = "ON " if enabled else "OFF"
+            indicator = "+" if enabled else "-"
+            lines.append(f"    [{indicator}] {key:<20} {status}")
+
+        lines.append("")
+
         # Shell commands section
         lines.append("  Shell Commands:")
         shell = config.get("shell_commands", {})
@@ -391,7 +489,8 @@ class AgentConfigManager:
 
         lines.append("")
         lines.append("  Toggle: /settings <path> <value>")
-        lines.append("  Preset: /settings security_level <restrictive|balanced|permissive|off>")
+        lines.append("  Preset: /settings security_level <1-4 | restrictive|balanced|permissive|off>")
+        lines.append("  Switches: /settings security (interactive customize menu)")
         lines.append("")
 
         return "\n".join(lines)

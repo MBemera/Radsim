@@ -148,17 +148,23 @@ def _animate_tagline(tagline):
     sys.stdout.flush()
 
 
-def _security_level_is_off():
-    """Return True when the persisted security level is "off".
+def _disabled_confirmation_labels():
+    """Return short labels for confirmation prompts the user switched off.
 
-    Display-only helper; any config error reads as security on.
+    Display-only helper; any config error reads as everything enabled.
     """
     try:
         from .agent_config import get_agent_config_manager
 
-        return not get_agent_config_manager().destructive_confirmation_enabled()
+        manager = get_agent_config_manager()
+        labels = []
+        if not manager.confirmation_enabled("shell_commands"):
+            labels.append("shell commands")
+        if not manager.confirmation_enabled("file_deletion"):
+            labels.append("file deletion")
+        return labels
     except Exception:
-        return False
+        return []
 
 
 def print_boot_sequence(provider, model, animated=True):
@@ -223,8 +229,10 @@ def print_boot_sequence(provider, model, animated=True):
     print(colorize("  └" + "─" * (box_width - 2) + "┘", "dim"))
     print()
 
-    if _security_level_is_off():
-        print(colorize("  [!] SECURITY OFF — destructive commands run without confirmation", "red"))
+    disabled_confirmations = _disabled_confirmation_labels()
+    if disabled_confirmations:
+        summary = ", ".join(disabled_confirmations)
+        print(colorize(f"  [!] Confirmation OFF for: {summary} — runs without prompts", "red"))
         print(colorize("      Restore with: /settings security_level balanced", "dim"))
         print()
 

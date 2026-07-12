@@ -113,6 +113,164 @@ def interactive_menu(title, options, prompt="  Select: ", max_retries=3):
     return None
 
 
+def toggle_menu(title, items, footer_lines=()):
+    """Display an on/off switch list and let the user toggle entries.
+
+    With a real terminal: up/down arrows move, left/right or space toggles,
+    Enter saves, q or Esc cancels. Without one (pipes, Windows consoles
+    lacking termios): falls back to a numbered toggle loop.
+
+    Args:
+        title: Menu title.
+        items: List of {"key", "label", "value"} dicts (value is bool).
+        footer_lines: Extra lines shown under the switch list.
+
+    Returns:
+        dict of key -> bool with the final states, or None if cancelled.
+    """
+    states = {item["key"]: bool(item["value"]) for item in items}
+    order = [(item["key"], item["label"]) for item in items]
+
+    if not _stdin_supports_raw_keys():
+        return _toggle_menu_numbered(title, order, states, footer_lines)
+    return _toggle_menu_arrows(title, order, states, footer_lines)
+
+
+def _stdin_supports_raw_keys():
+    """True when stdin is an interactive terminal with termios available."""
+    import sys
+
+    try:
+        import termios  # noqa: F401
+        import tty  # noqa: F401
+    except ImportError:
+        return False
+    try:
+        return sys.stdin.isatty()
+    except Exception:
+        return False
+
+
+def _render_toggle_lines(title, order, states, cursor, footer_lines):
+    """Build the display lines for the toggle menu."""
+    lines = ["", f"  ═══ {title} ═══", ""]
+    for index, (key, label) in enumerate(order):
+        marker = ">" if index == cursor else " "
+        state = "ON " if states[key] else "OFF"
+        lines.append(f"  {marker} [{state}] {label}")
+    lines.append("")
+    lines.append("  ↑/↓ move   ←/→/space toggle   Enter save   q cancel")
+    for footer_line in footer_lines:
+        lines.append(f"  {footer_line}")
+    lines.append("")
+    return lines
+
+
+def _toggle_menu_arrows(title, order, states, footer_lines):
+    """Arrow-key driven toggle loop; redraws in place after each key."""
+    import sys
+
+    from .escape_listener import pause_escape_listener, resume_escape_listener
+
+    pause_escape_listener()
+    try:
+        _flush_stdin()
+        cursor = 0
+        lines = _render_toggle_lines(title, order, states, cursor, footer_lines)
+        print("\n".join(lines))
+
+        while True:
+            key = _read_menu_key(sys.stdin.fileno())
+            if key == "up":
+                cursor = (cursor - 1) % len(order)
+            elif key == "down":
+                cursor = (cursor + 1) % len(order)
+            elif key in ("left", "right", "space"):
+                item_key = order[cursor][0]
+                states[item_key] = not states[item_key]
+            elif key == "enter":
+                return states
+            elif key in ("cancel", "eof"):
+                return None
+
+            sys.stdout.write(f"\033[{len(lines)}A")
+            lines = _render_toggle_lines(title, order, states, cursor, footer_lines)
+            print("\n".join(f"\033[2K{line}" for line in lines))
+    except KeyboardInterrupt:
+        print()
+        return None
+    finally:
+        resume_escape_listener()
+
+
+def _read_menu_key(fd):
+    """Read one keypress in cbreak mode and name it.
+
+    Returns one of: "up", "down", "left", "right", "space", "enter",
+    "cancel", "eof", or "" for keys the menu ignores.
+    """
+    import os
+    import select
+    import termios
+    import tty
+
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        first = os.read(fd, 1)
+        if not first:
+            return "eof"
+        if first == b"\x1b":
+            if not select.select([fd], [], [], 0.05)[0]:
+                return "cancel"  # bare Escape
+            sequence = os.read(fd, 2)
+            arrows = {b"[A": "up", b"[B": "down", b"[C": "right", b"[D": "left"}
+            return arrows.get(sequence, "")
+        if first in (b"\r", b"\n"):
+            return "enter"
+        if first == b" ":
+            return "space"
+        if first in (b"q", b"Q", b"\x03"):
+            return "cancel"
+        return ""
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+def _toggle_menu_numbered(title, order, states, footer_lines, input_fn=None):
+    """Numbered fallback: type an entry number to flip it, Enter to save."""
+    read_input = input_fn or safe_input
+
+    while True:
+        print()
+        print(f"  ═══ {title} ═══")
+        print()
+        for index, (key, label) in enumerate(order, 1):
+            state = "ON " if states[key] else "OFF"
+            print(f"  [{index}] [{state}] {label}")
+        print()
+        print("  Type a number to toggle, Enter to save, q to cancel")
+        for footer_line in footer_lines:
+            print(f"  {footer_line}")
+
+        selection = read_input("  Toggle: ")
+        if selection is None:
+            return None
+        if selection == "":
+            return states
+
+        try:
+            index = int(selection) - 1
+        except ValueError:
+            print(f"  Invalid choice: {selection}")
+            continue
+        if not 0 <= index < len(order):
+            print(f"  Invalid choice: {selection}")
+            continue
+        item_key = order[index][0]
+        states[item_key] = not states[item_key]
+
+
 def interactive_menu_loop(title, options, handler, prompt="  Select: "):
     """Display a menu in a loop until the user quits.
 
