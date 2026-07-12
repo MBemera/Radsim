@@ -2,9 +2,9 @@
 
 DEFAULT_COMMAND_SPECS = [
     {
-        "names": ["/help", "/h", "/?"],
+        "names": ["/help", "/h", "/?", "/commands", "/cmds"],
         "handler_name": "_cmd_help",
-        "description": "Show help and available commands",
+        "description": "Show help and all commands",
         "category": "navigation",
         "accepts_args": True,
         "telegram_safe": True,
@@ -18,17 +18,9 @@ DEFAULT_COMMAND_SPECS = [
         "telegram_safe": True,
     },
     {
-        "names": ["/prompt-stats", "/promptstats"],
-        "handler_name": "_cmd_prompt_stats",
-        "description": "Show runtime prompt size by layer",
-        "category": "analysis",
-        "accepts_args": False,
-        "telegram_safe": True,
-    },
-    {
-        "names": ["/clear", "/c"],
+        "names": ["/clear", "/c", "/new", "/fresh"],
         "handler_name": "_cmd_clear",
-        "description": "Clear conversation history",
+        "description": "Clear conversation and start fresh",
         "category": "conversation",
         "accepts_args": False,
         "telegram_safe": True,
@@ -122,14 +114,6 @@ DEFAULT_COMMAND_SPECS = [
         "telegram_safe": False,
     },
     {
-        "names": ["/new", "/fresh"],
-        "handler_name": "_cmd_new",
-        "description": "Start new conversation with fresh context",
-        "category": "conversation",
-        "accepts_args": False,
-        "telegram_safe": True,
-    },
-    {
         "names": ["/setup", "/onboarding"],
         "handler_name": "_cmd_setup",
         "description": "Re-run the setup wizard",
@@ -156,25 +140,9 @@ DEFAULT_COMMAND_SPECS = [
     {
         "names": ["/stats"],
         "handler_name": "_cmd_stats",
-        "description": "Show learning statistics",
+        "description": "Learning stats (report|audit|prefs|prompt)",
         "category": "learning",
-        "accepts_args": False,
-        "telegram_safe": True,
-    },
-    {
-        "names": ["/report"],
-        "handler_name": "_cmd_report",
-        "description": "Export detailed learning report",
-        "category": "learning",
-        "accepts_args": False,
-        "telegram_safe": True,
-    },
-    {
-        "names": ["/audit"],
-        "handler_name": "_cmd_audit",
-        "description": "Audit learned preferences",
-        "category": "learning",
-        "accepts_args": False,
+        "accepts_args": True,
         "telegram_safe": True,
     },
     {
@@ -184,14 +152,6 @@ DEFAULT_COMMAND_SPECS = [
         "category": "learning",
         "accepts_args": True,
         "telegram_safe": False,
-    },
-    {
-        "names": ["/preferences", "/prefs"],
-        "handler_name": "_cmd_preferences",
-        "description": "Show learned preferences",
-        "category": "learning",
-        "accepts_args": False,
-        "telegram_safe": True,
     },
     {
         "names": ["/trust"],
@@ -208,14 +168,6 @@ DEFAULT_COMMAND_SPECS = [
         "category": "customization",
         "accepts_args": True,
         "telegram_safe": False,
-    },
-    {
-        "names": ["/commands", "/cmds"],
-        "handler_name": "_cmd_commands",
-        "description": "List all available commands",
-        "category": "navigation",
-        "accepts_args": False,
-        "telegram_safe": True,
     },
     {
         "names": ["/memory", "/mem"],
@@ -371,7 +323,7 @@ COMMAND_HINTS = {
     ],
     "error": [
         ("/clear", "Clear and retry"),
-        ("/new", "Fresh start"),
+        ("/clear", "Fresh start"),
     ],
     "slow": [
         ("/switch", "Try faster model"),
@@ -384,11 +336,11 @@ COMMAND_HINTS = {
     "help": [
         ("/help", "Full help"),
         ("/tools", "Available tools"),
-        ("/commands", "All commands"),
+        ("/help", "All commands"),
     ],
     "code": [
         ("/skill add", "Add coding preference"),
-        ("/preferences", "See learned style"),
+        ("/stats prefs", "See learned style"),
         ("/complexity", "Check complexity budget"),
         ("/stress", "Adversarial review"),
         ("/archaeology", "Find dead code"),

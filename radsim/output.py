@@ -865,7 +865,7 @@ HELP_DETAILS = {
             "Pass a command name to get detailed help, usage examples, and tips."
         ),
         "examples": ["/help", "/help skill", "/help plan", "/h complexity"],
-        "related": ["/commands", "/tools", "/modes"],
+        "related": ["/tools", "/modes"],
         "tips": ["You can also ask naturally, e.g. 'how do I use skills?'"],
     },
     "switch": {
@@ -984,7 +984,7 @@ HELP_DETAILS = {
             "been learned, adjusts the trust threshold, or resets it."
         ),
         "examples": ["/trust", "/trust reset", "/trust reset write_file"],
-        "related": ["/settings", "/preferences"],
+        "related": ["/settings", "/stats"],
     },
     "background": {
         "title": "Background Jobs",
@@ -1097,7 +1097,7 @@ HELP_DETAILS = {
             "/skill remove 2",
             "/skill templates",
         ],
-        "related": ["/preferences", "/settings"],
+        "related": ["/stats", "/settings"],
         "tips": [
             "Skills are stored in ~/.radsim/skills.json",
             "Use /skill templates for inspiration",
@@ -1119,7 +1119,7 @@ HELP_DETAILS = {
             "/memory list",
             "/memory forget 3",
         ],
-        "related": ["/skill", "/preferences"],
+        "related": ["/skill", "/stats"],
     },
     "teach": {
         "title": "Teach Me Mode",
@@ -1310,7 +1310,7 @@ HELP_DETAILS = {
             "to learn your preferences and improve future responses."
         ),
         "examples": ["/good", "/+"],
-        "related": ["/improve", "/stats", "/preferences"],
+        "related": ["/improve", "/stats"],
     },
     "improve": {
         "title": "Improvement Feedback",
@@ -1322,52 +1322,24 @@ HELP_DETAILS = {
             "alongside positive feedback to learn what works and what doesn't."
         ),
         "examples": ["/improve", "/-"],
-        "related": ["/good", "/stats", "/preferences"],
+        "related": ["/good", "/stats"],
     },
     "stats": {
         "title": "Learning Statistics",
         "aliases": [],
-        "summary": "Show a summary of learning statistics.",
-        "usage": ["/stats"],
+        "summary": "Show learning statistics and deeper learning views.",
+        "usage": ["/stats", "/stats report", "/stats audit", "/stats prefs", "/stats prompt"],
         "details": (
-            "Displays key learning metrics: tasks completed, success rate,\n"
-            "errors tracked, feedback received, examples stored, and tools tracked."
+            "Bare /stats shows key learning metrics: tasks completed, success\n"
+            "rate, errors tracked, feedback received, and tools tracked.\n\n"
+            "Subactions:\n"
+            "  report — export the full-text learning report\n"
+            "  audit  — audit every learned preference\n"
+            "  prefs  — show learned code style preferences\n"
+            "  prompt — show system prompt size by layer"
         ),
-        "examples": ["/stats"],
-        "related": ["/report", "/audit", "/preferences"],
-    },
-    "report": {
-        "title": "Learning Report",
-        "aliases": [],
-        "summary": "Export a detailed learning report.",
-        "usage": ["/report"],
-        "details": "Generates and prints a full-text learning report with all tracked data.",
-        "examples": ["/report"],
-        "related": ["/stats", "/audit"],
-    },
-    "audit": {
-        "title": "Preference Audit",
-        "aliases": [],
-        "summary": "Audit all learned preferences.",
-        "usage": ["/audit"],
-        "details": (
-            "Shows every preference RadSim has learned, with current values.\n"
-            "Use /reset preferences to clear them."
-        ),
-        "examples": ["/audit"],
-        "related": ["/preferences", "/stats", "/reset"],
-    },
-    "preferences": {
-        "title": "Learned Preferences",
-        "aliases": ["/prefs"],
-        "summary": "Show current learned code style and behavior preferences.",
-        "usage": ["/preferences", "/prefs"],
-        "details": (
-            "Displays learned preferences like indentation, naming convention,\n"
-            "comment style, type hint usage, verbosity, and preferred tools."
-        ),
-        "examples": ["/preferences", "/prefs"],
-        "related": ["/audit", "/stats", "/skill"],
+        "examples": ["/stats", "/stats prefs", "/stats prompt"],
+        "related": ["/reset", "/skill"],
     },
     "reset": {
         "title": "Reset Learning Data",
@@ -1385,31 +1357,20 @@ HELP_DETAILS = {
             "  • all          — Reset everything"
         ),
         "examples": ["/reset budget", "/reset preferences", "/reset all"],
-        "related": ["/stats", "/preferences"],
+        "related": ["/stats"],
     },
     "clear": {
         "title": "Clear Conversation",
-        "aliases": ["/c"],
-        "summary": "Clear the current conversation history.",
-        "usage": ["/clear", "/c"],
+        "aliases": ["/c", "/new", "/fresh"],
+        "summary": "Clear the conversation and start fresh.",
+        "usage": ["/clear", "/new"],
         "details": (
-            "Clears all messages in the current conversation. Does NOT reset\n"
-            "learned preferences, skills, or token budgets — use /new for that."
+            "Clears conversation history, the task tracker, and background\n"
+            "jobs, and resets rate limiters and budget counters. Learned\n"
+            "preferences and skills are kept — use /reset for those."
         ),
-        "examples": ["/clear", "/c"],
-        "related": ["/new", "/reset"],
-    },
-    "new": {
-        "title": "Fresh Start",
-        "aliases": ["/fresh"],
-        "summary": "Start a completely new conversation with fresh context.",
-        "usage": ["/new", "/fresh"],
-        "details": (
-            "Clears conversation history AND resets rate limiters and budget\n"
-            "counters. Use this for a clean slate when starting a new project."
-        ),
-        "examples": ["/new", "/fresh"],
-        "related": ["/clear", "/reset"],
+        "examples": ["/clear", "/new"],
+        "related": ["/reset"],
     },
     "tools": {
         "title": "Available Tools",
@@ -1421,32 +1382,7 @@ HELP_DETAILS = {
             "file operations, git, shell, search, testing, and more."
         ),
         "examples": ["/tools"],
-        "related": ["/commands", "/help"],
-    },
-    "prompt-stats": {
-        "title": "Prompt Stats",
-        "aliases": ["/promptstats"],
-        "summary": "Show runtime system prompt size by layer.",
-        "usage": ["/prompt-stats", "/promptstats"],
-        "details": (
-            "Prints the total runtime prompt size and a layer-by-layer breakdown\n"
-            "for base instructions, modes, skills, custom prompt, self-modification,\n"
-            "and memory context. Token counts are estimates."
-        ),
-        "examples": ["/prompt-stats"],
-        "related": ["/tools", "/memory", "/selfmod"],
-    },
-    "commands": {
-        "title": "All Commands",
-        "aliases": ["/cmds"],
-        "summary": "List every available slash command with descriptions.",
-        "usage": ["/commands", "/cmds"],
-        "details": (
-            "Shows the full categorized list of every slash command. More\n"
-            "comprehensive than /help, which shows only the most common ones."
-        ),
-        "examples": ["/commands", "/cmds"],
-        "related": ["/help", "/tools"],
+        "related": ["/help"],
     },
     "show": {
         "title": "Show Last Written File",
@@ -1650,7 +1586,10 @@ def print_help(topic=None):
             print()
         return
 
-    # Default: show the overview menu
+    # Default: overview generated from the command registry, so /help can
+    # never drift out of sync with the commands that actually exist.
+    from .commands_metadata import DEFAULT_COMMAND_SPECS
+
     print()
     print(colorize("  ╭─────────────────────────────────────────────╮", "dim"))
     print(
@@ -1660,47 +1599,23 @@ def print_help(topic=None):
     )
     print(colorize("  ╰─────────────────────────────────────────────╯", "dim"))
     print()
-
-    print(colorize("  Essential Commands:", "bright_cyan"))
-    print(colorize("    /help      ", "cyan") + colorize("Show this help", "dim"))
-    print(colorize("    /commands  ", "cyan") + colorize("List ALL available commands", "dim"))
-    print(
-        colorize("    /tools     ", "cyan")
-        + colorize(f"List all {_count_tools()} available tools", "dim")
-    )
+    print(colorize(f"  {len(DEFAULT_COMMAND_SPECS)} commands, {_count_tools()} tools", "dim"))
     print()
 
-    print(colorize("  Model & Provider:", "bright_cyan"))
-    print(colorize("    /switch    ", "cyan") + colorize("Quick switch provider/model", "dim"))
-    print(colorize("    /config    ", "cyan") + colorize("Full configuration setup", "dim"))
-    print(colorize("    /free      ", "cyan") + colorize("Switch to free model", "dim"))
-    print(colorize("    /ratelimit ", "cyan") + colorize("Set API call limit per turn", "dim"))
-    print(colorize("    /mcp       ", "cyan") + colorize("Manage MCP server connections", "dim"))
-    print()
+    by_category = {}
+    for spec in DEFAULT_COMMAND_SPECS:
+        by_category.setdefault(spec["category"], []).append(spec)
 
-    print(colorize("  Customization:", "bright_cyan"))
-    print(colorize("    /skill add ", "cyan") + colorize("Add custom instruction", "dim"))
-    print(colorize("    /skill list", "cyan") + colorize("Show active skills", "dim"))
-    print(colorize("    /prefs     ", "cyan") + colorize("Show learned preferences", "dim"))
-    print()
-
-    print(colorize("  Feedback:", "bright_cyan"))
-    print(colorize("    /good, /+  ", "cyan") + colorize("Mark response as good", "dim"))
-    print(colorize("    /improve,/-", "cyan") + colorize("Mark for improvement", "dim"))
-    print(colorize("    /stats     ", "cyan") + colorize("Learning statistics", "dim"))
-    print()
-
-    print(colorize("  Code Analysis:", "bright_cyan"))
-    print(colorize("    /complexity", "cyan") + colorize("Complexity budget & scoring", "dim"))
-    print(colorize("    /stress    ", "cyan") + colorize("Adversarial code review", "dim"))
-    print(colorize("    /archaeology", "cyan") + colorize("Find dead code & zombies", "dim"))
-    print()
-
-    print(colorize("  Session:", "bright_cyan"))
-    print(colorize("    /clear     ", "cyan") + colorize("Clear conversation", "dim"))
-    print(colorize("    /new       ", "cyan") + colorize("Fresh start + reset limits", "dim"))
-    print(colorize("    /exit      ", "cyan") + colorize("Quit RadSim", "dim"))
-    print()
+    for category, specs in by_category.items():
+        print(colorize(f"  {category.title()}:", "bright_cyan"))
+        for spec in specs:
+            primary = spec["names"][0]
+            aliases = " ".join(spec["names"][1:])
+            line = colorize(f"    {primary:<13}", "cyan") + colorize(spec["description"], "dim")
+            if aliases:
+                line += colorize(f"  ({aliases})", "gray")
+            print(line)
+        print()
 
     print(
         colorize("  Tip: ", "yellow")

@@ -31,7 +31,26 @@ class LearningCommandHandlersMixin:
         record_feedback("improve", last_response)
         print_info("Thanks! Will learn from this to improve.")
 
-    def _cmd_stats(self, agent):
+    def _cmd_stats(self, agent, args=None):
+        """Show learning statistics, or a deeper view via a subaction."""
+        views = {
+            "report": self._cmd_report,
+            "audit": self._cmd_audit,
+            "prefs": self._cmd_preferences,
+            "preferences": self._cmd_preferences,
+            "prompt": self._cmd_prompt_stats,
+        }
+        if args:
+            view = views.get(args[0].lower())
+            if view is None:
+                print_info("Usage: /stats [report|audit|prefs|prompt]")
+                return
+            view(agent)
+            return
+
+        self._show_learning_summary()
+
+    def _show_learning_summary(self):
         """Show learning statistics summary."""
         from .learning import get_learning_stats
 

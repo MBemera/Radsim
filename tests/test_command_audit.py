@@ -29,6 +29,7 @@ WIRING_ERRORS = (
 # Safe, read-only subcommands worth exercising beyond the bare command
 ARG_VARIANTS = {
     "/help": ["skill"],
+    "/stats": ["prefs"],
     "/skill": ["list"],
     "/memory": ["list"],
     "/mcp": ["status"],
