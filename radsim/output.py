@@ -488,11 +488,15 @@ def render_markdown_line(line, in_code_block):
             return "", False
         indent = line[: len(line) - len(line.lstrip())]
         cells = [cell.strip() for cell in stripped.strip("|").split("|")]
-        return indent + "  ".join(cells), False
+        return _render_inline_markdown(indent + "  ".join(cells)), False
 
+    return _render_inline_markdown(line), False
+
+
+def _render_inline_markdown(line):
+    """Convert bold and inline-code markers to terminal styling."""
     line = _MARKDOWN_BOLD.sub(lambda match: colorize(match.group(1), "bold"), line)
-    line = _MARKDOWN_INLINE_CODE.sub(lambda match: colorize(match.group(1), "cyan"), line)
-    return line, False
+    return _MARKDOWN_INLINE_CODE.sub(lambda match: colorize(match.group(1), "cyan"), line)
 
 
 def render_markdown_text(text):

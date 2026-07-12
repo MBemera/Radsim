@@ -31,6 +31,10 @@ class TestMarkdownDecoration:
         table = "| # | Skill |\n|---|-------|\n| 1 | Always use pytest |"
         assert render_markdown_text(table) == "#  Skill\n\n1  Always use pytest"
 
+    def test_table_cells_also_lose_inline_markers(self):
+        row = "| 1 | Escape `.gitignore` with **care** |"
+        assert render_markdown_text(row) == "1  Escape .gitignore with care"
+
     def test_plain_prose_is_untouched(self):
         text = "Lead with the answer.\n- keep lists simple\n- 3 to 7 items"
         assert render_markdown_text(text) == text
