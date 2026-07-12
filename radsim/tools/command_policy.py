@@ -126,7 +126,7 @@ class CommandPolicy:
 
     def _segment_matches_whitelist(self, segment, allowed_entries):
         """Return True when one simple command segment matches an allowed prefix."""
-        if command_analysis.has_output_redirection(segment):
+        if command_analysis.has_file_output_redirection(segment):
             return False
         if command_analysis.initial_command_names(segment) & command_analysis.WRAPPER_COMMANDS:
             return False

@@ -194,6 +194,35 @@ def has_output_redirection(tokens):
     return False
 
 
+# Redirection targets that discard output instead of writing a file.
+HARMLESS_REDIRECTION_TARGETS = {"/dev/null", "nul"}
+
+
+def has_file_output_redirection(tokens):
+    """Return True when parsed tokens redirect output into a real file.
+
+    Redirections that discard output ("2>/dev/null", Windows "nul") or
+    duplicate a file descriptor ("2>&1", ">&2") cannot damage anything and
+    are ignored. A redirection with no visible target fails closed.
+    """
+    for index, token in enumerate(tokens):
+        if token not in OUTPUT_REDIRECTION_OPERATORS and token != ">&":
+            continue
+        if index + 1 >= len(tokens):
+            return True
+        if not _redirection_target_is_harmless(token, tokens[index + 1]):
+            return True
+    return False
+
+
+def _redirection_target_is_harmless(operator, target):
+    """Return True when one redirection discards output or duplicates an fd."""
+    if operator == ">&" and target.isdigit():
+        return True
+    forms = {form.lower() for form in shell_resolved_forms(target)}
+    return forms <= HARMLESS_REDIRECTION_TARGETS
+
+
 def shell_resolved_forms(token):
     """Return the strings the shell could resolve this token to.
 
@@ -506,13 +535,28 @@ def has_unanalyzable_execution(segment):
     return bool(privileged and has_unanalyzable_execution(privileged))
 
 
+def _wrapper_prefix_is_destructive(segment):
+    """Return True when a leading wrapper hides the command it will run.
+
+    Wrappers are safe to see through when the wrapped program is visible in
+    the tokens ("timeout 5 pytest" resolves to pytest). They stay destructive
+    when the real command is opaque ("env -S 'sh -c ...'") or absent
+    entirely, because there is nothing left to classify.
+    """
+    initial_names = initial_command_names(segment)
+    if not initial_names & WRAPPER_COMMANDS:
+        return False
+    if _wrapper_hides_command(segment):
+        return True
+    return not effective_command_tokens(segment)
+
+
 def _segment_is_destructive(segment, destructive_commands):
     """True if one command segment is destructive or escalates privilege."""
-    if has_output_redirection(segment):
+    if has_file_output_redirection(segment):
         return True
 
-    initial_names = initial_command_names(segment)
-    if initial_names & WRAPPER_COMMANDS:
+    if _wrapper_prefix_is_destructive(segment):
         return True
 
     effective = effective_command_tokens(segment)

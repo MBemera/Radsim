@@ -138,7 +138,36 @@ SECURITY_PRESETS = {
             "custom_destructive": [],
         },
     },
+    # "off" disables destructive-command confirmation prompts entirely.
+    # Catastrophic commands (rm -rf /, mkfs, raw disk writes) stay blocked:
+    # CommandPolicy checks ALWAYS_BLOCKED before any mode logic, so an empty
+    # blocklist cannot re-enable them.
+    "off": {
+        "tools": {
+            "shell_access": True,
+            "file_deletion": True,
+            "web_fetch": True,
+            "git_write": True,
+            "browser": True,
+            "docker": True,
+            "database": True,
+            "deploy": True,
+        },
+        "shell_commands": {
+            "mode": "blocklist",
+            "whitelist": [],
+            "blocklist": [],
+            "custom_destructive": [],
+        },
+    },
 }
+
+SECURITY_OFF_WARNING_LINES = (
+    "WARNING: Security level OFF disables confirmation prompts for",
+    "destructive shell commands (rm, git push, sudo, file deletion).",
+    "Catastrophic commands (rm -rf /, mkfs, raw disk writes) remain",
+    "blocked and cannot be enabled at any level.",
+)
 
 
 class AgentConfigManager:
@@ -258,11 +287,15 @@ class AgentConfigManager:
             return False
         return self.get(f"learning.{module_name}", True)
 
+    def destructive_confirmation_enabled(self) -> bool:
+        """Return False only when the user has switched security fully off."""
+        return self.get("security_level", "balanced") != "off"
+
     def set_security_level(self, level: str) -> dict:
         """Apply a security preset.
 
         Args:
-            level: One of "restrictive", "balanced", "permissive"
+            level: One of "restrictive", "balanced", "permissive", "off"
 
         Returns:
             Dict with success status and applied settings
@@ -305,7 +338,11 @@ class AgentConfigManager:
         lines.append("")
         lines.append("  === AGENT SETTINGS ===")
         lines.append("")
-        lines.append(f"  Security Level: {config.get('security_level', 'balanced').upper()}")
+        security_level = config.get("security_level", "balanced")
+        lines.append(f"  Security Level: {security_level.upper()}")
+        if security_level == "off":
+            lines.append("  [!] Destructive commands run WITHOUT confirmation.")
+            lines.append("  [!] Catastrophic commands (rm -rf /, mkfs) stay blocked.")
         lines.append("")
 
         # Tools section
@@ -354,7 +391,7 @@ class AgentConfigManager:
 
         lines.append("")
         lines.append("  Toggle: /settings <path> <value>")
-        lines.append("  Preset: /settings security_level <restrictive|balanced|permissive>")
+        lines.append("  Preset: /settings security_level <restrictive|balanced|permissive|off>")
         lines.append("")
 
         return "\n".join(lines)
