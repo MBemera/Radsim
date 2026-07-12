@@ -8,6 +8,7 @@ from .agent_constants import READ_ONLY_TOOLS
 from .learning import record_error, track_tool_execution
 from .output import (
     Spinner,
+    finish_stream,
     print_error,
     print_stream_chunk,
     print_tool_call,
@@ -87,6 +88,7 @@ class AgentApiMixin:
                 if first_chunk:
                     spinner.stop()
 
+                finish_stream()
                 print()
 
                 if response is None:
