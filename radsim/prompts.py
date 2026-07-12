@@ -613,7 +613,3 @@ def _build_memory_prompt_fragment(memory):
     prompt_parts.append(f"\n\n## Project Context & Agent Persona (from agents.md)\n{context}")
     return "".join(prompt_parts)
 
-
-def format_tool_result(tool_name, result):
-    """Format a tool result for the conversation."""
-    return f"[Tool: {tool_name}]\n{result}"

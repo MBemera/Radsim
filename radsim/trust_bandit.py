@@ -289,12 +289,6 @@ def get_trust_bandit() -> TrustBandit:
     return _trust_bandit
 
 
-def reset_trust_bandit() -> None:
-    """Drop the process-wide singleton, mainly for tests."""
-    global _trust_bandit
-    _trust_bandit = None
-
-
 def _default_storage_path() -> Path:
     from .config import CONFIG_DIR
 

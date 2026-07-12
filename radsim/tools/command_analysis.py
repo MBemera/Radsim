@@ -183,17 +183,6 @@ def _redirection_width(tokens, index):
     return 0
 
 
-def has_output_redirection(tokens):
-    """Return True when parsed tokens redirect stdout or stderr to a target."""
-    for index, token in enumerate(tokens):
-        operator = token
-        if token.isdigit() and index + 1 < len(tokens):
-            operator = tokens[index + 1]
-        if operator in OUTPUT_REDIRECTION_OPERATORS or operator == ">&":
-            return True
-    return False
-
-
 # Redirection targets that discard output instead of writing a file.
 HARMLESS_REDIRECTION_TARGETS = {"/dev/null", "nul"}
 

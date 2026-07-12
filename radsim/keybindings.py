@@ -54,13 +54,3 @@ def check_action_hotkey(user_input: str) -> str | None:
         return None
     return ACTION_HOTKEYS.get(user_input.upper())
 
-
-def get_hotkey_help() -> str:
-    """Get help text for available hotkeys."""
-    lines = ["Hotkeys (type at prompt + Enter):"]
-    for key, mode in HOTKEY_PATTERNS.items():
-        lines.append(f"  {key}  → Toggle {mode} mode")
-    for key, action in ACTION_HOTKEYS.items():
-        desc = {"show_code": "Show all session code"}.get(action, action)
-        lines.append(f"  {key}  → {desc}")
-    return "\n".join(lines)

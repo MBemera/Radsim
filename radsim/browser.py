@@ -153,20 +153,3 @@ def browser_screenshot(filename=None):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-
-def close_browser():
-    """Close the browser instance."""
-    global _BROWSER_INSTANCE, _PLAYWRIGHT_INSTANCE, _CONTEXT_INSTANCE, _PAGE_INSTANCE
-
-    if _BROWSER_INSTANCE:
-        _BROWSER_INSTANCE.close()
-        _BROWSER_INSTANCE = None
-
-    if _PLAYWRIGHT_INSTANCE:
-        _PLAYWRIGHT_INSTANCE.stop()
-        _PLAYWRIGHT_INSTANCE = None
-
-    _CONTEXT_INSTANCE = None
-    _PAGE_INSTANCE = None
-
-    return {"success": True}

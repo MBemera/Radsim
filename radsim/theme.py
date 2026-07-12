@@ -272,27 +272,3 @@ def tool_category(tool_name):
 
     return tool_name, "muted"
 
-
-def apply_to_console(console):
-    """Push the active palette onto an existing rich Console's theme stack.
-
-    Called by /theme after the user changes selection so the new palette
-    takes effect without restarting RadSim.
-    """
-    from rich.theme import Theme
-
-    palette = load_active_palette()["colors"]
-    new_theme = Theme(
-        {
-            "primary": palette["primary"],
-            "accent": palette["accent"],
-            "success": palette["success"],
-            "warning": palette["warning"],
-            "error": palette["error"],
-            "muted": palette["muted"],
-            "subtle": palette["subtle"],
-            "info": palette["primary"],
-            "prompt": palette["primary"],
-        }
-    )
-    console.push_theme(new_theme)
