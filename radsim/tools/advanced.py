@@ -177,14 +177,28 @@ def database_query(query, database_path="database.db", read_only=True):
             "error": "Only SELECT queries allowed in read_only mode. Set read_only=False for write operations.",
         }
 
-    # Block dangerous operations even in write mode
-    dangerous = ["DROP DATABASE", "DROP TABLE", "TRUNCATE", "DELETE FROM"]
-    for d in dangerous:
-        if d in query_upper and "WHERE" not in query_upper:
+    # Destructive statements are never allowed through this tool; mass
+    # deletes need an explicit WHERE clause. The error must explain the
+    # working alternative, because the model reads it to plan its retry.
+    for statement in ("DROP DATABASE", "DROP TABLE", "TRUNCATE"):
+        if statement in query_upper:
             return {
                 "success": False,
-                "error": f"Dangerous operation blocked: {d} without WHERE clause",
+                "error": (
+                    f"Blocked: {statement} is not allowed through database_query. "
+                    "If the user explicitly wants this, run it via run_shell_command "
+                    "with the sqlite3 CLI so they can confirm it."
+                ),
             }
+    if "DELETE FROM" in query_upper and "WHERE" not in query_upper:
+        return {
+            "success": False,
+            "error": (
+                "Blocked: DELETE without a WHERE clause would remove every row. "
+                "Add a WHERE clause, or confirm the full wipe with the user and "
+                "run it via run_shell_command with the sqlite3 CLI."
+            ),
+        }
 
     try:
         # Check if database exists in read_only mode

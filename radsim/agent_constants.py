@@ -36,6 +36,8 @@ CONFIRMATION_TOOLS = {
 READ_ONLY_TOOLS = {
     "read_file",
     "read_many_files",
+    "read_document",
+    "read_image",
     "list_directory",
     "glob_files",
     "grep_search",

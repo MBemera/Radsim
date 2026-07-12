@@ -134,12 +134,46 @@ def read_many_files(file_paths):
     return {"success": True, "files": results, "count": len(results)}
 
 
+# Magic prefixes of binary formats models sometimes try to write as text.
+_BINARY_MAGIC_PREFIXES = (
+    ("%PDF-", "PDF"),
+    ("\x89PNG", "PNG image"),
+    ("PK\x03\x04", "ZIP-based (docx/xlsx/zip)"),
+    ("GIF8", "GIF image"),
+    ("\xff\xd8\xff", "JPEG image"),
+)
+
+
+def _reject_binary_content(content):
+    """Return an error string when content is binary, not text.
+
+    Writing binary data through a text write corrupts it silently (every
+    byte gets re-encoded as UTF-8), so fail loudly with the working
+    alternative instead.
+    """
+    detected = None
+    for prefix, label in _BINARY_MAGIC_PREFIXES:
+        if content.startswith(prefix):
+            detected = label
+            break
+    if detected is None and "\x00" in content:
+        detected = "binary"
+    if detected is None:
+        return None
+    return (
+        f"write_file only writes text; this content looks like {detected} data "
+        "and would be corrupted. Generate binary files with a small Python "
+        "script instead (fpdf2 for PDF, python-docx for DOCX, openpyxl for "
+        "XLSX, Pillow for images) and run it with run_shell_command."
+    )
+
+
 def write_file(file_path, content, show_diff=True):
-    """Write content to a file. Creates parent directories if needed.
+    """Write text content to a file. Creates parent directories if needed.
 
     Args:
         file_path: Path to the file
-        content: Content to write
+        content: Text content to write (binary data is rejected)
         show_diff: If True, display diff for existing files
 
     Returns:
@@ -148,6 +182,10 @@ def write_file(file_path, content, show_diff=True):
     is_safe, path, error = validate_path(file_path)
     if not is_safe:
         return {"success": False, "error": error}
+
+    binary_error = _reject_binary_content(content)
+    if binary_error:
+        return {"success": False, "error": binary_error}
 
     # Check protected patterns
     is_protected, reason = is_protected_path(file_path)

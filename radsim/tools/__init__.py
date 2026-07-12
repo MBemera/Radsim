@@ -275,8 +275,9 @@ _TOOL_REGISTRY = {
         ("name", None),
         ("template", None),
     ),
-    "detect_project_type": _build_tool_executor(".testing", "detect_project_type"),
     "get_project_info": _build_tool_executor(".project", "get_project_info"),
+    "read_document": _build_tool_executor(".documents", "read_document", ("file_path", "")),
+    "read_image": _build_tool_executor(".documents", "read_image", ("file_path", "")),
     "batch_replace": _build_tool_executor(
         ".project",
         "batch_replace",
