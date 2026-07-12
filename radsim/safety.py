@@ -5,6 +5,8 @@ import select
 import sys
 from pathlib import Path
 
+from .terminal import escape_terminal_controls
+
 # Commands that trigger immediate process termination from any prompt
 STOP_COMMANDS = {"/stop", "/kill", "/abort"}
 
@@ -46,7 +48,8 @@ def _prompt_for_confirmation(prompt: str) -> str:
     pause_escape_listener()
     try:
         _flush_stdin_buffer()
-        print(f"\n{prompt}", end="", flush=True)
+        safe_prompt = escape_terminal_controls(prompt)
+        print(f"\n{safe_prompt}", end="", flush=True)
         return input().strip()
     except (KeyboardInterrupt, EOFError):
         print()
@@ -187,32 +190,36 @@ def _record_write_decision(file_path, accepted, config):
 
 def confirm_write(file_path, content, config=None):
     """Ask user to confirm a file write operation."""
+    display_file_path = escape_terminal_controls(file_path)
+    display_content = escape_terminal_controls(content, preserve_layout=True)
+
     # Check safety first, even in auto mode
     safe, reason = is_path_safe(file_path)
     if not safe:
-        print(f"\nwarning:  BLOCKED: {reason}")
+        print(f"\nwarning:  BLOCKED: {escape_terminal_controls(reason)}")
         return False
 
     if config and config.auto_confirm:
-        print(f"  > Auto-writing: {file_path}")
+        print(f"  > Auto-writing: {display_file_path}")
         return True
 
     # Check extension before any learned auto-confirm shortcut.
     ext_safe, ext_reason = is_extension_safe(file_path)
     if not ext_safe:
-        print(f"\nwarning:  Warning: {ext_reason}")
+        print(f"\nwarning:  Warning: {escape_terminal_controls(ext_reason)}")
 
     if ext_safe:
         auto_confirm, reason = _should_auto_confirm_write(file_path, config)
         if auto_confirm:
-            print(f"  > Auto-writing (trusted): {file_path} ({reason})")
+            safe_reason = escape_terminal_controls(reason)
+            print(f"  > Auto-writing (trusted): {display_file_path} ({safe_reason})")
             _record_write_decision(file_path, True, config)
             return True
 
     # Telegram confirmation mode — send summary instead of terminal prompt
     if _telegram_confirm_fn:
         line_count = len(content.splitlines())
-        summary = f"Write file: {file_path} ({line_count} lines)"
+        summary = f"Write file: {display_file_path} ({line_count} lines)"
         confirmed = _telegram_confirm_fn(summary)
         _record_write_decision(file_path, confirmed, config)
         return confirmed
@@ -229,18 +236,18 @@ def confirm_write(file_path, content, config=None):
         from .output import print_code_content
         print()
         print_code_content(
-            content,
-            file_path,
+            display_content,
+            display_file_path,
             max_lines=50,
             collapsed=False,
             highlight_teach=True,
         )
     else:
-        print(f"\nFile: {file_path}")
+        print(f"\nFile: {display_file_path}")
         print("-" * 50)
 
         # Show content preview (first 30 lines)
-        lines = content.split("\n")
+        lines = display_content.split("\n")
         preview_lines = lines[:30]
         print("\n".join(preview_lines))
 
@@ -283,8 +290,8 @@ def confirm_write(file_path, content, config=None):
                 from .output import print_code_content
                 print()
                 print_code_content(
-                    content,
-                    file_path,
+                    display_content,
+                    display_file_path,
                     max_lines=0,  # Show ALL lines
                     collapsed=False,
                     highlight_teach=True,

@@ -3,9 +3,7 @@
 RadSim Principle: Standard Patterns Only
 """
 
-import shlex
-
-from .shell import run_shell_command
+from .shell import format_process_command, run_process
 
 # =============================================================================
 # GIT READ OPERATIONS
@@ -14,7 +12,7 @@ from .shell import run_shell_command
 
 def git_status():
     """Get git repository status."""
-    return run_shell_command("git status --porcelain -b")
+    return run_process(["git", "-c", "core.fsmonitor=false", "status", "--porcelain", "-b"])
 
 
 def git_diff(staged=False, file_path=None):
@@ -24,12 +22,12 @@ def git_diff(staged=False, file_path=None):
         staged: If True, show staged changes
         file_path: Optional specific file to diff
     """
-    cmd = "git diff"
+    arguments = ["git", "diff", "--no-ext-diff", "--no-textconv"]
     if staged:
-        cmd += " --staged"
+        arguments.append("--staged")
     if file_path:
-        cmd += f" -- {shlex.quote(file_path)}"
-    return run_shell_command(cmd)
+        arguments.extend(["--", str(file_path)])
+    return run_process(arguments)
 
 
 def git_log(count=10, oneline=True):
@@ -39,16 +37,22 @@ def git_log(count=10, oneline=True):
         count: Number of commits to show
         oneline: If True, show one line per commit
     """
-    count = int(count)
-    cmd = f"git log -n {count}"
+    try:
+        count = int(count)
+    except (TypeError, ValueError):
+        return {"success": False, "error": "Count must be an integer"}
+    if not 1 <= count <= 1000:
+        return {"success": False, "error": "Count must be between 1 and 1000"}
+
+    arguments = ["git", "log", "-n", str(count)]
     if oneline:
-        cmd += " --oneline"
-    return run_shell_command(cmd)
+        arguments.append("--oneline")
+    return run_process(arguments)
 
 
 def git_branch():
     """List git branches."""
-    return run_shell_command("git branch -a")
+    return run_process(["git", "branch", "-a"])
 
 
 # =============================================================================
@@ -67,25 +71,32 @@ def git_add(file_paths=None, all_files=False):
         dict with success, staged_files
     """
     if all_files:
-        cmd = "git add -A"
+        arguments = ["git", "add", "-A"]
     elif file_paths:
         if isinstance(file_paths, str):
             file_paths = [file_paths]
-        quoted_paths = " ".join(shlex.quote(p) for p in file_paths)
-        cmd = f"git add {quoted_paths}"
+        if not isinstance(file_paths, (list, tuple)) or not all(
+            isinstance(path, str) and path and "\x00" not in path for path in file_paths
+        ):
+            return {"success": False, "error": "File paths must be non-empty strings"}
+        arguments = ["git", "add", "--", *file_paths]
     else:
         return {"success": False, "error": "Specify file_paths or set all_files=True"}
 
-    result = run_shell_command(cmd)
+    result = run_process(arguments)
 
     if result.get("returncode", 1) != 0:
         return {"success": False, "error": result.get("stderr", "Failed to stage files")}
 
     # Get list of staged files
-    status = run_shell_command("git diff --cached --name-only")
+    status = run_process(["git", "diff", "--cached", "--name-only"])
     staged = status.get("stdout", "").strip().split("\n") if status.get("stdout") else []
 
-    return {"success": True, "staged_files": [f for f in staged if f], "command": cmd}
+    return {
+        "success": True,
+        "staged_files": [file for file in staged if file],
+        "command": format_process_command(arguments),
+    }
 
 
 def git_commit(message, amend=False):
@@ -98,17 +109,15 @@ def git_commit(message, amend=False):
     Returns:
         dict with success, commit_hash, message
     """
-    if not message:
+    if not isinstance(message, str) or not message or "\x00" in message:
         return {"success": False, "error": "Commit message is required"}
 
-    safe_message = shlex.quote(message)
-
+    arguments = ["git", "commit"]
     if amend:
-        cmd = f"git commit --amend -m {safe_message}"
-    else:
-        cmd = f"git commit -m {safe_message}"
+        arguments.append("--amend")
+    arguments.extend(["-m", message])
 
-    result = run_shell_command(cmd)
+    result = run_process(arguments)
 
     if result.get("returncode", 1) != 0:
         stderr = result.get("stderr", "")
@@ -117,7 +126,7 @@ def git_commit(message, amend=False):
         return {"success": False, "error": stderr or "Commit failed"}
 
     # Get the commit hash
-    hash_result = run_shell_command("git rev-parse --short HEAD")
+    hash_result = run_process(["git", "rev-parse", "--short", "HEAD"])
     commit_hash = hash_result.get("stdout", "").strip()
 
     return {"success": True, "commit_hash": commit_hash, "message": message, "amend": amend}
@@ -135,8 +144,7 @@ def git_checkout(branch=None, create=False, file_path=None):
         dict with success, branch or file restored
     """
     if file_path:
-        cmd = f"git checkout -- {shlex.quote(file_path)}"
-        result = run_shell_command(cmd)
+        result = run_process(["git", "checkout", "--", str(file_path)])
         return {
             "success": result.get("returncode", 1) == 0,
             "restored_file": file_path,
@@ -146,12 +154,11 @@ def git_checkout(branch=None, create=False, file_path=None):
     if not branch:
         return {"success": False, "error": "Branch name or file_path required"}
 
-    if create:
-        cmd = f"git checkout -b {shlex.quote(branch)}"
-    else:
-        cmd = f"git checkout {shlex.quote(branch)}"
+    if not isinstance(branch, str) or branch.startswith("-") or "\x00" in branch:
+        return {"success": False, "error": "Invalid branch name"}
 
-    result = run_shell_command(cmd)
+    arguments = ["git", "checkout", *(["-b"] if create else []), branch]
+    result = run_process(arguments)
 
     return {
         "success": result.get("returncode", 1) == 0,
@@ -172,19 +179,21 @@ def git_stash(action="push", message=None):
         dict with success, action performed
     """
     if action == "push":
-        cmd = "git stash push"
+        arguments = ["git", "stash", "push"]
         if message:
-            cmd += f" -m {shlex.quote(message)}"
+            if not isinstance(message, str) or "\x00" in message:
+                return {"success": False, "error": "Invalid stash message"}
+            arguments.extend(["-m", message])
     elif action == "pop":
-        cmd = "git stash pop"
+        arguments = ["git", "stash", "pop"]
     elif action == "list":
-        cmd = "git stash list"
+        arguments = ["git", "stash", "list"]
     elif action == "drop":
-        cmd = "git stash drop"
+        arguments = ["git", "stash", "drop"]
     else:
         return {"success": False, "error": f"Unknown action: {action}"}
 
-    result = run_shell_command(cmd)
+    result = run_process(arguments)
 
     return {
         "success": result.get("returncode", 1) == 0,

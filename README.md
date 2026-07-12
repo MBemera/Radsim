@@ -177,8 +177,8 @@ The model gets 68 tools by default, grouped by what they let it do:
   `apply_patch`. Each one shows you a diff before running.
 
 - **Run things.** `run_shell_command`, `run_tests`, `lint_code`, `format_code`,
-  `type_check`. These prompt for confirmation by default; learned trust can
-  auto-confirm safe variants.
+  `type_check`. The general shell always requires a fresh confirmation;
+  learned trust can auto-confirm safer, purpose-built test and analysis tools.
 
 - **Use git.** Status, diff, log, branch, add, commit, checkout, stash. Reads
   are free; writes confirm.
@@ -225,6 +225,8 @@ scheduled jobs, custom-tool registration, and outbound Telegram messages.
 
 A few hard rules don't bend even with `--yes`:
 
+- General shell commands always require a fresh confirmation because a shell
+  can read, write, execute project code, and access the network.
 - API keys live in `~/.radsim/.env` with `chmod 600`.
 - The agent cannot **write** to `.env`, credentials files, or known private-key
   paths. It can read them when you ask.

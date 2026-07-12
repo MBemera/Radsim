@@ -871,8 +871,16 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "Image name (for run, pull, build, rmi)",
                 },
-                "command": {"type": "string", "description": "Command to run (for run, exec)"},
-                "options": {"type": "string", "description": "Additional Docker options as string"},
+                "command": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Command argv to run in the container (for run or exec)",
+                },
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Additional Docker options as explicit argv items",
+                },
             },
             "required": ["action"],
         },

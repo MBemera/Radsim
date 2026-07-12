@@ -9,6 +9,15 @@ from .runtime_context import get_runtime_context
 class WorkflowCommandHandlersMixin:
     """Handlers for planning, analysis, background work, and MCP."""
 
+    @staticmethod
+    def _try_job_operation(operation, *arguments):
+        """Run one jobs API call and display scheduler failures safely."""
+        try:
+            return True, operation(*arguments)
+        except Exception as error:
+            print_error(f"Job operation failed: {error}")
+            return False, None
+
     def _cmd_complexity(self, agent, args=None):
         """Complexity budget & analysis."""
         import os
@@ -675,7 +684,9 @@ class WorkflowCommandHandlersMixin:
         action = args[0].lower()
 
         if action in ("list", "ls"):
-            jobs = list_jobs()
+            operation_succeeded, jobs = self._try_job_operation(list_jobs)
+            if not operation_succeeded:
+                return
             if not jobs:
                 print_info("No scheduled jobs. Use '/job add' to create one.")
                 return
@@ -747,7 +758,15 @@ class WorkflowCommandHandlersMixin:
             if not description:
                 description = command[:50]
 
-            job = add_job(schedule, command, description, is_radsim_task)
+            operation_succeeded, job = self._try_job_operation(
+                add_job,
+                schedule,
+                command,
+                description,
+                is_radsim_task,
+            )
+            if not operation_succeeded:
+                return
             schedule_desc = describe_schedule(job.schedule)
             print_success(f"Job #{job.job_id} created: {schedule_desc} — {description}")
             return
@@ -762,7 +781,10 @@ class WorkflowCommandHandlersMixin:
                 print_error("Job ID must be a number.")
                 return
 
-            if remove_job(job_id):
+            operation_succeeded, removed = self._try_job_operation(remove_job, job_id)
+            if not operation_succeeded:
+                return
+            if removed:
                 print_success(f"Job #{job_id} removed.")
             else:
                 print_error(f"Job #{job_id} not found.")
@@ -778,7 +800,10 @@ class WorkflowCommandHandlersMixin:
                 print_error("Job ID must be a number.")
                 return
 
-            if disable_job(job_id):
+            operation_succeeded, disabled = self._try_job_operation(disable_job, job_id)
+            if not operation_succeeded:
+                return
+            if disabled:
                 print_success(f"Job #{job_id} paused (removed from crontab).")
             else:
                 print_error(f"Job #{job_id} not found.")
@@ -794,7 +819,10 @@ class WorkflowCommandHandlersMixin:
                 print_error("Job ID must be a number.")
                 return
 
-            if enable_job(job_id):
+            operation_succeeded, enabled = self._try_job_operation(enable_job, job_id)
+            if not operation_succeeded:
+                return
+            if enabled:
                 print_success(f"Job #{job_id} resumed (added back to crontab).")
             else:
                 print_error(f"Job #{job_id} not found.")
@@ -811,7 +839,10 @@ class WorkflowCommandHandlersMixin:
                 return
 
             print_info(f"Running job #{job_id}...")
-            success, output = run_job_now(job_id)
+            operation_succeeded, run_result = self._try_job_operation(run_job_now, job_id)
+            if not operation_succeeded:
+                return
+            success, output = run_result
             if success:
                 print_success(f"Job #{job_id} completed.")
             else:

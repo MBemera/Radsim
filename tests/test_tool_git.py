@@ -1,6 +1,6 @@
 """Tests for radsim/tools/git.py
 
-One test, one thing. Mock subprocess.run since git operations
+One test, one thing. Mock the shell _execute seam since git operations
 should not depend on a real repository.
 """
 
@@ -16,7 +16,7 @@ from radsim.tools.git import git_add, git_diff, git_status
 class TestGitStatus:
     """Tests for git_status function."""
 
-    @patch("radsim.tools.shell.subprocess.run")
+    @patch("radsim.tools.shell._execute")
     def test_clean_repository(self, mock_run):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -29,7 +29,16 @@ class TestGitStatus:
         assert result["success"] is True
         assert "main" in result["stdout"]
 
-    @patch("radsim.tools.shell.subprocess.run")
+    @patch("radsim.tools.shell._execute")
+    def test_status_disables_repository_fsmonitor_hook(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        git_status()
+
+        called_command = mock_run.call_args.args[0]
+        assert called_command[:4] == ["git", "-c", "core.fsmonitor=false", "status"]
+
+    @patch("radsim.tools.shell._execute")
     def test_dirty_repository_with_changes(self, mock_run):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -43,7 +52,7 @@ class TestGitStatus:
         assert "app.py" in result["stdout"]
         assert "new_file.txt" in result["stdout"]
 
-    @patch("radsim.tools.shell.subprocess.run")
+    @patch("radsim.tools.shell._execute")
     def test_not_a_git_repo(self, mock_run):
         mock_run.return_value = MagicMock(
             returncode=128,
@@ -65,7 +74,7 @@ class TestGitStatus:
 class TestGitAdd:
     """Tests for git_add function."""
 
-    @patch("radsim.tools.shell.subprocess.run")
+    @patch("radsim.tools.shell._execute")
     def test_add_specific_files(self, mock_run):
         # First call: git add, second call: git diff --cached --name-only
         mock_run.side_effect = [
@@ -79,7 +88,7 @@ class TestGitAdd:
         assert "file1.py" in result["staged_files"]
         assert "file2.py" in result["staged_files"]
 
-    @patch("radsim.tools.shell.subprocess.run")
+    @patch("radsim.tools.shell._execute")
     def test_add_all_files(self, mock_run):
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="", stderr=""),
@@ -97,7 +106,7 @@ class TestGitAdd:
         assert result["success"] is False
         assert "specify" in result["error"].lower()
 
-    @patch("radsim.tools.shell.subprocess.run")
+    @patch("radsim.tools.shell._execute")
     def test_add_fails_on_git_error(self, mock_run):
         mock_run.return_value = MagicMock(
             returncode=128,
@@ -110,7 +119,7 @@ class TestGitAdd:
         assert result["success"] is False
         assert "fatal" in result["error"].lower()
 
-    @patch("radsim.tools.shell.subprocess.run")
+    @patch("radsim.tools.shell._execute")
     def test_add_single_string_path_converted_to_list(self, mock_run):
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="", stderr=""),
@@ -131,7 +140,7 @@ class TestGitAdd:
 class TestGitDiff:
     """Tests for git_diff function."""
 
-    @patch("radsim.tools.shell.subprocess.run")
+    @patch("radsim.tools.shell._execute")
     def test_diff_with_changes(self, mock_run):
         diff_output = (
             "diff --git a/file.py b/file.py\n"
@@ -153,7 +162,7 @@ class TestGitDiff:
         assert "-old line" in result["stdout"]
         assert "+new line" in result["stdout"]
 
-    @patch("radsim.tools.shell.subprocess.run")
+    @patch("radsim.tools.shell._execute")
     def test_diff_no_changes(self, mock_run):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -166,7 +175,17 @@ class TestGitDiff:
         assert result["success"] is True
         assert result["stdout"] == ""
 
-    @patch("radsim.tools.shell.subprocess.run")
+    @patch("radsim.tools.shell._execute")
+    def test_diff_disables_external_drivers_and_text_conversion(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        git_diff()
+
+        called_command = mock_run.call_args.args[0]
+        assert "--no-ext-diff" in called_command
+        assert "--no-textconv" in called_command
+
+    @patch("radsim.tools.shell._execute")
     def test_diff_staged_flag(self, mock_run):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -182,7 +201,7 @@ class TestGitDiff:
         command_string = " ".join(called_command)
         assert "--staged" in command_string
 
-    @patch("radsim.tools.shell.subprocess.run")
+    @patch("radsim.tools.shell._execute")
     def test_diff_specific_file(self, mock_run):
         mock_run.return_value = MagicMock(
             returncode=0,

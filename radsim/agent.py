@@ -37,8 +37,18 @@ from .rate_limiter import (
 from .safety import confirm_action, confirm_write, is_path_safe
 from .tools import DESTRUCTIVE_COMMANDS, execute_tool
 from .tools.command_analysis import is_destructive_command
+from .tools.validation import has_terminal_control_character, validate_shell_command
 
 logger = logging.getLogger(__name__)
+
+
+def _confirmation_value_error(label, value):
+    """Return an error when untrusted text is unsafe to display."""
+    if not isinstance(value, str):
+        return f"{label} must be a string"
+    if has_terminal_control_character(value):
+        return f"{label} contains forbidden terminal control characters"
+    return None
 
 
 class RadSimAgent(
@@ -506,6 +516,11 @@ class RadSimAgent(
         """Handle shell command with confirmation."""
         command = tool_input.get("command", "")
 
+        is_valid, error = validate_shell_command(command)
+        if not is_valid:
+            print_warning(error)
+            return {"success": False, "error": error}
+
         # Check for destructive commands. Uses structural analysis so wrapped
         # or absolute-path forms ("env sudo", "/usr/bin/sudo") and destructive
         # commands in any pipeline segment cannot bypass confirmation.
@@ -514,17 +529,11 @@ class RadSimAgent(
             print_warning(f"DESTRUCTIVE COMMAND: {command}")
             print_warning("Explicit permission required.")
 
-        if self.config.auto_confirm and not is_destructive:
-            confirmed = True
-        else:
-            # If destructive, we force prompt by NOT passing config (or passing None) if auto_confirm is enabled?
-            # No, if destructive, auto_confirm is bypassed in the 'if' above.
-            # So if we are here, either auto_confirm is False OR it is destructive.
-            # If destructive, we want to FORCE prompt. So pass None for config.
-            # If NOT destructive (and auto_confirm=False), we pass config so user can enable it.
-
-            cfg_to_pass = self.config if not is_destructive else None
-            confirmed = confirm_action(f"Execute: '{command}'?", config=cfg_to_pass)
+        # A general shell can read, write, execute project code, reach the
+        # network, or escape lexical path checks. Static classification is
+        # useful for warnings, but it is not a permission boundary. Always
+        # require a fresh human decision, even when --yes is active.
+        confirmed = confirm_action(f"Execute: '{command}'?", config=None)
 
         if confirmed:
             tool_start_time = time.time()
@@ -713,11 +722,25 @@ class RadSimAgent(
         test_command = tool_input.get("test_command")
         test_path = tool_input.get("test_path")
 
+        if test_command:
+            is_valid, error = validate_shell_command(test_command)
+            if not is_valid:
+                print_warning(error)
+                return {"success": False, "error": error}
+
+        if test_path is not None:
+            error = _confirmation_value_error("Test path", test_path)
+            if error:
+                print_warning(error)
+                return {"success": False, "error": error}
+
         desc = test_command or "auto-detected tests"
         if test_path:
             desc += f" ({test_path})"
 
-        if self.config.auto_confirm:
+        if test_command:
+            confirmed = confirm_action(f"Run custom test command: {desc}?", config=None)
+        elif self.config.auto_confirm:
             print_info(f"Running tests: {desc}")
             confirmed = True
         else:
@@ -991,11 +1014,17 @@ class RadSimAgent(
         schedule = tool_input.get("schedule", "")
         command = tool_input.get("command", "")
 
+        for label, value in (("Task name", name), ("Schedule", schedule), ("Command", command)):
+            error = _confirmation_value_error(label, value)
+            if error:
+                print_warning(error)
+                return {"success": False, "error": error}
+
         if self.config.auto_confirm:
             confirmed = True
         else:
             confirmed = confirm_action(
-                f"Schedule task?\n  Name: {name}\n  Schedule: {schedule}\n  Command: {command[:50]}...",
+                f"Schedule task?\n  Name: {name}\n  Schedule: {schedule}\n  Command: {command}",
                 config=self.config,
             )
 

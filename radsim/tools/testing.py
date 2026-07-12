@@ -4,11 +4,10 @@ RadSim Principle: One Function, One Purpose
 """
 
 import json
-import shlex
 from pathlib import Path
 
 from ..runtime_context import get_runtime_context
-from .shell import run_shell_command
+from .shell import quote_shell_argument, run_shell_command
 
 
 def _build_project_detection_paths(cwd):
@@ -169,7 +168,7 @@ def run_tests(test_command=None, test_path=None, verbose=False):
         cmd = framework
 
     if test_path:
-        cmd += f" {shlex.quote(test_path)}"
+        cmd += f" {quote_shell_argument(test_path)}"
 
     if verbose:
         if "pytest" in cmd:
@@ -219,7 +218,7 @@ def lint_code(file_path=None, fix=False):
             cmd += " --fix"
 
     if file_path:
-        cmd += f" {shlex.quote(file_path)}"
+        cmd += f" {quote_shell_argument(file_path)}"
     elif project["project_type"] == "python":
         cmd += " ."
     elif project["project_type"] == "node":
@@ -267,7 +266,7 @@ def format_code(file_path=None, check_only=False):
             cmd += " -- --check"
 
     if file_path:
-        cmd += f" {shlex.quote(file_path)}"
+        cmd += f" {quote_shell_argument(file_path)}"
     elif project["project_type"] == "python":
         cmd += " ."
 
@@ -302,9 +301,9 @@ def type_check(file_path=None):
 
     if file_path:
         if "mypy" in checker:
-            cmd = f"mypy {shlex.quote(file_path)}"
+            cmd = f"mypy {quote_shell_argument(file_path)}"
         elif "tsc" in checker:
-            cmd = f"tsc --noEmit {shlex.quote(file_path)}"
+            cmd = f"tsc --noEmit {quote_shell_argument(file_path)}"
 
     result = run_shell_command(cmd, timeout=120)
 

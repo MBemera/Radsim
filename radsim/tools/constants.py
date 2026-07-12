@@ -30,6 +30,36 @@ DESTRUCTIVE_COMMANDS = {
     "crontab -r",  # Wipes all scheduled jobs
     "doas",
     "pkexec",  # Privilege escalation
+    "find -delete",
+    "find -exec",
+    "find -execdir",  # find can delete or run arbitrary commands
+    "eval",
+    "source",
+    ".",  # Run arbitrary strings/scripts in the shell
+    "bash -c",
+    "sh -c",
+    "zsh -c",  # Nested shells evade per-command analysis
+    "python -c",
+    "python3 -c",
+    "node -e",
+    "perl -e",
+    "ruby -e",  # Inline interpreters run arbitrary code
+    "powershell",
+    "pwsh",
+    "cmd",
+    "dash",
+    "ksh",
+    "fish",  # Nested platform shells evade outer-command analysis
+    "remove-item",
+    "clear-content",
+    "move-item",
+    "set-acl",
+    "invoke-expression",
+    "start-process",
+    "format-volume",
+    "clear-disk",
+    "initialize-disk",  # PowerShell mutation and elevation surfaces
+    "tee",  # Writes arbitrary files from a pipeline
 }
 
 # Catastrophic commands blocked at ALL security levels (no override)
@@ -47,6 +77,10 @@ ALWAYS_BLOCKED_COMMANDS = {
     "chmod -R 777 /",
     "> /dev/sda",
     "mv / /dev/null",
+    "wipefs",
+    "format-volume",
+    "clear-disk",
+    "initialize-disk",
 }
 
 # Patterns that should never be written to
@@ -90,3 +124,5 @@ MAX_ERROR_OUTPUT_SIZE = 10_000  # 10KB - Maximum error output
 MAX_SEARCH_RESULTS = 100  # Maximum search results
 MAX_DIRECTORY_ITEMS = 500  # Maximum directory listing items
 MAX_FILES_TO_READ = 20  # Maximum files in read_many_files
+MAX_COMMAND_SIZE = 20_000  # Maximum shell command length
+MAX_SHELL_TIMEOUT = 3_600  # One hour maximum for agent-started processes

@@ -131,7 +131,11 @@ class AgentPolicyMixin:
                     ),
                 }
         except Exception:
-            logger.debug("Agent config check failed, allowing tool execution")
+            logger.warning("Agent tool policy is unavailable; blocking execution", exc_info=True)
+            return {
+                "success": False,
+                "error": "Tool policy could not be evaluated; blocked for safety",
+            }
         return None
 
     def _execute_mcp_tool(self, tool_name, tool_input):

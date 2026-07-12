@@ -5,15 +5,112 @@ RadSim Principle: One Function, One Purpose
 
 import logging
 import re
-import shlex
 import shutil
 from pathlib import Path
 
+from ..terminal import is_unsafe_terminal_character
 from .platform_detect import detect_os, detect_package_manager
-from .shell import run_shell_command
+from .shell import format_process_command, run_process
 from .testing import detect_project_type
 
 logger = logging.getLogger(__name__)
+
+SAFE_AXIOS_VERSIONS = {"0.30.3", "1.14.0"}
+NPM_REGISTRY_SPEC_PATTERN = re.compile(
+    r"^(?P<name>(?:@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*)"
+    r"(?:@(?P<selector>[a-z0-9][a-z0-9._~+*-]*))?$",
+    re.IGNORECASE,
+)
+
+
+def _reject_unsafe_package(package):
+    """Return an error dict when a package argument could inject CLI options.
+
+    A name starting with '-' still lands in the installer's option parser
+    even when passed as one argv item. Returns None when the name is safe.
+    """
+    if not isinstance(package, str) or not package.strip():
+        return {"success": False, "error": "Package name cannot be empty"}
+
+    raw_package = package
+    package = raw_package.strip()
+    if package != raw_package:
+        return {"success": False, "error": "Package name must not contain surrounding whitespace"}
+    if any(is_unsafe_terminal_character(character) for character in package):
+        return {"success": False, "error": "Package name contains forbidden control characters"}
+
+    if package.startswith("-"):
+        return {
+            "success": False,
+            "error": f"Invalid package name: {package!r} (must not start with '-')",
+        }
+
+    return None
+
+
+def _reject_unsafe_npm_package(package):
+    """Reject untrusted npm sources, malware, and unpinned axios versions."""
+    unsafe = _reject_unsafe_package(package)
+    if unsafe:
+        return unsafe
+
+    normalized = str(package).strip().lower()
+    registry_spec = NPM_REGISTRY_SPEC_PATTERN.fullmatch(normalized)
+    if not registry_spec:
+        return {
+            "success": False,
+            "error": "Only npm registry package names are allowed; URLs, paths, aliases, and git sources are blocked",
+        }
+
+    package_name = registry_spec.group("name")
+    package_selector = registry_spec.group("selector")
+    if package_name == "plain-crypto-js":
+        return {"success": False, "error": "Blocked malicious npm package: plain-crypto-js"}
+
+    if package_name == "axios" and package_selector not in SAFE_AXIOS_VERSIONS:
+        safe_versions = ", ".join(sorted(SAFE_AXIOS_VERSIONS))
+        return {
+            "success": False,
+            "error": f"Axios must be pinned to a known-safe version: {safe_versions}",
+        }
+    return None
+
+
+def _reject_untrusted_npm_package_name(package):
+    """Reject npm removal arguments that are not registry package specs."""
+    unsafe = _reject_unsafe_package(package)
+    if unsafe:
+        return unsafe
+    if NPM_REGISTRY_SPEC_PATTERN.fullmatch(package.lower()):
+        return None
+    return {
+        "success": False,
+        "error": "Only npm registry package names are allowed; URLs, paths, aliases, and git sources are blocked",
+    }
+
+
+def _validate_scaffold_value(value, label):
+    """Return an error dict for an unsafe project or template name."""
+    if not value or not isinstance(value, str):
+        return {"success": False, "error": f"{label} must be a non-empty string"}
+    if value in {".", ".."} or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value):
+        return {
+            "success": False,
+            "error": f"Invalid {label.lower()}. Use letters, digits, '.', '_' or '-' only.",
+        }
+    return None
+
+
+def _command_result(arguments, result, **metadata):
+    """Return a consistent dependency-tool result."""
+    return {
+        "success": result.get("returncode", 1) == 0,
+        "command": format_process_command(arguments),
+        "error": result.get("error"),
+        "stdout": result.get("stdout", ""),
+        "stderr": result.get("stderr", ""),
+        **metadata,
+    }
 
 
 def list_dependencies():
@@ -29,8 +126,8 @@ def list_dependencies():
         return {"success": False, "error": "No package manager detected"}
 
     if pkg_manager == "pip":
-        cmd = "pip list --format=json"
-        result = run_shell_command(cmd)
+        arguments = ["pip", "list", "--format=json"]
+        result = run_process(arguments)
         if result.get("returncode", 1) == 0:
             try:
                 import json
@@ -40,24 +137,24 @@ def list_dependencies():
             except Exception:
                 logger.debug("Failed to parse pip list JSON output, falling back to plain list")
         # Fallback to plain list
-        cmd = "pip list"
+        arguments = ["pip", "list"]
 
     elif pkg_manager in ["npm", "yarn", "pnpm", "bun"]:
-        cmd = f"{pkg_manager} list --depth=0"
+        arguments = [pkg_manager, "list", "--depth=0"]
 
     elif pkg_manager == "go":
-        cmd = "go list -m all"
+        arguments = ["go", "list", "-m", "all"]
 
     elif pkg_manager == "cargo":
-        cmd = "cargo tree --depth 1"
+        arguments = ["cargo", "tree", "--depth", "1"]
 
     elif pkg_manager in ["poetry", "pipenv"]:
-        cmd = f"{pkg_manager} show"
+        arguments = [pkg_manager, "show"]
 
     else:
         return {"success": False, "error": f"Unsupported package manager: {pkg_manager}"}
 
-    result = run_shell_command(cmd)
+    result = run_process(arguments)
 
     return {
         "success": result.get("returncode", 1) == 0,
@@ -77,6 +174,10 @@ def add_dependency(package, dev=False):
     Returns:
         dict with success, package installed
     """
+    unsafe = _reject_unsafe_package(package)
+    if unsafe:
+        return unsafe
+
     project = detect_project_type()
     pkg_manager = project["package_manager"]
 
@@ -84,27 +185,36 @@ def add_dependency(package, dev=False):
         return {"success": False, "error": "No package manager detected"}
 
     if pkg_manager == "pip":
-        cmd = f"pip install {shlex.quote(package)}"
+        arguments = ["pip", "install", "--", package]
     elif pkg_manager == "npm":
+        unsafe = _reject_unsafe_npm_package(package)
+        if unsafe:
+            return unsafe
         flag = "--save-dev" if dev else "--save"
-        cmd = f"npm install {flag} {shlex.quote(package)}"
+        arguments = ["npm", "install", flag, "--", package]
     elif pkg_manager == "yarn":
+        unsafe = _reject_unsafe_npm_package(package)
+        if unsafe:
+            return unsafe
         flag = "--dev" if dev else ""
-        cmd = f"yarn add {flag} {shlex.quote(package)}"
+        arguments = ["yarn", "add", *([flag] if flag else []), package]
     elif pkg_manager == "pnpm":
+        unsafe = _reject_unsafe_npm_package(package)
+        if unsafe:
+            return unsafe
         flag = "-D" if dev else ""
-        cmd = f"pnpm add {flag} {shlex.quote(package)}"
+        arguments = ["pnpm", "add", *([flag] if flag else []), package]
     elif pkg_manager == "go":
-        cmd = f"go get {shlex.quote(package)}"
+        arguments = ["go", "get", package]
     elif pkg_manager == "cargo":
-        cmd = f"cargo add {shlex.quote(package)}"
+        arguments = ["cargo", "add", package]
     elif pkg_manager == "poetry":
         flag = "--dev" if dev else ""
-        cmd = f"poetry add {flag} {shlex.quote(package)}"
+        arguments = ["poetry", "add", *([flag] if flag else []), package]
     else:
         return {"success": False, "error": f"Unsupported package manager: {pkg_manager}"}
 
-    result = run_shell_command(cmd, timeout=120)
+    result = run_process(arguments, timeout=120)
 
     return {
         "success": result.get("returncode", 1) == 0,
@@ -113,6 +223,7 @@ def add_dependency(package, dev=False):
         "stdout": result.get("stdout", ""),
         "stderr": result.get("stderr", ""),
         "package_manager": pkg_manager,
+        "command": format_process_command(arguments),
     }
 
 
@@ -125,28 +236,37 @@ def remove_dependency(package):
     Returns:
         dict with success, package removed
     """
+    unsafe = _reject_unsafe_package(package)
+    if unsafe:
+        return unsafe
+
     project = detect_project_type()
     pkg_manager = project["package_manager"]
 
     if not pkg_manager:
         return {"success": False, "error": "No package manager detected"}
 
+    if pkg_manager in {"npm", "yarn", "pnpm"}:
+        unsafe = _reject_untrusted_npm_package_name(package)
+        if unsafe:
+            return unsafe
+
     if pkg_manager == "pip":
-        cmd = f"pip uninstall -y {shlex.quote(package)}"
+        arguments = ["pip", "uninstall", "-y", "--", package]
     elif pkg_manager == "npm":
-        cmd = f"npm uninstall {shlex.quote(package)}"
+        arguments = ["npm", "uninstall", "--", package]
     elif pkg_manager == "yarn":
-        cmd = f"yarn remove {shlex.quote(package)}"
+        arguments = ["yarn", "remove", package]
     elif pkg_manager == "pnpm":
-        cmd = f"pnpm remove {shlex.quote(package)}"
+        arguments = ["pnpm", "remove", package]
     elif pkg_manager == "cargo":
-        cmd = f"cargo remove {shlex.quote(package)}"
+        arguments = ["cargo", "remove", package]
     elif pkg_manager == "poetry":
-        cmd = f"poetry remove {shlex.quote(package)}"
+        arguments = ["poetry", "remove", package]
     else:
         return {"success": False, "error": f"Unsupported package manager: {pkg_manager}"}
 
-    result = run_shell_command(cmd, timeout=60)
+    result = run_process(arguments, timeout=60)
 
     return {
         "success": result.get("returncode", 1) == 0,
@@ -154,6 +274,7 @@ def remove_dependency(package):
         "stdout": result.get("stdout", ""),
         "stderr": result.get("stderr", ""),
         "package_manager": pkg_manager,
+        "command": format_process_command(arguments),
     }
 
 
@@ -168,12 +289,12 @@ _NPM_SYSTEM_TOOLS = {
 # OS-specific install commands for tools not available via npm.
 _NATIVE_SYSTEM_TOOLS = {
     "gh": {
-        "macos": "brew install gh",
-        "windows": "winget install --id GitHub.cli",
-        "dnf": "dnf install -y gh",
-        "yum": "yum install -y gh",
-        "pacman": "pacman -S --noconfirm github-cli",
-        "zypper": "zypper install -y gh",
+        "brew": ["brew", "install", "gh"],
+        "winget": ["winget", "install", "--id", "GitHub.cli"],
+        "dnf": ["dnf", "install", "-y", "gh"],
+        "yum": ["yum", "install", "-y", "gh"],
+        "pacman": ["pacman", "-S", "--noconfirm", "github-cli"],
+        "zypper": ["zypper", "install", "-y", "gh"],
     },
 }
 
@@ -185,15 +306,11 @@ def _resolve_native_install_command(tool_name):
     assuming Homebrew. Returns an error with guidance when no safe automated
     command exists for the current platform.
     """
-    per_os = _NATIVE_SYSTEM_TOOLS[tool_name]
+    per_manager = _NATIVE_SYSTEM_TOOLS[tool_name]
     os_family = detect_os()
-
-    if os_family in per_os:
-        return per_os[os_family], None
-
     manager = detect_package_manager(os_family)
-    if manager and manager in per_os:
-        return per_os[manager], None
+    if manager and manager in per_manager:
+        return per_manager[manager], None
 
     hint = manager or "your system package manager"
     return None, (
@@ -211,16 +328,34 @@ def install_system_tool(tool_name):
     Returns:
         dict with success, stdout
     """
+    unsafe = _reject_unsafe_package(tool_name)
+    if unsafe:
+        return unsafe
+
+    for prefix in ("npm:", "pip:", "brew:"):
+        if tool_name.startswith(prefix):
+            unsafe = _reject_unsafe_package(tool_name[len(prefix):])
+            if unsafe:
+                return unsafe
+
     if tool_name in _NPM_SYSTEM_TOOLS:
-        cmd = f"npm install -g {shlex.quote(_NPM_SYSTEM_TOOLS[tool_name])}"
+        package = _NPM_SYSTEM_TOOLS[tool_name]
+        unsafe = _reject_unsafe_npm_package(package)
+        if unsafe:
+            return unsafe
+        arguments = ["npm", "install", "-g", "--", package]
     elif tool_name in _NATIVE_SYSTEM_TOOLS:
-        cmd, error = _resolve_native_install_command(tool_name)
+        arguments, error = _resolve_native_install_command(tool_name)
         if error:
             return {"success": False, "tool": tool_name, "error": error}
     elif tool_name.startswith("npm:"):
-        cmd = f"npm install -g {shlex.quote(tool_name[4:])}"
+        package = tool_name[4:]
+        unsafe = _reject_unsafe_npm_package(package)
+        if unsafe:
+            return unsafe
+        arguments = ["npm", "install", "-g", "--", package]
     elif tool_name.startswith("pip:"):
-        cmd = f"pip install {shlex.quote(tool_name[4:])}"
+        arguments = ["pip", "install", "--", tool_name[4:]]
     elif tool_name.startswith("brew:"):
         if not shutil.which("brew"):
             return {
@@ -229,23 +364,15 @@ def install_system_tool(tool_name):
                 "error": "Homebrew is not installed. Use 'npm:' or 'pip:' prefixes, "
                 "or install the tool with your system package manager.",
             }
-        cmd = f"brew install {shlex.quote(tool_name[5:])}"
+        arguments = ["brew", "install", "--", tool_name[5:]]
     else:
         return {
             "success": False,
             "error": f"Unknown tool '{tool_name}'. Use prefix like 'npm:package', 'pip:package', or 'brew:package'.",
         }
 
-    result = run_shell_command(cmd, timeout=300)
-
-    return {
-        "success": result.get("returncode", 1) == 0,
-        "tool": tool_name,
-        "command": cmd,
-        "error": result.get("error"),
-        "stdout": result.get("stdout", ""),
-        "stderr": result.get("stderr", ""),
-    }
+    result = run_process(arguments, timeout=300)
+    return _command_result(arguments, result, tool=tool_name)
 
 
 def npm_install(package, dev=False, global_install=False):
@@ -259,24 +386,20 @@ def npm_install(package, dev=False, global_install=False):
     Returns:
         dict with success, package, stdout, stderr
     """
+    unsafe = _reject_unsafe_npm_package(package)
+    if unsafe:
+        return unsafe
+
     if global_install:
-        cmd = f"npm install -g {shlex.quote(package)}"
+        arguments = ["npm", "install", "-g", "--", package]
     elif dev:
-        cmd = f"npm install --save-dev {shlex.quote(package)}"
+        arguments = ["npm", "install", "--save-dev", "--", package]
     else:
-        cmd = f"npm install {shlex.quote(package)}"
+        arguments = ["npm", "install", "--", package]
 
-    result = run_shell_command(cmd, timeout=120)
-
-    return {
-        "success": result.get("returncode", 1) == 0,
-        "package": package,
-        "dev": dev,
-        "global": global_install,
-        "command": cmd,
-        "stdout": result.get("stdout", ""),
-        "stderr": result.get("stderr", ""),
-    }
+    result = run_process(arguments, timeout=120)
+    metadata = {"package": package, "dev": dev, "global": global_install}
+    return _command_result(arguments, result, **metadata)
 
 
 def pip_install(package, upgrade=False):
@@ -289,19 +412,17 @@ def pip_install(package, upgrade=False):
     Returns:
         dict with success, package, stdout, stderr
     """
-    flag = "--upgrade" if upgrade else ""
-    cmd = f"pip install {flag} {shlex.quote(package)}".strip()
+    unsafe = _reject_unsafe_package(package)
+    if unsafe:
+        return unsafe
 
-    result = run_shell_command(cmd, timeout=120)
+    arguments = ["pip", "install"]
+    if upgrade:
+        arguments.append("--upgrade")
+    arguments.extend(["--", package])
 
-    return {
-        "success": result.get("returncode", 1) == 0,
-        "package": package,
-        "upgrade": upgrade,
-        "command": cmd,
-        "stdout": result.get("stdout", ""),
-        "stderr": result.get("stderr", ""),
-    }
+    result = run_process(arguments, timeout=120)
+    return _command_result(arguments, result, package=package, upgrade=upgrade)
 
 
 def init_project(project_type, name=None, template=None, working_dir=None):
@@ -316,57 +437,56 @@ def init_project(project_type, name=None, template=None, working_dir=None):
     Returns:
         dict with success, project_type, command, stdout, stderr
     """
-    # Build command based on project type
     if project_type == "npm":
-        # Just initialize package.json
-        cmd = "npm init -y"
-
-    elif project_type == "vite":
-        # Create Vite project
-        project_name = name or "vite-project"
-        if template:
-            cmd = f"npm create vite@latest {shlex.quote(project_name)} -- --template {shlex.quote(template)}"
-        else:
-            cmd = f"npm create vite@latest {shlex.quote(project_name)} -- --template react"
-
-    elif project_type == "react":
-        # Create React App
-        project_name = name or "my-app"
-        cmd = f"npx create-react-app {shlex.quote(project_name)}"
-
-    elif project_type == "next":
-        # Create Next.js project
-        project_name = name or "my-next-app"
-        cmd = f"npx create-next-app@latest {shlex.quote(project_name)} --yes"
-
-    elif project_type == "astro":
-        # Create Astro project
-        project_name = name or "my-astro-project"
-        cmd = f"npm create astro@latest {shlex.quote(project_name)} -- --yes"
-
+        arguments = ["npm", "init", "-y"]
     elif project_type == "python":
-        # Build the Python project structure directly with pathlib. No shell
-        # chaining, so it works identically on Linux, macOS, and Windows.
         return _create_python_project(name or "my_project", working_dir)
-
     else:
-        return {
-            "success": False,
-            "error": f"Unknown project type: {project_type}. Supported: npm, vite, react, next, astro, python",
-        }
+        arguments, error = _build_scaffold_arguments(project_type, name, template)
+        if error:
+            return {"success": False, "error": error}
 
-    result = run_shell_command(cmd, timeout=300, working_dir=working_dir)
+    result = run_process(arguments, timeout=300, working_dir=working_dir)
+    return _command_result(
+        arguments,
+        result,
+        project_type=project_type,
+        name=name,
+        template=template,
+    )
 
-    return {
-        "success": result.get("returncode", 1) == 0,
-        "project_type": project_type,
-        "name": name,
-        "template": template,
-        "command": cmd,
-        "error": result.get("error"),
-        "stdout": result.get("stdout", ""),
-        "stderr": result.get("stderr", ""),
+
+def _build_scaffold_arguments(project_type, name, template):
+    """Return safe argv for a supported JavaScript project scaffold."""
+    defaults = {
+        "vite": "vite-project",
+        "react": "my-app",
+        "next": "my-next-app",
+        "astro": "my-astro-project",
     }
+    if project_type not in defaults:
+        supported = "npm, vite, react, next, astro, python"
+        return None, f"Unknown project type: {project_type}. Supported: {supported}"
+
+    project_name = name or defaults[project_type]
+    unsafe = _validate_scaffold_value(project_name, "Project name")
+    if unsafe:
+        return None, unsafe["error"]
+    if template and (unsafe := _validate_scaffold_value(template, "Template")):
+        return None, unsafe["error"]
+
+    return _scaffold_arguments(project_type, project_name, template), None
+
+
+def _scaffold_arguments(project_type, project_name, template):
+    """Build argv after scaffold values have been validated."""
+    if project_type == "vite":
+        return ["npm", "create", "vite@latest", project_name, "--", "--template", template or "react"]
+    if project_type == "react":
+        return ["npx", "create-react-app", project_name]
+    if project_type == "next":
+        return ["npx", "create-next-app@latest", project_name, "--yes"]
+    return ["npm", "create", "astro@latest", project_name, "--", "--yes"]
 
 
 def _create_python_project(project_name, working_dir):
@@ -375,24 +495,27 @@ def _create_python_project(project_name, working_dir):
     Builds files directly instead of chaining shell commands so it is
     cross-platform and never trips shell validation.
     """
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+", project_name) or project_name in (".", ".."):
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", project_name):
         return {
             "success": False,
             "project_type": "python",
             "name": project_name,
-            "error": "Invalid project name. Use letters, digits, '.', '_' or '-' only.",
+            "error": "Invalid Python package name. Use letters, digits, and '_' only.",
         }
 
-    base = Path(working_dir) if working_dir else Path.cwd()
+    base = (Path(working_dir) if working_dir else Path.cwd()).resolve()
     package_dir = base / project_name
+    pyproject = base / "pyproject.toml"
+
+    if not base.is_dir():
+        return {"success": False, "error": f"Working directory does not exist: {base}"}
+    if package_dir.exists() or pyproject.exists():
+        return {"success": False, "error": "Project target already exists; refusing to overwrite"}
 
     try:
-        package_dir.mkdir(parents=True, exist_ok=True)
+        package_dir.mkdir()
         (package_dir / "__init__.py").touch()
-        pyproject = base / "pyproject.toml"
-        pyproject.write_text(
-            f'[project]\nname = "{project_name}"\nversion = "0.1.0"\n'
-        )
+        pyproject.write_text(f'[project]\nname = "{project_name}"\nversion = "0.1.0"\n')
     except OSError as error:
         return {"success": False, "project_type": "python", "name": project_name, "error": str(error)}
 

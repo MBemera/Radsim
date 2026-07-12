@@ -39,6 +39,35 @@ class TestPrivilegeEscalationDetection:
     def test_word_sudo_is_not_escalation(self):
         assert command_analysis.is_privilege_escalation("echo sudo makes it work") is False
 
+    def test_quoted_sudo_is_escalation(self):
+        # Bash strips the quotes, so su"do" still runs sudo.
+        assert command_analysis.is_privilege_escalation('su"do" apt update') is True
+
+    def test_backslash_escaped_sudo_is_escalation(self):
+        assert command_analysis.is_privilege_escalation("su\\do apt update") is True
+
+    def test_timeout_wrapped_sudo_is_escalation(self):
+        # The duration argument must not be mistaken for the real program.
+        assert command_analysis.is_privilege_escalation("timeout 5 sudo apt") is True
+
+    def test_nice_flag_wrapped_sudo_is_escalation(self):
+        assert command_analysis.is_privilege_escalation("nice -n 10 sudo apt") is True
+
+    def test_keyword_wrapped_sudo_is_escalation(self):
+        assert command_analysis.is_privilege_escalation("do sudo rm x") is True
+
+    def test_assignment_prefixed_sudo_is_escalation(self):
+        assert command_analysis.is_privilege_escalation("LC_ALL=C sudo id") is True
+
+    def test_wrapper_options_with_values_do_not_hide_sudo(self):
+        assert command_analysis.is_privilege_escalation("env -u TOKEN sudo id") is True
+        assert command_analysis.is_privilege_escalation("timeout --signal KILL 5 sudo id") is True
+        assert command_analysis.is_privilege_escalation("stdbuf -o L sudo id") is True
+        assert command_analysis.is_privilege_escalation("xargs -I ITEM sudo id") is True
+
+    def test_numeric_redirection_does_not_hide_sudo(self):
+        assert command_analysis.is_privilege_escalation("2>/dev/null sudo id") is True
+
 
 class TestDestructiveClassification:
     """Destructive commands must be caught in any form or segment."""
@@ -63,6 +92,39 @@ class TestDestructiveClassification:
         # Unbalanced quotes cannot be parsed -> treat as destructive.
         assert is_destructive('echo "unterminated')
 
+    def test_reordered_git_push_flags_is_destructive(self):
+        # An option between "git" and "push" must not hide the subcommand.
+        assert is_destructive("git -C /repo push origin main")
+
+    def test_reordered_crontab_wipe_is_destructive(self):
+        assert is_destructive("crontab -u me -r")
+
+    def test_quoted_rm_is_destructive(self):
+        assert is_destructive('"rm" -rf build')
+
+    def test_find_delete_is_destructive(self):
+        assert is_destructive("find . -name '*.log' -delete")
+
+    def test_inline_interpreter_is_destructive(self):
+        assert is_destructive("python3 -c import shutil")
+        assert is_destructive("bash -c whoami")
+
+    def test_eval_is_destructive(self):
+        assert is_destructive("eval echo hi")
+
+    def test_assignment_prefixed_delete_is_destructive(self):
+        assert is_destructive("LC_ALL=C rm file")
+
+    def test_output_redirection_requires_confirmation(self):
+        assert is_destructive("printf secret > output.txt")
+
+    def test_platform_shells_and_versioned_python_are_destructive(self):
+        assert is_destructive('powershell -Command "Remove-Item target"')
+        assert is_destructive('pwsh -Command "Remove-Item target"')
+        assert is_destructive('cmd /c "del target"')
+        assert is_destructive('dash -c "rm target"')
+        assert is_destructive('python3.14 -Ic "pass"')
+
 
 class TestPathTraversal:
     """Traversal detection allows git ranges and Go wildcards, blocks parents."""
@@ -84,6 +146,12 @@ class TestPathTraversal:
 
     def test_bare_parent_blocked(self):
         assert command_analysis.is_path_traversal("..") is True
+
+    def test_quoted_parent_blocked(self):
+        assert command_analysis.is_path_traversal('".."') is True
+
+    def test_flag_equals_bare_parent_blocked(self):
+        assert command_analysis.is_path_traversal("--dir=..") is True
 
 
 class TestValidatorAbuseCases:
@@ -124,6 +192,109 @@ class TestValidatorAbuseCases:
         assert is_valid is True
         assert error is None
 
+    def test_policy_failure_fails_closed(self):
+        # If the policy engine raises, the command must be blocked, not run.
+        from unittest.mock import patch
+
+        with patch(
+            "radsim.tools.command_policy.get_command_policy",
+            side_effect=RuntimeError("policy engine down"),
+        ):
+            is_valid, error = validate_shell_command("ls -la")
+        assert is_valid is False
+        assert "blocked for safety" in error.lower()
+
+    def test_obfuscated_catastrophic_deletion_is_blocked(self):
+        for command in (
+            "r\\m -rf /",
+            'r"m" -fr "/"',
+            "rm -r -f -- /",
+            "rm --recursive --force ~",
+        ):
+            is_valid, error = validate_shell_command(command)
+            assert is_valid is False
+            assert "catastrophic" in error.lower()
+
+    def test_expanding_executable_name_is_blocked(self):
+        for command in ("r{m,x} -rf /", "/bin/r? -rf /"):
+            is_valid, error = validate_shell_command(command)
+            assert is_valid is False
+            assert "executable" in error.lower()
+
+    def test_shell_control_structure_is_blocked(self):
+        is_valid, error = validate_shell_command("if true; then rm file; fi")
+        assert is_valid is False
+        assert "control" in error.lower()
+
+    def test_unanalyzable_nested_execution_is_blocked(self):
+        for command in (
+            "bash -c 'printf safe'",
+            "su -c 'id'",
+            "python3 -c 'print(1)'",
+            "sudo python3 -Ic 'print(1)'",
+            "sudo -s",
+            "sudo -Hsi",
+            "env -S 'bash -c id'",
+        ):
+            is_valid, error = validate_shell_command(command)
+            assert is_valid is False
+            assert "nested" in error.lower() or "inline" in error.lower()
+
+    def test_python_script_and_module_execution_remain_allowed(self):
+        for command in ("python scripts/check.py", "python -m pytest"):
+            is_valid, error = validate_shell_command(command)
+            assert is_valid is True
+            assert error is None
+
+    def test_brace_expansion_is_blocked_before_shell_expansion(self):
+        command = "rm -fr {/,/tmp}"
+
+        is_valid, error = validate_shell_command(command)
+
+        assert is_valid is False
+        assert "brace expansion" in error.lower()
+        assert command_analysis.is_catastrophic_command(command) is True
+
+    def test_quoted_braces_remain_literal_data(self):
+        is_valid, error = validate_shell_command("printf '%s' '{/,/tmp}'")
+
+        assert is_valid is True
+        assert error is None
+
+    def test_terminal_control_characters_are_blocked(self):
+        for control_character in ("\x08", "\x1b", "\x7f", "\x9b", "\u202e"):
+            is_valid, error = validate_shell_command(f"echo safe{control_character}")
+            assert is_valid is False
+            assert "terminal control" in error.lower()
+
+    def test_only_home_root_is_catastrophic(self):
+        assert command_analysis.is_catastrophic_command("rm -rf ~") is True
+        assert command_analysis.is_catastrophic_command("rm -rf ~/") is True
+        assert command_analysis.is_catastrophic_command("rm -rf ~/build") is False
+
+        is_valid, error = validate_shell_command("rm -rf ~/build")
+        assert is_valid is True
+        assert error is None
+
+    def test_recursive_root_content_globs_are_catastrophic(self):
+        for command in (
+            "rm -fr /?*",
+            "rm -fr /[a-z]*",
+            r"rm -fr C:\*",
+            "rm -fr ~/*",
+        ):
+            assert command_analysis.is_catastrophic_command(command) is True
+            is_valid, error = validate_shell_command(command)
+            assert is_valid is False
+            assert "catastrophic" in error.lower()
+
+    def test_recursive_subdirectory_globs_remain_confirmable(self):
+        for command in ("rm -fr /tmp/*", "rm -fr ~/build/*", r"rm -fr C:\tmp\*"):
+            assert command_analysis.is_catastrophic_command(command) is False
+            is_valid, error = validate_shell_command(command)
+            assert is_valid is True
+            assert error is None
+
 
 class TestEnvironmentIsolation:
     """Child processes must not inherit RadSim's secrets."""
@@ -133,6 +304,12 @@ class TestEnvironmentIsolation:
         assert is_secret_variable("OPENAI_API_KEY") is True
         assert is_secret_variable("MY_SERVICE_TOKEN") is True
         assert is_secret_variable("DB_PASSWORD") is True
+
+    def test_connection_strings_are_secret(self):
+        # No marker substring, but these embed credentials.
+        assert is_secret_variable("DATABASE_URL") is True
+        assert is_secret_variable("REDIS_URL") is True
+        assert is_secret_variable("SENTRY_DSN") is True
 
     def test_ordinary_vars_are_not_secret(self):
         assert is_secret_variable("PATH") is False
@@ -145,6 +322,21 @@ class TestEnvironmentIsolation:
         assert "ANTHROPIC_API_KEY" not in child
         assert child["PATH"] == "/usr/bin"
         assert child["HOME"] == "/home/x"
+
+    def test_build_child_environment_strips_execution_hooks(self):
+        base = {
+            "PATH": "/usr/bin",
+            "BASH_ENV": "/tmp/injected.sh",
+            "BASH_FUNC_demo%%": "() { echo injected; }",
+            "LD_PRELOAD": "/tmp/injected.so",
+            "NODE_OPTIONS": "--require=/tmp/injected.js",
+            "SSH_AUTH_SOCK": "/tmp/agent.sock",
+            "PIP_INDEX_URL": "https://untrusted.invalid/simple",
+        }
+
+        child = build_child_environment(base)
+
+        assert child == {"PATH": "/usr/bin"}
 
 
 def is_destructive(command):
