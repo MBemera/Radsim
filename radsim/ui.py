@@ -320,30 +320,6 @@ class PhaseProgressBar:
         self.stop()
 
 
-def show_success_panel(title, content):
-    """Display a success panel."""
-    panel = Panel(
-        content,
-        title=f"ok {title}",
-        border_style="success",
-        expand=False,
-        padding=(0, 2),
-    )
-    console.print(panel)
-
-
-def show_error_panel(title, content):
-    """Display an error panel."""
-    panel = Panel(
-        content,
-        title=f"error {title}",
-        border_style="error",
-        expand=False,
-        padding=(0, 2),
-    )
-    console.print(panel)
-
-
 def print_prompt(active_modes: list = None, registry=None) -> str:
     """Print the distinctive RadSim prompt and capture input.
 
@@ -382,11 +358,6 @@ def print_prompt(active_modes: list = None, registry=None) -> str:
 
 
     return console.input(prompt)
-
-
-def print_teach(message):
-    """Print a teaching message in accent color."""
-    console.print(f"[accent]  [teach] {message}[/accent]")
 
 
 def print_success(message):
@@ -448,11 +419,6 @@ class LiveStatusTable:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stop()
-
-
-def print_hint(message):
-    """Print an inline hint or tip."""
-    console.print(f"[muted]   Tip: {message}[/muted]")
 
 
 class TaskDashboard:

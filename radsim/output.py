@@ -297,18 +297,6 @@ def print_status_bar(model, input_tokens, output_tokens):
     print()
 
 
-
-
-def print_code(code, language=None):
-    """Print code with basic formatting."""
-    print()
-    if language:
-        print(colorize(f"```{language}", "dim"))
-    print(code)
-    if language:
-        print(colorize("```", "dim"))
-    print()
-
 # Teach comment prefix pattern for inline teaching annotations
 LEGACY_TEACH_MARKER = "\U0001F393"
 
@@ -860,89 +848,6 @@ def print_code_content(
             print(format_line(i, line))
 
     print(colorize("  └──────────────────────────────────────────────", "dim"))
-
-
-def print_thinking_step(step_text):
-    """Print a thinking/reasoning step.
-
-    Args:
-        step_text: Description of what the agent is thinking/doing
-    """
-    print(colorize(f"  → {step_text}", "dim"))
-
-
-def print_section_header(title):
-    """Print a section header for organizing output.
-
-    Args:
-        title: Section title
-    """
-    width = 50
-    padding = width - len(title) - 4
-    print()
-    print(colorize(f"  ── {title} ", "bright_cyan") + colorize("─" * padding, "dim"))
-
-
-def print_file_change(file_path, change_type="modified"):
-    """Print a file change notification.
-
-    Args:
-        file_path: Path to the file
-        change_type: One of 'created', 'modified', 'deleted'
-    """
-    icons = {
-        "created": ("✚", "green"),
-        "modified": ("●", "yellow"),
-        "deleted": ("✖", "red"),
-    }
-    icon, color = icons.get(change_type, ("●", "cyan"))
-    print(colorize(f"  {icon} ", color) + colorize(file_path, "white"))
-
-
-def print_command_hints(context: str, hints: list = None):
-    """Print relevant command hints for a context.
-
-    Args:
-        context: What situation we're in (e.g., 'model', 'error', 'slow')
-        hints: Optional list of (command, description) tuples
-    """
-    if hints is None:
-        # Default hints by context
-        hint_map = {
-            "model": [
-                ("/switch", "Quick switch model"),
-                ("/config", "Full configuration"),
-                ("/free", "Use free model"),
-            ],
-            "error": [
-                ("/clear", "Clear and retry"),
-                ("/new", "Fresh start"),
-                ("/improve", "Mark for improvement"),
-            ],
-            "slow": [
-                ("/switch", "Try faster model"),
-                ("/free", "Use free model"),
-            ],
-            "success": [
-                ("/good", "Mark as good"),
-                ("/skill add", "Save as preference"),
-            ],
-            "start": [
-                ("/help", "Get help"),
-                ("/skill", "Configure skills"),
-                ("/commands", "All commands"),
-            ],
-        }
-        hints = hint_map.get(context, [])
-
-    if not hints:
-        return
-
-    print()
-    print(colorize("  Available commands:", "dim"))
-    for cmd, desc in hints:
-        print(colorize(f"    {cmd:<14}", "cyan") + colorize(desc, "dim"))
-    print()
 
 
 # ============================================================================

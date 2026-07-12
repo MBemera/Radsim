@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from radsim.cron_utils import escape_cron_percent
 from radsim.scheduler import (
     Scheduler,
-    _escape_cron_percent,
     sanitize_cron_command,
     validate_cron_schedule,
     validate_job_description,
@@ -150,8 +150,8 @@ class TestSchedulerFailClosed:
         mock_run.assert_not_called()
 
     def test_percent_escaping_is_idempotent(self):
-        assert _escape_cron_percent("date +%F") == "date +\\%F"
-        assert _escape_cron_percent("date +\\%F") == "date +\\%F"
+        assert escape_cron_percent("date +%F") == "date +\\%F"
+        assert escape_cron_percent("date +\\%F") == "date +\\%F"
 
     def test_corrupt_storage_is_not_treated_as_empty(self, tmp_path):
         scheduler = Scheduler.__new__(Scheduler)
@@ -297,7 +297,7 @@ class TestSchedulerFailClosed:
 
 class TestWindowsSchedulerBackend:
     @patch("radsim.scheduler.subprocess.run")
-    @patch("radsim.scheduler.platform.system", return_value="Windows")
+    @patch("radsim.scheduler.is_windows", return_value=True)
     def test_install_uses_schtasks_not_crontab(self, _mock_system, mock_run):
         mock_run.return_value = MagicMock(returncode=0)
         scheduler = Scheduler.__new__(Scheduler)
@@ -317,7 +317,7 @@ class TestWindowsSchedulerBackend:
         assert "crontab" not in arguments
 
     @patch("radsim.scheduler.subprocess.run")
-    @patch("radsim.scheduler.platform.system", return_value="Windows")
+    @patch("radsim.scheduler.is_windows", return_value=True)
     def test_uninstall_deletes_exact_managed_task(self, _mock_system, mock_run):
         mock_run.return_value = MagicMock(returncode=0)
         scheduler = Scheduler.__new__(Scheduler)
@@ -332,7 +332,7 @@ class TestWindowsSchedulerBackend:
             "/f",
         ]
 
-    @patch("radsim.scheduler.platform.system", return_value="Windows")
+    @patch("radsim.scheduler.is_windows", return_value=True)
     def test_unsupported_windows_schedule_rolls_back_storage(self, _mock_system, tmp_path):
         scheduler = Scheduler.__new__(Scheduler)
         scheduler.schedules_file = tmp_path / "schedules.json"

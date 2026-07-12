@@ -8,7 +8,6 @@ RadSim-managed entries are tagged so existing user cron jobs are never touched.
 import csv
 import json
 import logging
-import platform
 import re
 import shlex
 import shutil
@@ -17,6 +16,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .cron_utils import escape_cron_percent, is_windows, read_crontab, write_crontab
 from .terminal import is_unsafe_terminal_character
 from .tools.shell import run_process, run_shell_command
 
@@ -240,7 +240,7 @@ def _validate_cron_field(field_value: str, min_val: int, max_val: int) -> bool:
 
 def _build_shell_command(job: CronJob) -> str:
     """Build the full shell command for a cron job."""
-    if _is_windows():
+    if is_windows():
         if job.is_radsim_task:
             arguments = [_resolve_radsim_path(), job.command]
         else:
@@ -267,43 +267,6 @@ def _resolve_radsim_path() -> str:
     return shutil.which("radsim") or "radsim"
 
 
-def _is_windows() -> bool:
-    """Check if running on Windows."""
-    return platform.system().lower() == "windows"
-
-
-# --- Crontab integration (Mac/Linux) ---
-
-def _read_crontab() -> str:
-    """Read crontab, distinguishing an absent table from operational failure."""
-    try:
-        result = subprocess.run(
-            ["crontab", "-l"],
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError as error:
-        raise RuntimeError("crontab is not installed") from error
-
-    if result.returncode == 0:
-        return result.stdout
-    if "no crontab" in result.stderr.lower():
-        return ""
-    message = result.stderr.strip() or f"crontab exited with status {result.returncode}"
-    raise RuntimeError(f"Unable to read existing crontab: {message}")
-
-
-def _write_crontab(content: str):
-    """Write a new crontab, replacing the current one."""
-    subprocess.run(
-        ["crontab", "-"],
-        input=content,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-
 def _remove_radsim_lines(crontab_text: str) -> str:
     """Remove all RadSim-tagged lines from crontab text."""
     lines = crontab_text.splitlines()
@@ -322,18 +285,6 @@ def _remove_radsim_lines(crontab_text: str) -> str:
     return "\n".join(filtered_lines)
 
 
-def _escape_cron_percent(command: str) -> str:
-    """Escape only bare cron percent characters, preserving existing escapes."""
-    escaped = []
-    backslashes = 0
-    for character in command:
-        if character == "%" and backslashes % 2 == 0:
-            escaped.append("\\")
-        escaped.append(character)
-        backslashes = backslashes + 1 if character == "\\" else 0
-    return "".join(escaped)
-
-
 def _build_crontab_entries(jobs: list[CronJob]) -> str:
     """Build crontab entries for all enabled RadSim jobs."""
     entries = []
@@ -343,7 +294,7 @@ def _build_crontab_entries(jobs: list[CronJob]) -> str:
             continue
         shell_command = _build_shell_command(job)
         entries.append(f"# {RADSIM_CRON_TAG}-{job.job_id}: {job.description}")
-        entries.append(f"{job.schedule} {_escape_cron_percent(shell_command)}")
+        entries.append(f"{job.schedule} {escape_cron_percent(shell_command)}")
 
     return "\n".join(entries)
 
@@ -354,12 +305,12 @@ def sync_crontab():
     Reads the current crontab, removes all RadSim-tagged lines,
     then appends entries for all enabled jobs.
     """
-    if _is_windows():
+    if is_windows():
         _sync_windows_tasks()
         return
 
     jobs = _load_jobs()
-    current_crontab = _read_crontab()
+    current_crontab = read_crontab()
 
     # Remove old RadSim entries
     cleaned_crontab = _remove_radsim_lines(current_crontab)
@@ -374,7 +325,7 @@ def sync_crontab():
 
     final_crontab = "\n".join(part for part in parts if part) + "\n"
 
-    _write_crontab(final_crontab)
+    write_crontab(final_crontab)
 
 
 # --- Windows Task Scheduler integration ---
@@ -537,7 +488,7 @@ def add_job(schedule: str, command: str, description: str, is_radsim_task: bool)
     )
 
     _validate_job(job)
-    if _is_windows():
+    if is_windows():
         _cron_to_schtasks(job.schedule)
 
     jobs.append(job)

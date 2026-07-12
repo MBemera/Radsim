@@ -505,216 +505,239 @@ class LearningCommandHandlersMixin:
 
     def _cmd_skill(self, agent, args=None):
         """Configure custom skills/instructions."""
-        from .menu import interactive_menu, safe_input
-        from .skills import (
-            add_skill,
-            clear_skills,
-            confirm_and_save_skill,
-            learn_skills_from_file,
-            list_skills,
-            remove_skill,
-        )
-
         if not args:
-            choice = interactive_menu(
-                "SKILLS",
-                [
-                    ("add", "Add a custom instruction"),
-                    ("list", "List active skills"),
-                    ("remove", "Remove a skill"),
-                    ("templates", "Show skill templates"),
-                    ("learn", "Learn skills from a file"),
-                    ("clear", "Remove all skills"),
-                ],
-            )
-            if choice is None:
+            args = self._prompt_skill_action()
+            if args is None:
                 return
-
-            if choice == "add":
-                instruction = safe_input("  Instruction: ")
-                if instruction is None:
-                    return
-                args = ["add", instruction]
-            elif choice == "remove":
-                skills = list_skills()
-                if skills:
-                    print()
-                    for index, skill in enumerate(skills, 1):
-                        preview = skill["instruction"][:60]
-                        if len(skill["instruction"]) > 60:
-                            preview += "..."
-                        print(f"    {index}. {preview}")
-                    print()
-                    number = safe_input("  Skill number to remove: ")
-                    if number is None:
-                        return
-                    args = ["remove", number]
-                else:
-                    print("  No skills configured. Add one with /skill add <instruction>")
-                    print()
-                    return
-            elif choice == "learn":
-                path = safe_input("  File path: ")
-                if path is None:
-                    return
-                args = ["learn", path]
-            else:
-                args = [choice]
 
         action = args[0].lower()
-
-        if action == "add":
-            if len(args) < 2:
-                print_info("Usage: /skill add <your instruction>")
-                print_info("Example: /skill add Always use TypeScript instead of JavaScript")
-                return
-
-            instruction = " ".join(args[1:])
-            result = add_skill(instruction)
-            if result["success"]:
-                print_info(f"ok Skill added: {instruction[:50]}...")
-                print_info("This will be included in future conversations.")
-            else:
-                print_error(result.get("error", "Failed to add skill"))
+        handlers = {
+            "add": self._skill_add,
+            "list": self._skill_list,
+            "remove": self._skill_remove,
+            "templates": self._skill_templates,
+            "learn": self._skill_learn,
+            "clear": self._skill_clear,
+        }
+        handler = handlers.get(action)
+        if handler is None:
+            print_error(f"Unknown action: {action}")
+            print_info("Use /skill for help")
             return
+        handler(args[1:])
 
-        if action == "list":
+    def _prompt_skill_action(self):
+        """Show the skills menu and return the equivalent command args."""
+        from .menu import interactive_menu, safe_input
+        from .skills import list_skills
+
+        choice = interactive_menu(
+            "SKILLS",
+            [
+                ("add", "Add a custom instruction"),
+                ("list", "List active skills"),
+                ("remove", "Remove a skill"),
+                ("templates", "Show skill templates"),
+                ("learn", "Learn skills from a file"),
+                ("clear", "Remove all skills"),
+            ],
+        )
+        if choice is None:
+            return None
+
+        if choice == "add":
+            instruction = safe_input("  Instruction: ")
+            return None if instruction is None else ["add", instruction]
+
+        if choice == "remove":
             skills = list_skills()
-            print()
-            print("  ═══ ACTIVE SKILLS ═══")
-            print()
-            if skills:
-                for index, skill in enumerate(skills, 1):
-                    print(f"  {index}. {skill['instruction']}")
-                    if skill.get("category"):
-                        print(f"     Category: {skill['category']}")
+            if not skills:
+                print("  No skills configured. Add one with /skill add <instruction>")
                 print()
-                print(f"  Total: {len(skills)} skill(s)")
-            else:
-                print("  No skills configured.")
+                return None
             print()
+            for index, skill in enumerate(skills, 1):
+                preview = skill["instruction"][:60]
+                if len(skill["instruction"]) > 60:
+                    preview += "..."
+                print(f"    {index}. {preview}")
+            print()
+            number = safe_input("  Skill number to remove: ")
+            return None if number is None else ["remove", number]
+
+        if choice == "learn":
+            path = safe_input("  File path: ")
+            return None if path is None else ["learn", path]
+
+        return [choice]
+
+    def _skill_add(self, args):
+        """Add one custom instruction."""
+        from .skills import add_skill
+
+        if not args:
+            print_info("Usage: /skill add <your instruction>")
+            print_info("Example: /skill add Always use TypeScript instead of JavaScript")
             return
 
-        if action == "remove":
-            if len(args) < 2:
-                print_info("Usage: /skill remove <number>")
-                return
-            try:
-                index = int(args[1]) - 1
-            except ValueError:
-                print_error("Please provide a valid number")
-                return
+        instruction = " ".join(args)
+        result = add_skill(instruction)
+        if result["success"]:
+            print_info(f"ok Skill added: {instruction[:50]}...")
+            print_info("This will be included in future conversations.")
+        else:
+            print_error(result.get("error", "Failed to add skill"))
 
-            result = remove_skill(index)
-            if result["success"]:
-                print_info(f"ok Removed skill: {result.get('removed', '')[:50]}...")
-            else:
-                print_error(result.get("error", "Failed to remove skill"))
+    def _skill_list(self, args):
+        """Print all active skills."""
+        from .skills import list_skills
+
+        skills = list_skills()
+        print()
+        print("  ═══ ACTIVE SKILLS ═══")
+        print()
+        if skills:
+            for index, skill in enumerate(skills, 1):
+                print(f"  {index}. {skill['instruction']}")
+                if skill.get("category"):
+                    print(f"     Category: {skill['category']}")
+            print()
+            print(f"  Total: {len(skills)} skill(s)")
+        else:
+            print("  No skills configured.")
+        print()
+
+    def _skill_remove(self, args):
+        """Remove one skill by its list number."""
+        from .skills import remove_skill
+
+        if not args:
+            print_info("Usage: /skill remove <number>")
+            return
+        try:
+            index = int(args[0]) - 1
+        except ValueError:
+            print_error("Please provide a valid number")
             return
 
-        if action == "templates":
+        result = remove_skill(index)
+        if result["success"]:
+            print_info(f"ok Removed skill: {result.get('removed', '')[:50]}...")
+        else:
+            print_error(result.get("error", "Failed to remove skill"))
+
+    def _skill_templates(self, args):
+        """Print example instructions users can copy."""
+        templates = [
+            ("Code Style", "Always use 2-space indentation and single quotes"),
+            ("Language", "Prefer TypeScript over JavaScript"),
+            ("Framework", "Use React with functional components and hooks"),
+            ("Testing", "Always include unit tests with pytest"),
+            ("Comments", "Add docstrings to all functions"),
+            ("Error Handling", "Use try/except with specific exception types"),
+            ("Naming", "Use snake_case for Python, camelCase for JavaScript"),
+            ("Brevity", "Keep responses concise, skip explanations unless asked"),
+        ]
+        print()
+        print("  ═══ SKILL TEMPLATES ═══")
+        print()
+        print("  Copy and modify these examples:")
+        print()
+        for name, example in templates:
+            print(f"  {name}:")
+            print(f"    /skill add {example}")
             print()
-            print("  ═══ SKILL TEMPLATES ═══")
-            print()
-            print("  Copy and modify these examples:")
-            print()
-            templates = [
-                ("Code Style", "Always use 2-space indentation and single quotes"),
-                ("Language", "Prefer TypeScript over JavaScript"),
-                ("Framework", "Use React with functional components and hooks"),
-                ("Testing", "Always include unit tests with pytest"),
-                ("Comments", "Add docstrings to all functions"),
-                ("Error Handling", "Use try/except with specific exception types"),
-                ("Naming", "Use snake_case for Python, camelCase for JavaScript"),
-                ("Brevity", "Keep responses concise, skip explanations unless asked"),
-            ]
-            for name, example in templates:
-                print(f"  {name}:")
-                print(f"    /skill add {example}")
-                print()
+
+    def _skill_learn(self, args):
+        """Extract skills from a markdown file and review them one by one."""
+        from .skills import learn_skills_from_file
+
+        if not args:
+            print_info("Usage: /skill learn <path-to-markdown-file>")
+            print_info("Example: /skill learn coding-standards.md")
             return
 
-        if action == "learn":
-            if len(args) < 2:
-                print_info("Usage: /skill learn <path-to-markdown-file>")
-                print_info("Example: /skill learn coding-standards.md")
-                return
+        file_path = " ".join(args)
+        print_info(f"Reading skills from: {file_path}")
 
-            file_path = " ".join(args[1:])
-            print_info(f"Reading skills from: {file_path}")
+        result = learn_skills_from_file(file_path)
+        if not result["success"]:
+            print_error(result.get("error", "Failed to read file"))
+            return
 
-            result = learn_skills_from_file(file_path)
-            if not result["success"]:
-                print_error(result.get("error", "Failed to read file"))
-                return
+        skills_found = result.get("skills", [])
+        duplicates = result.get("duplicates_skipped", 0)
 
-            skills_found = result.get("skills", [])
-            duplicates = result.get("duplicates_skipped", 0)
-
-            if not skills_found:
-                print_info("No new actionable skills found in this file.")
-                if duplicates > 0:
-                    print_info(f"  ({duplicates} skill(s) already exist)")
-                return
-
-            print()
-            print(f"  Found {len(skills_found)} new skill(s)")
+        if not skills_found:
+            print_info("No new actionable skills found in this file.")
             if duplicates > 0:
-                print_info(f"  ({duplicates} duplicate(s) skipped)")
-            print()
+                print_info(f"  ({duplicates} skill(s) already exist)")
+            return
 
-            saved_count = 0
-            for index, instruction in enumerate(skills_found, 1):
-                print(f"  {index}. {instruction}")
-                try:
-                    response = input("     Save this skill? [y/n/all/stop]: ").strip().lower()
-                except (KeyboardInterrupt, EOFError):
-                    print("\n  Cancelled.")
-                    break
+        print()
+        print(f"  Found {len(skills_found)} new skill(s)")
+        if duplicates > 0:
+            print_info(f"  ({duplicates} duplicate(s) skipped)")
+        print()
 
-                if response in ["stop", "s", "q"]:
-                    print_info("  Stopped learning.")
-                    break
+        saved_count = self._review_learned_skills(skills_found)
 
-                save_all = response in ["a", "all", "always"]
+        print()
+        print_info(f"  Done! Saved {saved_count} new skill(s).")
+        if saved_count > 0:
+            print_info("  Skills will apply to all future conversations.")
+        print()
 
-                if response in ["y", "yes"] or save_all:
-                    save_result = confirm_and_save_skill(instruction, source="markdown")
-                    if save_result["success"]:
-                        print_info("     ok Saved")
-                        saved_count += 1
-                    else:
-                        print_error(f"     {save_result.get('error', 'Failed')}")
+    def _review_learned_skills(self, skills_found):
+        """Ask the user about each extracted skill and save approved ones."""
+        from .skills import confirm_and_save_skill
 
-                    if save_all:
-                        for remaining in skills_found[index:]:
-                            save_result = confirm_and_save_skill(remaining, source="markdown")
-                            if save_result["success"]:
-                                print_info(f"     ok {remaining[:50]}...")
-                                saved_count += 1
-                        break
+        saved_count = 0
+        for index, instruction in enumerate(skills_found, 1):
+            print(f"  {index}. {instruction}")
+            try:
+                response = input("     Save this skill? [y/n/all/stop]: ").strip().lower()
+            except (KeyboardInterrupt, EOFError):
+                print("\n  Cancelled.")
+                break
+
+            if response in ["stop", "s", "q"]:
+                print_info("  Stopped learning.")
+                break
+
+            save_all = response in ["a", "all", "always"]
+
+            if response in ["y", "yes"] or save_all:
+                save_result = confirm_and_save_skill(instruction, source="markdown")
+                if save_result["success"]:
+                    print_info("     ok Saved")
+                    saved_count += 1
                 else:
-                    print_info("     Skipped")
+                    print_error(f"     {save_result.get('error', 'Failed')}")
 
-                print()
-
-            print()
-            print_info(f"  Done! Saved {saved_count} new skill(s).")
-            if saved_count > 0:
-                print_info("  Skills will apply to all future conversations.")
-            print()
-            return
-
-        if action == "clear":
-            result = clear_skills()
-            if result["success"]:
-                print_info("ok All skills cleared")
+                if save_all:
+                    for remaining in skills_found[index:]:
+                        save_result = confirm_and_save_skill(remaining, source="markdown")
+                        if save_result["success"]:
+                            print_info(f"     ok {remaining[:50]}...")
+                            saved_count += 1
+                    break
             else:
-                print_error(result.get("error", "Failed to clear skills"))
-            return
+                print_info("     Skipped")
 
-        print_error(f"Unknown action: {action}")
-        print_info("Use /skill for help")
+            print()
+
+        return saved_count
+
+    def _skill_clear(self, args):
+        """Remove every configured skill."""
+        from .skills import clear_skills
+
+        result = clear_skills()
+        if result["success"]:
+            print_info("ok All skills cleared")
+        else:
+            print_error(result.get("error", "Failed to clear skills"))
 
     def _cmd_memory(self, agent, args=None):
         """Manage persistent memory (view/edit/forget/export)."""

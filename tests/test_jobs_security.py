@@ -90,7 +90,7 @@ class TestPersistedJobValidation:
 
 
 class TestCrontabPreservation:
-    @patch("radsim.jobs.subprocess.run")
+    @patch("radsim.cron_utils.subprocess.run")
     def test_read_failure_does_not_write_crontab(self, mock_run):
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="permission denied")
 
@@ -112,7 +112,7 @@ class TestCrontabPreservation:
 class TestCommandRendering:
     def test_posix_radsim_path_and_task_round_trip(self):
         job = build_job(command="say 'hello' and finish\\")
-        with patch("radsim.jobs._is_windows", return_value=False), patch(
+        with patch("radsim.jobs.is_windows", return_value=False), patch(
             "radsim.jobs.shutil.which", return_value="/Applications/Rad Sim/radsim"
         ):
             rendered = jobs._build_shell_command(job)
@@ -120,13 +120,13 @@ class TestCommandRendering:
         assert shlex.split(rendered) == ["/Applications/Rad Sim/radsim", job.command]
 
     def test_percent_escaping_is_idempotent(self):
-        assert jobs._escape_cron_percent("date +%F") == "date +\\%F"
-        assert jobs._escape_cron_percent("date +\\%F") == "date +\\%F"
+        assert jobs.escape_cron_percent("date +%F") == "date +\\%F"
+        assert jobs.escape_cron_percent("date +\\%F") == "date +\\%F"
 
     def test_windows_task_uses_standard_command_line_quoting(self):
         job = build_job(command='say "hello" and finish\\')
         executable = r"C:\Program Files\RadSim\radsim.exe"
-        with patch("radsim.jobs._is_windows", return_value=True), patch(
+        with patch("radsim.jobs.is_windows", return_value=True), patch(
             "radsim.jobs.shutil.which", return_value=executable
         ):
             rendered = jobs._build_shell_command(job)
@@ -136,7 +136,7 @@ class TestCommandRendering:
     def test_windows_shell_job_runs_through_noninteractive_powershell(self):
         job = build_job(command='Write-Output "safe" | Out-File result.txt', is_radsim_task=False)
 
-        with patch("radsim.jobs._is_windows", return_value=True):
+        with patch("radsim.jobs.is_windows", return_value=True):
             rendered = jobs._build_shell_command(job)
 
         assert rendered == subprocess.list2cmdline(

@@ -132,25 +132,6 @@ def clear_skills() -> dict:
     return {"success": True}
 
 
-def get_skill_categories() -> list:
-    """Get list of skill categories.
-
-    Returns:
-        List of category names
-    """
-    return [
-        "code_style",
-        "language",
-        "framework",
-        "testing",
-        "documentation",
-        "error_handling",
-        "naming",
-        "verbosity",
-        "general",
-    ]
-
-
 def get_skills_for_prompt() -> str:
     """Get skills formatted for injection into system prompt.
 
@@ -170,24 +151,6 @@ def get_skills_for_prompt() -> str:
     lines.append("\nFollow these instructions in all responses.\n")
 
     return "\n".join(lines)
-
-
-def get_skills_summary() -> dict:
-    """Get summary of skills for display.
-
-    Returns:
-        dict with count and categories
-    """
-    skills = _load_skills()
-    categories = {}
-    for skill in skills:
-        cat = skill.get("category", "general")
-        categories[cat] = categories.get(cat, 0) + 1
-
-    return {
-        "total": len(skills),
-        "by_category": categories,
-    }
 
 
 def extract_skills_from_markdown(content: str) -> list[str]:

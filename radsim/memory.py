@@ -563,34 +563,3 @@ def _delete_pattern(global_memory, key):
     global_memory.data["last_updated"] = datetime.now().isoformat()
     return global_memory._save_json(global_memory.file_path, global_memory.data)
 
-
-def clear_memory(key=None, memory_type="context"):
-    """Clear memory.
-
-    Args:
-        key: Specific key to clear (or project name for context)
-        memory_type: Type of memory to clear
-
-    Returns:
-        dict with success status
-    """
-    try:
-        from .runtime_context import get_runtime_context
-
-        memory = get_runtime_context().get_memory()
-
-        if memory_type == "context":
-            # Using current directory as project
-            success = memory.clear_context(key or Path.cwd().name)
-        elif memory_type == "preference" and key:
-            if "preferences" in memory.global_mem.data and key in memory.global_mem.data["preferences"]:
-                del memory.global_mem.data["preferences"][key]
-                success = memory.global_mem._save_json(memory.global_mem.file_path, memory.global_mem.data)
-            else:
-                success = True
-        else:
-            return {"success": False, "error": "Specify key for preference or project for context"}
-
-        return {"success": success, "cleared": key or "project context", "memory_type": memory_type}
-    except Exception as error:
-        return {"success": False, "error": str(error)}

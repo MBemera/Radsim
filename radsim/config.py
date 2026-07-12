@@ -323,21 +323,6 @@ MODEL_CAPABILITIES = {
 }
 
 
-def get_model_capabilities(model: str) -> dict:
-    """Get capabilities for a specific model.
-
-    RadSim Principle: Graceful Degradation
-    Returns default capabilities if model not found.
-    """
-    default_capabilities = {
-        "supports_tools": True,
-        "supports_streaming": True,
-        "supports_vision": False,
-        "max_output_tokens": 4096,
-    }
-    return MODEL_CAPABILITIES.get(model, default_capabilities)
-
-
 CONFIG_DIR = Path.home() / ".radsim"
 ENV_FILE = CONFIG_DIR / ".env"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"

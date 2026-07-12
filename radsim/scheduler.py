@@ -5,12 +5,12 @@ Provides cron-style scheduling for recurring tasks.
 
 import json
 import logging
-import platform
 import re
 import subprocess
 from datetime import datetime
 
 from .config import SCHEDULES_FILE
+from .cron_utils import escape_cron_percent, is_windows, read_crontab
 from .jobs import cron_to_windows_schedule, validate_cron_expression
 from .terminal import is_unsafe_terminal_character
 
@@ -134,33 +134,10 @@ def validate_job_description(description):
 def _read_current_crontab():
     """Return crontab text, empty for a verified absence, or None on failure."""
     try:
-        result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
-    except OSError:
-        logger.warning("Unable to read crontab")
+        return read_crontab()
+    except RuntimeError:
+        logger.warning("Unable to read crontab; refusing to overwrite it")
         return None
-    if result.returncode == 0:
-        return result.stdout
-    if "no crontab" in result.stderr.lower():
-        return ""
-    logger.warning("Unable to read crontab; refusing to overwrite it")
-    return None
-
-
-def _escape_cron_percent(command):
-    """Escape bare percent characters without double-escaping existing ones."""
-    escaped = []
-    backslashes = 0
-    for character in command:
-        if character == "%" and backslashes % 2 == 0:
-            escaped.append("\\")
-        escaped.append(character)
-        backslashes = backslashes + 1 if character == "\\" else 0
-    return "".join(escaped)
-
-
-def _is_windows():
-    """Return whether the host uses Windows Task Scheduler."""
-    return platform.system().lower() == "windows"
 
 
 def _windows_task_name(name):
@@ -372,7 +349,7 @@ class Scheduler:
         validate_cron_schedule(job["schedule"])
         safe_command = sanitize_cron_command(job["command"])
 
-        if _is_windows():
+        if is_windows():
             return _install_windows_task(name, job["schedule"], safe_command)
 
         current_cron = _read_current_crontab()
@@ -384,7 +361,7 @@ class Scheduler:
         # treats a bare % as end-of-command and feeds the rest to stdin.
         marker = f"# RADSIM:{name}"
         safe_schedule = job["schedule"].strip()
-        command_field = _escape_cron_percent(f"{safe_command} {marker}")
+        command_field = escape_cron_percent(f"{safe_command} {marker}")
         cron_line = f"{safe_schedule} {command_field}\n"
 
         # Remove existing entry for this job
@@ -407,7 +384,7 @@ class Scheduler:
     def _uninstall_cron(self, name):
         """Remove job from system crontab."""
         name = validate_job_name(name)
-        if _is_windows():
+        if is_windows():
             return _uninstall_windows_task(name)
 
         current_cron = _read_current_crontab()
@@ -472,35 +449,3 @@ def list_schedules():
     except Exception as error:
         return {"success": False, "error": str(error)}
 
-
-def remove_schedule(name):
-    """Remove a scheduled task.
-
-    Args:
-        name: Name of the job to remove
-
-    Returns:
-        dict with success status
-    """
-    try:
-        scheduler = Scheduler()
-        return scheduler.remove_job(name)
-    except Exception as error:
-        return {"success": False, "error": str(error)}
-
-
-def toggle_schedule(name, enabled=True):
-    """Enable or disable a scheduled task.
-
-    Args:
-        name: Name of the job
-        enabled: True to enable, False to disable
-
-    Returns:
-        dict with success status
-    """
-    try:
-        scheduler = Scheduler()
-        return scheduler.enable_job(name, enabled)
-    except Exception as error:
-        return {"success": False, "error": str(error)}
