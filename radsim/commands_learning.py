@@ -208,6 +208,17 @@ class LearningCommandHandlersMixin:
         bandit.reset()
         print_info("Reset all trust.")
 
+    def _confirm_security_off(self, safe_input):
+        """Warn about disabling security and require typed confirmation."""
+        from .agent_config import SECURITY_OFF_WARNING_LINES
+
+        print()
+        for line in SECURITY_OFF_WARNING_LINES:
+            print_error(f"  {line}")
+        print()
+        response = safe_input("  Type 'off' to confirm, anything else to cancel: ")
+        return response is not None and response.strip().lower() == "off"
+
     def _cmd_settings(self, agent, args=None):
         """View or change agent settings."""
         from .agent_config import get_agent_config_manager
@@ -239,7 +250,7 @@ class LearningCommandHandlersMixin:
                     return
                 args = [key, value]
             elif choice == "security":
-                level = safe_input("  Level (strict/balanced/permissive): ")
+                level = safe_input("  Level (restrictive/balanced/permissive/off): ")
                 if level is None:
                     return
                 args = ["security_level", level]
@@ -248,6 +259,9 @@ class LearningCommandHandlersMixin:
 
         if key_path == "security_level" and len(args) >= 2:
             level = args[1].lower()
+            if level == "off" and not self._confirm_security_off(safe_input):
+                print_info("Security level unchanged.")
+                return
             result = config_mgr.set_security_level(level)
             if result["success"]:
                 print()
@@ -257,6 +271,10 @@ class LearningCommandHandlersMixin:
                 for tool, enabled in result["tools"].items():
                     status = "ON" if enabled else "OFF"
                     print(f"    {tool:<16} {status}")
+                if level == "off":
+                    print()
+                    print("  Destructive commands now run without confirmation.")
+                    print("  Restore with: /settings security_level balanced")
                 print()
             else:
                 print_info(f"Error: {result['error']}")

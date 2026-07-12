@@ -148,6 +148,19 @@ def _animate_tagline(tagline):
     sys.stdout.flush()
 
 
+def _security_level_is_off():
+    """Return True when the persisted security level is "off".
+
+    Display-only helper; any config error reads as security on.
+    """
+    try:
+        from .agent_config import get_agent_config_manager
+
+        return not get_agent_config_manager().destructive_confirmation_enabled()
+    except Exception:
+        return False
+
+
 def print_boot_sequence(provider, model, animated=True):
     """Print the RadSim boot-up sequence with logo and animation."""
     animation_level = load_active_animation_level()
@@ -209,6 +222,11 @@ def print_boot_sequence(provider, model, animated=True):
 
     print(colorize("  └" + "─" * (box_width - 2) + "┘", "dim"))
     print()
+
+    if _security_level_is_off():
+        print(colorize("  [!] SECURITY OFF — destructive commands run without confirmation", "red"))
+        print(colorize("      Restore with: /settings security_level balanced", "dim"))
+        print()
 
     print(colorize("  Type your request or use commands:", "dim"))
     print(colorize("    /help", "cyan") + colorize(" - Show all commands", "dim"))

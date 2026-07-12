@@ -126,6 +126,76 @@ class TestDestructiveClassification:
         assert is_destructive('python3.14 -Ic "pass"')
 
 
+class TestHarmlessRedirection:
+    """Discarding output must not trip confirmation; file writes still do."""
+
+    def test_stderr_to_null_is_not_destructive(self):
+        assert not is_destructive("pip show radsim 2>/dev/null")
+
+    def test_stdout_to_null_is_not_destructive(self):
+        assert not is_destructive("echo hi >/dev/null")
+
+    def test_both_streams_to_null_is_not_destructive(self):
+        assert not is_destructive("make check &>/dev/null")
+
+    def test_fd_duplication_is_not_destructive(self):
+        assert not is_destructive("ls 2>&1")
+        assert not is_destructive("echo warn >&2")
+
+    def test_windows_nul_is_not_destructive(self):
+        assert not is_destructive("pip show radsim 2>NUL")
+
+    def test_null_in_chain_is_not_destructive(self):
+        assert not is_destructive("pip show x 2>/dev/null; pip3 show x 2>/dev/null")
+
+    def test_file_target_stays_destructive(self):
+        assert is_destructive("echo secret > output.txt")
+        assert is_destructive("make 2>errors.log")
+        assert is_destructive("echo x >> log.txt")
+
+    def test_csh_style_file_target_stays_destructive(self):
+        assert is_destructive("make >& build.log")
+
+    def test_missing_target_fails_closed(self):
+        assert is_destructive("echo hi >")
+
+    def test_lookalike_null_targets_stay_destructive(self):
+        assert is_destructive("echo hi 2>/dev/nullx")
+        assert is_destructive("echo hi > /dev/null/../../etc/passwd")
+
+    def test_quoted_null_target_is_not_destructive(self):
+        assert not is_destructive('echo hi > "/dev/null"')
+
+
+class TestWrapperSeeThrough:
+    """Benign wrappers resolve to the real program; opaque ones fail closed."""
+
+    def test_timeout_wrapped_benign_command_is_not_destructive(self):
+        assert not is_destructive("timeout 5 pip show radsim")
+
+    def test_env_assignment_benign_command_is_not_destructive(self):
+        assert not is_destructive("env FOO=1 python script.py")
+
+    def test_nice_wrapped_benign_command_is_not_destructive(self):
+        assert not is_destructive("nice -n 10 make build")
+
+    def test_timeout_wrapped_destructive_command_stays_destructive(self):
+        assert is_destructive("timeout 5 rm -rf build")
+
+    def test_env_split_string_fails_closed(self):
+        assert is_destructive('env -S "sh -c whoami"')
+
+    def test_wrapper_without_command_fails_closed(self):
+        assert is_destructive("env")
+        assert is_destructive("cat names.txt | xargs")
+
+    def test_xargs_destructive_command_stays_destructive(self):
+        assert is_destructive("cat files.txt | xargs rm")
+
+    def test_wrapper_wrapping_nested_shell_stays_destructive(self):
+        assert is_destructive('timeout 5 bash -c "echo hi"')
+
+
 class TestPathTraversal:
     """Traversal detection allows git ranges and Go wildcards, blocks parents."""
 

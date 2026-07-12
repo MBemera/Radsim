@@ -51,6 +51,19 @@ def _confirmation_value_error(label, value):
     return None
 
 
+def _security_confirmations_enabled():
+    """Return True unless the user set security_level to "off".
+
+    Fails closed: if the config cannot be read, confirmations stay on.
+    """
+    try:
+        from .agent_config import get_agent_config_manager
+
+        return get_agent_config_manager().destructive_confirmation_enabled()
+    except Exception:
+        return True
+
+
 class RadSimAgent(
     AgentConversationMixin,
     AgentApiMixin,
@@ -492,11 +505,13 @@ class RadSimAgent(
         print_warning(f"DELETE: {file_path}")
         print_warning("This action cannot be undone!")
 
-        # Delete always requires explicit confirmation, ignoring auto_confirm in config
-        # But we still pass config so user *could* set auto_confirm=True here (though it won't affect *this* specific check if we ignore it)
-        # Actually, for delete, we usually want to force prompt even if auto_confirm is True.
-        # So we do NOT pass config to confirm_action here, to force the prompt.
-        confirmed = confirm_action(f"Delete '{file_path}'? (type 'yes' to confirm)")
+        # Deletion is irreversible, so it prompts even when auto_confirm is
+        # active. Only an explicit security_level of "off" skips the prompt.
+        if _security_confirmations_enabled():
+            confirmed = confirm_action(f"Delete '{file_path}'? (type 'yes' to confirm)")
+        else:
+            print_warning("Security level OFF: deleting without confirmation.")
+            confirmed = True
 
         if confirmed:
             result = execute_tool("delete_file", tool_input)
@@ -527,13 +542,20 @@ class RadSimAgent(
         is_destructive = is_destructive_command(command, DESTRUCTIVE_COMMANDS)
         if is_destructive:
             print_warning(f"DESTRUCTIVE COMMAND: {command}")
-            print_warning("Explicit permission required.")
 
         # A general shell can read, write, execute project code, reach the
         # network, or escape lexical path checks. Static classification is
-        # useful for warnings, but it is not a permission boundary. Always
-        # require a fresh human decision, even when --yes is active.
-        confirmed = confirm_action(f"Execute: '{command}'?", config=None)
+        # useful for warnings, but it is not a permission boundary. Require a
+        # fresh human decision, even when --yes is active, unless the user has
+        # explicitly set security_level to "off" (catastrophic commands stay
+        # blocked by validate_shell_command regardless).
+        if _security_confirmations_enabled():
+            if is_destructive:
+                print_warning("Explicit permission required.")
+            confirmed = confirm_action(f"Execute: '{command}'?", config=None)
+        else:
+            print_warning("Security level OFF: executing without confirmation.")
+            confirmed = True
 
         if confirmed:
             tool_start_time = time.time()
