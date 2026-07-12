@@ -1,5 +1,6 @@
 """Terminal output formatting for RadSim Agent."""
 
+import re
 import shutil
 import sys
 import time
@@ -370,57 +371,67 @@ def strip_teach_comments(content):
     return "\n".join(result_lines)
 
 
-# Buffer for accumulating partial lines during streaming
+# Streaming state: partial-line buffer and whether we are inside a fence.
 _stream_line_buffer = ""
+_stream_in_code_block = False
 
 
 def print_stream_chunk(text):
-    """Print a chunk of streamed text with teach mode magenta styling.
+    """Stream agent text one completed line at a time.
 
-    Buffers partial lines so teach comment lines (containing [teach]) can be
-    detected and colorized in bright_magenta as complete lines arrive.
+    Lines are buffered until their newline arrives so markdown can be
+    rendered terminal-friendly and teach comments colorized. The final
+    partial line is flushed by finish_stream() when the response ends.
     """
     global _stream_line_buffer
 
-    # Check if teach mode is active (cached per-chunk for performance)
-    teach_active = False
-    try:
-        from .modes import is_mode_active
+    teach_active = _teach_mode_active()
 
-        teach_active = is_mode_active("teach")
-    except Exception:
-        pass
-
-    if not teach_active or not supports_color():
-        sys.stdout.write(text)
-        sys.stdout.flush()
-        return
-
-    # Buffer text and process complete lines with magenta styling
     _stream_line_buffer += text
     while "\n" in _stream_line_buffer:
         line, _stream_line_buffer = _stream_line_buffer.split("\n", 1)
-        if is_teach_comment(line):
-            sys.stdout.write(colorize(line, "bright_magenta") + "\n")
-        else:
-            sys.stdout.write(line + "\n")
-
-    # Flush any remaining partial line (not yet a complete line)
-    # Check if it starts with a teach prefix to style it early
-    if _stream_line_buffer:
-        if is_teach_comment(_stream_line_buffer):
-            sys.stdout.write(colorize(_stream_line_buffer, "bright_magenta"))
-        else:
-            sys.stdout.write(_stream_line_buffer)
-        _stream_line_buffer = ""
-
+        sys.stdout.write(_style_stream_line(line, teach_active) + "\n")
     sys.stdout.flush()
+
+
+def finish_stream():
+    """Flush any partial final line and reset the streaming state."""
+    global _stream_line_buffer, _stream_in_code_block
+
+    if _stream_line_buffer:
+        sys.stdout.write(_style_stream_line(_stream_line_buffer, _teach_mode_active()))
+        sys.stdout.flush()
+    _stream_line_buffer = ""
+    _stream_in_code_block = False
+
+
+def _style_stream_line(line, teach_active):
+    """Render one streamed line, tracking code-fence state across lines."""
+    global _stream_in_code_block
+
+    if teach_active and is_teach_comment(line):
+        return colorize(line, "bright_magenta")
+    rendered, _stream_in_code_block = render_markdown_line(line, _stream_in_code_block)
+    return rendered
+
+
+def _teach_mode_active():
+    """True when teach mode should colorize [teach] comment lines."""
+    if not supports_color():
+        return False
+    try:
+        from .modes import is_mode_active
+
+        return is_mode_active("teach")
+    except Exception:
+        return False
 
 
 def reset_stream_state():
     """Reset the streaming state (call at start of new response)."""
-    global _stream_line_buffer
+    global _stream_line_buffer, _stream_in_code_block
     _stream_line_buffer = ""
+    _stream_in_code_block = False
 
 
 def style_teach_content(text):
@@ -441,11 +452,64 @@ def style_teach_content(text):
     return "\n".join(styled_lines)
 
 
+_MARKDOWN_HEADER = re.compile(r"^(#{1,6})\s+(.*)$")
+_MARKDOWN_RULE = re.compile(r"^\s*(-{3,}|\*{3,}|_{3,})\s*$")
+_MARKDOWN_BOLD = re.compile(r"\*\*(.+?)\*\*")
+_MARKDOWN_INLINE_CODE = re.compile(r"`([^`]+)`")
+_MARKDOWN_TABLE_DIVIDER = re.compile(r"^\|[\s:|-]+\|$")
+
+
+def render_markdown_line(line, in_code_block):
+    """Convert one markdown line to terminal-friendly text.
+
+    Fenced code blocks pass through untouched so real code stays exact and
+    copy-pasteable. Outside them, markdown decoration becomes plain text:
+    headers lose their hashes, rules disappear, bold and inline-code markers
+    become terminal styling, and table rows flatten to spaced columns.
+
+    Returns:
+        Tuple of (rendered line, updated in_code_block state).
+    """
+    if line.lstrip().startswith("```"):
+        return colorize(line, "dim"), not in_code_block
+    if in_code_block:
+        return line, True
+
+    header = _MARKDOWN_HEADER.match(line)
+    if header:
+        return colorize(header.group(2), "bold"), False
+
+    if _MARKDOWN_RULE.match(line):
+        return "", False
+
+    stripped = line.strip()
+    if stripped.startswith("|") and stripped.endswith("|") and len(stripped) > 1:
+        if _MARKDOWN_TABLE_DIVIDER.match(stripped):
+            return "", False
+        indent = line[: len(line) - len(line.lstrip())]
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        return indent + "  ".join(cells), False
+
+    line = _MARKDOWN_BOLD.sub(lambda match: colorize(match.group(1), "bold"), line)
+    line = _MARKDOWN_INLINE_CODE.sub(lambda match: colorize(match.group(1), "cyan"), line)
+    return line, False
+
+
+def render_markdown_text(text):
+    """Convert a full markdown response to terminal-friendly text."""
+    in_code_block = False
+    rendered = []
+    for line in text.split("\n"):
+        styled, in_code_block = render_markdown_line(line, in_code_block)
+        rendered.append(styled)
+    return "\n".join(rendered)
+
+
 def print_agent_response(text):
-    """Print the agent's response with styled teach content."""
+    """Print the agent's response as terminal-friendly text."""
     print()
-    styled_text = style_teach_content(text)
-    print(styled_text)
+    rendered = render_markdown_text(text)
+    print(style_teach_content(rendered))
     print()
 
 

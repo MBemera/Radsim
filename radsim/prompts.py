@@ -10,9 +10,11 @@ logger = logging.getLogger(__name__)
 PROMPT_FRAGMENT_DIR = Path(__file__).resolve().parent / "prompt_fragments"
 PERSONALITY_PROMPT_FILE = PROMPT_FRAGMENT_DIR / "personality.md"
 TOOL_USE_PROMPT_FILE = PROMPT_FRAGMENT_DIR / "tool_use.md"
+RESPONSE_STYLE_PROMPT_FILE = PROMPT_FRAGMENT_DIR / "response_style.md"
 HARNESS_PROMPT_FILES = {
     "personality": PERSONALITY_PROMPT_FILE,
     "tool_use": TOOL_USE_PROMPT_FILE,
+    "response_style": RESPONSE_STYLE_PROMPT_FILE,
 }
 
 RADSIM_SYSTEM_PROMPT = """You are RadSim, an agentic coding assistant that generates radically simple code.
