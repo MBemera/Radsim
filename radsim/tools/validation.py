@@ -7,8 +7,9 @@ import fnmatch
 from pathlib import Path
 from threading import RLock
 
+from ..terminal import is_unsafe_terminal_character
 from . import command_analysis
-from .constants import PROTECTED_PATTERNS
+from .constants import MAX_COMMAND_SIZE, PROTECTED_PATTERNS
 
 _PATH_CACHE = {
     "cwd": None,
@@ -113,6 +114,9 @@ def validate_shell_command(command):
     if not command.strip():
         return False, "Command cannot be empty"
 
+    if len(command) > MAX_COMMAND_SIZE:
+        return False, f"Command exceeds the {MAX_COMMAND_SIZE}-character limit"
+
     # Phase 1: reject dangerous syntax on the raw string (catches
     # substitution even inside quotes, before we parse).
     is_safe, rejection_reason = _check_for_dangerous_characters(command)
@@ -141,6 +145,13 @@ def validate_shell_command(command):
     return True, None
 
 
+def has_terminal_control_character(value):
+    """Return True when text contains terminal or bidi control characters."""
+    if not isinstance(value, str):
+        return False
+    return any(is_unsafe_terminal_character(character) for character in value)
+
+
 def _check_for_dangerous_characters(command):
     """Reject raw-string constructs that hide or inject commands.
 
@@ -152,6 +163,9 @@ def _check_for_dangerous_characters(command):
 
     if "\n" in command or "\r" in command:
         return False, "Newlines are forbidden in commands"
+
+    if has_terminal_control_character(command):
+        return False, "Terminal control characters are forbidden in commands"
 
     if "`" in command:
         return False, "Backticks are forbidden in commands (command substitution)"
@@ -179,11 +193,25 @@ def _check_tokens(tokens):
         if command_analysis.is_path_traversal(token):
             return False, "Path traversal ('..') is forbidden in command"
 
+    for segment in command_analysis.split_into_segments(tokens):
+        if command_analysis.has_shell_control_syntax(segment):
+            return False, "Shell control structures are forbidden in commands"
+        if command_analysis.has_ambiguous_command_head(segment):
+            return False, "Shell expansion in an executable name is forbidden"
+        if command_analysis.has_unanalyzable_execution(segment):
+            return False, "Nested shells and inline interpreter code are forbidden"
+
+    if any(command_analysis.has_brace_expansion(token) for token in tokens):
+        return False, "Shell brace expansion is forbidden in commands"
+
     return True, None
 
 
 def _check_command_policy(command):
-    """Apply the whitelist/blocklist policy, failing closed on catastrophe.
+    """Apply the whitelist/blocklist policy, failing closed on any error.
+
+    If the policy engine cannot render a decision the command is blocked:
+    a broken configuration must never widen what the agent may run.
 
     Returns:
         Tuple of (is_allowed, reason). reason is None when allowed.
@@ -193,14 +221,4 @@ def _check_command_policy(command):
 
         return get_command_policy().is_command_allowed(command)
     except Exception:
-        # Policy engine unavailable: still block catastrophic commands
-        # directly rather than failing open.
-        try:
-            from .command_policy import CommandPolicy
-
-            is_blocked, reason = CommandPolicy()._check_always_blocked(command)
-            if is_blocked:
-                return False, reason
-        except Exception:
-            return False, "Command policy could not be evaluated; blocked for safety"
-        return True, None
+        return False, "Command policy could not be evaluated; blocked for safety"

@@ -5,21 +5,27 @@ Jobs are stored in ~/.radsim/jobs.json and synced to the system scheduler.
 RadSim-managed entries are tagged so existing user cron jobs are never touched.
 """
 
+import csv
 import json
 import logging
 import platform
+import re
+import shlex
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from .tools.shell import run_shell_command
+from .terminal import is_unsafe_terminal_character
+from .tools.shell import run_process, run_shell_command
 
 logger = logging.getLogger(__name__)
 
 JOBS_FILE = Path.home() / ".radsim" / "jobs.json"
 RADSIM_CRON_TAG = "radsim-job"
+RADSIM_CRON_MARKER = re.compile(r"^# radsim-job-[1-9][0-9]*:")
+RADSIM_WINDOWS_TASK = re.compile(r"^\\?RadSim_Job_[1-9][0-9]*$")
 
 SCHEDULE_PRESETS = {
     "hourly": "0 * * * *",
@@ -49,17 +55,46 @@ def _load_jobs() -> list[CronJob]:
 
     try:
         data = json.loads(JOBS_FILE.read_text())
-        return [CronJob(**job) for job in data]
-    except (json.JSONDecodeError, TypeError, KeyError) as error:
-        logger.warning("Failed to load jobs file: %s", error)
-        return []
+        if not isinstance(data, list):
+            raise ValueError("Jobs file must contain a list")
+        jobs = [CronJob(**job) for job in data]
+        job_ids = set()
+        for job in jobs:
+            _validate_job(job)
+            if job.job_id in job_ids:
+                raise ValueError("Job IDs must be unique")
+            job_ids.add(job.job_id)
+        return jobs
+    except (OSError, json.JSONDecodeError, TypeError, KeyError, ValueError) as error:
+        raise ValueError("Jobs file is invalid; refusing to modify the system scheduler") from error
 
 
 def _save_jobs(jobs: list[CronJob]):
     """Save all jobs to the storage file."""
+    for job in jobs:
+        _validate_job(job)
     JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
     data = [asdict(job) for job in jobs]
     JOBS_FILE.write_text(json.dumps(data, indent=2))
+
+
+def _clone_jobs(jobs: list[CronJob]) -> list[CronJob]:
+    """Return detached job records for rollback."""
+    return [CronJob(**asdict(job)) for job in jobs]
+
+
+def _save_jobs_and_sync(jobs: list[CronJob], previous_jobs: list[CronJob]):
+    """Persist jobs and restore file and scheduler state if sync fails."""
+    _save_jobs(jobs)
+    try:
+        sync_crontab()
+    except Exception:
+        _save_jobs(previous_jobs)
+        try:
+            sync_crontab()
+        except Exception:
+            logger.exception("Unable to restore the previous system scheduler state")
+        raise
 
 
 def _next_job_id(jobs: list[CronJob]) -> int:
@@ -67,6 +102,21 @@ def _next_job_id(jobs: list[CronJob]) -> int:
     if not jobs:
         return 1
     return max(job.job_id for job in jobs) + 1
+
+
+def _validate_job(job: CronJob):
+    """Validate a job at every persistence and scheduler trust boundary."""
+    if not isinstance(job.job_id, int) or isinstance(job.job_id, bool) or job.job_id < 1:
+        raise ValueError("Job ID must be a positive integer")
+    if not isinstance(job.schedule, str) or not validate_cron_expression(job.schedule):
+        raise ValueError("Invalid cron schedule")
+    if not isinstance(job.command, str) or not job.command.strip():
+        raise ValueError("Job command cannot be empty")
+    if not isinstance(job.description, str):
+        raise ValueError("Job description must be a string")
+    if not isinstance(job.is_radsim_task, bool) or not isinstance(job.enabled, bool):
+        raise ValueError("Job flags must be booleans")
+    _reject_crontab_injection(job.schedule, job.command, job.description)
 
 
 def resolve_schedule(schedule_input: str) -> str | None:
@@ -190,13 +240,31 @@ def _validate_cron_field(field_value: str, min_val: int, max_val: int) -> bool:
 
 def _build_shell_command(job: CronJob) -> str:
     """Build the full shell command for a cron job."""
-    radsim_path = shutil.which("radsim") or "radsim"
+    if _is_windows():
+        if job.is_radsim_task:
+            arguments = [_resolve_radsim_path(), job.command]
+        else:
+            arguments = [
+                "powershell.exe",
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                job.command,
+            ]
+        return subprocess.list2cmdline(arguments)
 
-    if job.is_radsim_task:
-        escaped_command = job.command.replace('"', '\\"')
-        return f'{radsim_path} "{escaped_command}"'
+    if not job.is_radsim_task:
+        return job.command
 
-    return job.command
+    # shlex.quote keeps the task text a single argument even when it holds
+    # quotes or a trailing backslash, which manual escaping mishandles.
+    return f"{shlex.quote(_resolve_radsim_path())} {shlex.quote(job.command)}"
+
+
+def _resolve_radsim_path() -> str:
+    """Return the installed RadSim executable path or its command name."""
+    return shutil.which("radsim") or "radsim"
 
 
 def _is_windows() -> bool:
@@ -207,18 +275,22 @@ def _is_windows() -> bool:
 # --- Crontab integration (Mac/Linux) ---
 
 def _read_crontab() -> str:
-    """Read the current user crontab. Returns empty string if no crontab exists."""
+    """Read crontab, distinguishing an absent table from operational failure."""
     try:
         result = subprocess.run(
             ["crontab", "-l"],
             capture_output=True,
             text=True,
         )
-        if result.returncode != 0:
-            return ""
+    except FileNotFoundError as error:
+        raise RuntimeError("crontab is not installed") from error
+
+    if result.returncode == 0:
         return result.stdout
-    except FileNotFoundError:
+    if "no crontab" in result.stderr.lower():
         return ""
+    message = result.stderr.strip() or f"crontab exited with status {result.returncode}"
+    raise RuntimeError(f"Unable to read existing crontab: {message}")
 
 
 def _write_crontab(content: str):
@@ -242,7 +314,7 @@ def _remove_radsim_lines(crontab_text: str) -> str:
         if skip_next:
             skip_next = False
             continue
-        if line.strip().startswith(f"# {RADSIM_CRON_TAG}"):
+        if RADSIM_CRON_MARKER.match(line.strip()):
             skip_next = True
             continue
         filtered_lines.append(line)
@@ -250,15 +322,28 @@ def _remove_radsim_lines(crontab_text: str) -> str:
     return "\n".join(filtered_lines)
 
 
+def _escape_cron_percent(command: str) -> str:
+    """Escape only bare cron percent characters, preserving existing escapes."""
+    escaped = []
+    backslashes = 0
+    for character in command:
+        if character == "%" and backslashes % 2 == 0:
+            escaped.append("\\")
+        escaped.append(character)
+        backslashes = backslashes + 1 if character == "\\" else 0
+    return "".join(escaped)
+
+
 def _build_crontab_entries(jobs: list[CronJob]) -> str:
     """Build crontab entries for all enabled RadSim jobs."""
     entries = []
     for job in jobs:
+        _validate_job(job)
         if not job.enabled:
             continue
         shell_command = _build_shell_command(job)
         entries.append(f"# {RADSIM_CRON_TAG}-{job.job_id}: {job.description}")
-        entries.append(f"{job.schedule} {shell_command}")
+        entries.append(f"{job.schedule} {_escape_cron_percent(shell_command)}")
 
     return "\n".join(entries)
 
@@ -295,36 +380,54 @@ def sync_crontab():
 # --- Windows Task Scheduler integration ---
 
 def _sync_windows_tasks():
-    """Sync Windows Task Scheduler with stored RadSim jobs."""
+    """Create desired Windows tasks before deleting stale managed tasks."""
     jobs = _load_jobs()
 
-    # Remove all existing RadSim tasks
-    _remove_all_windows_tasks()
-
-    # Create tasks for enabled jobs
     for job in jobs:
-        if job.enabled:
-            _create_windows_task(job)
+        _validate_job(job)
+        _cron_to_schtasks(job.schedule)
+
+    existing_task_names = _list_windows_task_names()
+    enabled_jobs = [job for job in jobs if job.enabled]
+
+    for job in enabled_jobs:
+        _create_windows_task(job)
+
+    desired_task_names = {f"RadSim_Job_{job.job_id}" for job in enabled_jobs}
+    for task_name in sorted(existing_task_names):
+        if task_name.removeprefix("\\") in desired_task_names:
+            continue
+        _delete_windows_task(task_name)
 
 
-def _remove_all_windows_tasks():
-    """Remove all RadSim tasks from Windows Task Scheduler."""
+def _list_windows_task_names() -> set[str]:
+    """Return exact RadSim-managed task names from Windows Task Scheduler."""
     try:
         result = subprocess.run(
-            ["schtasks", "/query", "/fo", "LIST"],
+            ["schtasks", "/query", "/fo", "CSV", "/nh"],
             capture_output=True,
             text=True,
+            check=True,
         )
-        for line in result.stdout.splitlines():
-            if "RadSim_Job_" in line:
-                task_name = line.split(":")[-1].strip()
-                subprocess.run(
-                    ["schtasks", "/delete", "/tn", task_name, "/f"],
-                    capture_output=True,
-                    text=True,
-                )
-    except FileNotFoundError:
-        logger.warning("schtasks not found — cannot manage Windows scheduled tasks")
+        task_names = {row[0].strip() for row in csv.reader(result.stdout.splitlines()) if row}
+    except (OSError, subprocess.SubprocessError, csv.Error) as error:
+        raise RuntimeError("Unable to list existing RadSim Windows tasks") from error
+    return {name for name in task_names if RADSIM_WINDOWS_TASK.fullmatch(name)}
+
+
+def _delete_windows_task(task_name: str):
+    """Delete one exact RadSim-managed Windows task."""
+    if not RADSIM_WINDOWS_TASK.fullmatch(task_name):
+        raise ValueError("Refusing to delete an unmanaged Windows task")
+    try:
+        subprocess.run(
+            ["schtasks", "/delete", "/tn", task_name, "/f"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError(f"Unable to delete Windows task {task_name}") from error
 
 
 def _create_windows_task(job: CronJob):
@@ -335,65 +438,77 @@ def _create_windows_task(job: CronJob):
     # Convert cron schedule to schtasks format (simplified)
     schedule_type, schedule_args = _cron_to_schtasks(job.schedule)
 
+    command = [
+        "schtasks", "/create",
+        "/tn", task_name,
+        "/tr", shell_command,
+        "/sc", schedule_type,
+        *schedule_args,
+        "/f",
+    ]
     try:
-        cmd = [
-            "schtasks", "/create",
-            "/tn", task_name,
-            "/tr", shell_command,
-            "/sc", schedule_type,
-            *schedule_args,
-            "/f",
-        ]
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError) as error:
-        logger.warning("Failed to create Windows task: %s", error)
+        subprocess.run(command, capture_output=True, text=True, check=True)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError(f"Failed to create Windows task {task_name}") from error
 
 
 def _cron_to_schtasks(cron_expr: str) -> tuple[str, list[str]]:
-    """Convert a cron expression to schtasks schedule type and arguments.
+    """Convert supported cron schedules to explicit schtasks arguments."""
+    if not validate_cron_expression(cron_expr):
+        raise ValueError("Invalid cron schedule")
 
-    This is a simplified conversion covering common patterns.
-    """
     fields = cron_expr.split()
     minute, hour = fields[0], fields[1]
     dom, month, dow = fields[2], fields[3], fields[4]
 
-    start_time = f"{int(hour):02d}:{int(minute):02d}"
+    if fields[1:] == ["*", "*", "*", "*"]:
+        if minute == "*":
+            return "MINUTE", ["/mo", "1"]
+        if minute.startswith("*/"):
+            return "MINUTE", ["/mo", str(int(minute[2:]))]
 
-    # Hourly: 0 * * * *
     if hour == "*" and dom == "*" and month == "*" and dow == "*":
         return "HOURLY", ["/st", f"00:{int(minute):02d}"]
 
-    # Daily: M H * * *
+    if not minute.isdigit() or not hour.isdigit():
+        raise ValueError("Schedule is valid cron but unsupported by Windows Task Scheduler")
+
+    start_time = f"{int(hour):02d}:{int(minute):02d}"
     if dom == "*" and month == "*" and dow == "*":
         return "DAILY", ["/st", start_time]
 
-    # Weekdays: M H * * 1-5
     if dom == "*" and month == "*" and dow == "1-5":
         return "WEEKLY", ["/d", "MON,TUE,WED,THU,FRI", "/st", start_time]
 
-    # Weekly: M H * * N
-    if dom == "*" and month == "*" and dow not in ("*", "1-5"):
-        day_map = {"0": "SUN", "1": "MON", "2": "TUE", "3": "WED",
-                   "4": "THU", "5": "FRI", "6": "SAT", "7": "SUN"}
-        day = day_map.get(dow, "MON")
-        return "WEEKLY", ["/d", day, "/st", start_time]
+    day_map = {
+        "0": "SUN", "1": "MON", "2": "TUE", "3": "WED",
+        "4": "THU", "5": "FRI", "6": "SAT", "7": "SUN",
+    }
+    if dom == "*" and month == "*" and dow in day_map:
+        return "WEEKLY", ["/d", day_map[dow], "/st", start_time]
 
-    # Monthly: M H D * *
-    if month == "*" and dow == "*":
+    if month == "*" and dow == "*" and dom.isdigit():
         return "MONTHLY", ["/d", dom, "/st", start_time]
 
-    # Fallback to daily
-    return "DAILY", ["/st", start_time]
+    raise ValueError("Schedule is valid cron but unsupported by Windows Task Scheduler")
+
+
+def cron_to_windows_schedule(cron_expr: str) -> tuple[str, list[str]]:
+    """Convert a supported cron expression to Task Scheduler arguments."""
+    return _cron_to_schtasks(cron_expr)
 
 
 # --- Public API ---
 
-def _reject_crontab_injection(schedule: str, command: str):
-    """Raise if a schedule or command could inject extra crontab lines."""
-    for value in (schedule, command):
-        if any(char in value for char in ("\n", "\r", "\x00")):
-            raise ValueError("Schedule and command must not contain newlines or null bytes")
+def _reject_crontab_injection(schedule: str, command: str, description: str):
+    """Raise if any value written to the crontab could inject extra lines.
+
+    The description lands on a crontab comment line, so it is just as
+    injectable as the schedule and command.
+    """
+    for value in (schedule, command, description):
+        if any(is_unsafe_terminal_character(character) for character in value):
+            raise ValueError("Schedule, command, and description must not contain control characters")
 
 
 def add_job(schedule: str, command: str, description: str, is_radsim_task: bool) -> CronJob:
@@ -408,9 +523,8 @@ def add_job(schedule: str, command: str, description: str, is_radsim_task: bool)
     Returns:
         The created CronJob.
     """
-    _reject_crontab_injection(schedule, command)
-
     jobs = _load_jobs()
+    previous_jobs = _clone_jobs(jobs)
     job_id = _next_job_id(jobs)
 
     job = CronJob(
@@ -422,9 +536,12 @@ def add_job(schedule: str, command: str, description: str, is_radsim_task: bool)
         enabled=True,
     )
 
+    _validate_job(job)
+    if _is_windows():
+        _cron_to_schtasks(job.schedule)
+
     jobs.append(job)
-    _save_jobs(jobs)
-    sync_crontab()
+    _save_jobs_and_sync(jobs, previous_jobs)
 
     return job
 
@@ -435,14 +552,14 @@ def remove_job(job_id: int) -> bool:
     Returns True if the job was found and removed.
     """
     jobs = _load_jobs()
+    previous_jobs = _clone_jobs(jobs)
     original_count = len(jobs)
     jobs = [job for job in jobs if job.job_id != job_id]
 
     if len(jobs) == original_count:
         return False
 
-    _save_jobs(jobs)
-    sync_crontab()
+    _save_jobs_and_sync(jobs, previous_jobs)
     return True
 
 
@@ -452,11 +569,11 @@ def enable_job(job_id: int) -> bool:
     Returns True if the job was found and enabled.
     """
     jobs = _load_jobs()
+    previous_jobs = _clone_jobs(jobs)
     for job in jobs:
         if job.job_id == job_id:
             job.enabled = True
-            _save_jobs(jobs)
-            sync_crontab()
+            _save_jobs_and_sync(jobs, previous_jobs)
             return True
     return False
 
@@ -467,11 +584,11 @@ def disable_job(job_id: int) -> bool:
     Returns True if the job was found and disabled.
     """
     jobs = _load_jobs()
+    previous_jobs = _clone_jobs(jobs)
     for job in jobs:
         if job.job_id == job_id:
             job.enabled = False
-            _save_jobs(jobs)
-            sync_crontab()
+            _save_jobs_and_sync(jobs, previous_jobs)
             return True
     return False
 
@@ -499,12 +616,10 @@ def run_job_now(job_id: int) -> tuple[bool, str]:
     if not job:
         return False, f"Job #{job_id} not found"
 
-    shell_command = _build_shell_command(job)
-
-    # Route through the hardened shell runner so on-demand runs get the same
-    # validation, secret-scrubbed environment, and process isolation as the
-    # agent's own commands — instead of a raw shell=True call.
-    result = run_shell_command(shell_command, timeout=300)
+    if job.is_radsim_task:
+        result = run_process([_resolve_radsim_path(), job.command], timeout=300)
+    else:
+        result = run_shell_command(job.command, timeout=300)
 
     # Record the attempt regardless of outcome.
     jobs = _load_jobs()

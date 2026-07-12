@@ -6,14 +6,42 @@ RadSim Principle: One Function, One Purpose
 import ast
 import json
 import logging
+import os
 import re
 import shlex
 from pathlib import Path
 
-from .shell import run_shell_command
+from ..terminal import is_unsafe_terminal_character
+from .shell import format_process_command, run_process, run_shell_command
 from .validation import validate_path
 
 logger = logging.getLogger(__name__)
+
+
+def _docker_identifier_error(value, label):
+    """Return an error for an invalid container or image identifier."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        return f"{label} must be a non-empty string"
+    if value.startswith("-"):
+        return f"{label} must not start with '-'"
+    if any(is_unsafe_terminal_character(character) for character in value):
+        return f"{label} must not contain control characters"
+    return None
+
+
+def _split_docker_arguments(value):
+    """Return explicit Docker argv, allowing legacy strings only on POSIX."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    if not isinstance(value, str):
+        raise ValueError("Docker arguments must be a string or list")
+    if os.name == "nt":
+        raise ValueError("Docker command and options must use argument lists on Windows")
+    return shlex.split(value)
 
 
 def run_docker(action, container=None, image=None, command=None, options=None):
@@ -24,16 +52,11 @@ def run_docker(action, container=None, image=None, command=None, options=None):
         container: Container name/ID (for stop, start, logs, exec)
         image: Image name (for run, pull, build)
         command: Command to run (for run, exec)
-        options: Additional options as string
+        options: Additional options as a string or argument list
 
     Returns:
         dict with success, output
     """
-    # Check if Docker is available
-    check = run_shell_command("docker --version", timeout=10)
-    if not check["success"]:
-        return {"success": False, "error": "Docker is not installed or not running"}
-
     valid_actions = [
         "ps",
         "images",
@@ -50,6 +73,15 @@ def run_docker(action, container=None, image=None, command=None, options=None):
     if action not in valid_actions:
         return {"success": False, "error": f"Invalid action. Valid: {', '.join(valid_actions)}"}
 
+    try:
+        option_arguments = _split_docker_arguments(options)
+        command_arguments = _split_docker_arguments(command)
+    except ValueError as argument_error:
+        return {"success": False, "error": str(argument_error)}
+    for value, label in ((container, "Container"), (image, "Image")):
+        if validation_error := _docker_identifier_error(value, label):
+            return {"success": False, "error": validation_error}
+
     # Build the command
     cmd_parts = ["docker", action]
 
@@ -62,44 +94,53 @@ def run_docker(action, container=None, image=None, command=None, options=None):
     elif action == "run":
         if not image:
             return {"success": False, "error": "Image required for 'run' action"}
-        if options:
-            cmd_parts.extend(shlex.split(options))
-        cmd_parts.append(shlex.quote(image))
-        if command:
-            cmd_parts.extend(shlex.split(command))
+        cmd_parts.extend(option_arguments)
+        cmd_parts.append(image)
+        cmd_parts.extend(command_arguments)
 
     elif action in ["stop", "start", "logs", "rm"]:
         if not container:
             return {"success": False, "error": f"Container required for '{action}' action"}
         if action == "logs":
             cmd_parts.extend(["--tail", "100"])
-        cmd_parts.append(shlex.quote(container))
+        cmd_parts.append(container)
 
     elif action == "exec":
         if not container:
             return {"success": False, "error": "Container required for 'exec' action"}
         if not command:
             return {"success": False, "error": "Command required for 'exec' action"}
-        cmd_parts.extend(["-it", shlex.quote(container)])
-        cmd_parts.extend(shlex.split(command))
+        cmd_parts.append(container)
+        cmd_parts.extend(command_arguments)
 
     elif action == "build":
-        if options:
-            cmd_parts.extend(shlex.split(options))
+        cmd_parts.extend(option_arguments)
         cmd_parts.append(".")  # Build from current directory
 
     elif action == "pull":
         if not image:
             return {"success": False, "error": "Image required for 'pull' action"}
-        cmd_parts.append(shlex.quote(image))
+        cmd_parts.append(image)
 
     elif action == "rmi":
         if not image:
             return {"success": False, "error": "Image required for 'rmi' action"}
-        cmd_parts.append(shlex.quote(image))
+        cmd_parts.append(image)
 
-    docker_cmd = " ".join(cmd_parts)
-    result = run_shell_command(docker_cmd, timeout=300)
+    if any(
+        not isinstance(part, str)
+        or not part
+        or any(is_unsafe_terminal_character(character) for character in part)
+        for part in cmd_parts
+    ):
+        return {"success": False, "error": "Docker arguments must be non-empty strings"}
+
+    check = run_process(["docker", "--version"], timeout=10)
+    if not check["success"]:
+        return {"success": False, "error": "Docker is not installed or not running"}
+
+    docker_cmd = format_process_command(cmd_parts)
+    result = run_process(cmd_parts, timeout=300)
 
     return {
         "success": result["success"],

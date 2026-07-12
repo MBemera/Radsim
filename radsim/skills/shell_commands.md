@@ -15,13 +15,13 @@ run_shell_command(command="ls -la")
 run_shell_command(command="npm install", timeout=120)
 
 # In specific directory
-run_shell_command(command="python setup.py install", cwd="./mypackage")
+run_shell_command(command="python setup.py install", working_dir="./mypackage")
 ```
 
 **Parameters:**
 - `command` (required): The shell command to execute
-- `timeout` (optional): Timeout in seconds (default: 60)
-- `cwd` (optional): Working directory
+- `timeout` (optional): Timeout in seconds (default: 120, maximum: 3600)
+- `working_dir` (optional): Existing working directory
 
 **Returns:**
 ```json
@@ -35,8 +35,10 @@ run_shell_command(command="python setup.py install", cwd="./mypackage")
 
 ## Security Controls
 
-### Destructive Commands (Require explicit confirmation)
-These commands always prompt for confirmation, even in auto-confirm mode:
+### Explicit shell confirmation
+
+Every general shell command prompts for a fresh confirmation, even in
+auto-confirm mode. Destructive classification adds a stronger warning for:
 
 - `rm`, `rmdir`, `del`, `unlink`, `shred` - Deletion
 - `sudo`, `su`, `chown`, `chmod` - Privileged operations
@@ -47,7 +49,9 @@ These commands always prompt for confirmation, even in auto-confirm mode:
 - `kubectl delete` - Kubernetes deletion
 
 ### Path Traversal Protection
-Commands with `..` in arguments are blocked to prevent escaping the project directory.
+Commands with `..` path components are blocked. Absolute and home-relative
+paths remain possible after explicit confirmation; this lexical check is not
+an operating-system sandbox.
 
 ## Common Use Cases
 
@@ -92,7 +96,7 @@ run_shell_command(command="docker build -t myapp .")
 ```python
 # Note: Long-running commands may timeout
 run_shell_command(command="npm run dev", timeout=10)
-# For servers, consider using background processes
+# Background shell execution is intentionally blocked.
 ```
 
 ## Best Practices

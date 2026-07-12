@@ -19,13 +19,15 @@ _MANAGERS_BY_OS = {
 
 
 def detect_os():
-    """Return the host OS family: 'macos', 'windows', or 'linux'."""
+    """Return the host OS family, or 'unknown' for unsupported systems."""
     system = platform.system().lower()
     if system == "darwin":
         return "macos"
     if system == "windows":
         return "windows"
-    return "linux"
+    if system == "linux":
+        return "linux"
+    return "unknown"
 
 
 def detect_package_manager(os_family=None):
