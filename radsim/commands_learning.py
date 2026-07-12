@@ -219,6 +219,86 @@ class LearningCommandHandlersMixin:
         response = safe_input("  Type 'off' to confirm, anything else to cancel: ")
         return response is not None and response.strip().lower() == "off"
 
+    def _security_settings_menu(self, config_mgr):
+        """Pick a security preset by number or customize individual switches."""
+        from .menu import interactive_menu
+
+        current = config_mgr.get("security_level", "balanced")
+        choice = interactive_menu(
+            f"SECURITY (current: {current.upper()})",
+            [
+                ("restrictive", "Restrictive — read-only command whitelist"),
+                ("balanced", "Balanced — prompts for every command (default)"),
+                ("permissive", "Permissive — prompts, deploy enabled"),
+                ("off", "Off — no prompts (catastrophic still blocked)"),
+                ("customize", "Customize individual switches"),
+            ],
+        )
+        if choice is None:
+            return
+        if choice == "customize":
+            self._customize_security_switches(config_mgr)
+            return
+        self._apply_security_level(config_mgr, choice)
+
+    def _apply_security_level(self, config_mgr, level):
+        """Validate a preset choice, gate "off" behind a warning, and apply."""
+        from .agent_config import SECURITY_LEVEL_NUMBERS
+        from .menu import safe_input
+
+        level = str(level).strip().lower()
+        level = SECURITY_LEVEL_NUMBERS.get(level, level)
+        if level == "off" and not self._confirm_security_off(safe_input):
+            print_info("Security level unchanged.")
+            return
+
+        result = config_mgr.set_security_level(level)
+        if not result["success"]:
+            print_info(f"Error: {result['error']}")
+            print_info(f"Valid levels: 1-4 or {', '.join(result.get('valid_levels', []))}")
+            return
+
+        print()
+        print(f"  Security level set to: {level.upper()}")
+        print(f"  Shell mode: {result['shell_mode']}")
+        print("  Tool changes:")
+        for tool, enabled in result["tools"].items():
+            status = "ON" if enabled else "OFF"
+            print(f"    {tool:<16} {status}")
+        if level == "off":
+            print()
+            print("  Destructive commands now run without confirmation.")
+            print("  Restore with: /settings security_level balanced")
+        print()
+
+    def _customize_security_switches(self, config_mgr):
+        """Toggle individual security switches and persist the result."""
+        from .agent_config import SECURITY_OFF_WARNING_LINES
+        from .menu import toggle_menu
+
+        switches = config_mgr.get_security_switches()
+        footer = ("Catastrophic commands (rm -rf /, mkfs) stay blocked regardless.",)
+        states = toggle_menu("SECURITY SWITCHES", switches, footer_lines=footer)
+        if states is None:
+            print_info("No changes saved.")
+            return
+
+        changed = config_mgr.apply_security_switches(states)
+        if not changed:
+            print_info("No changes.")
+            return
+
+        print()
+        print("  Saved. Changed switches:")
+        for key in changed:
+            status = "ON" if states[key] else "OFF"
+            print(f"    {key:<28} {status}")
+        if not config_mgr.destructive_confirmation_enabled():
+            print()
+            for line in SECURITY_OFF_WARNING_LINES:
+                print_error(f"  {line}")
+        print()
+
     def _cmd_settings(self, agent, args=None):
         """View or change agent settings."""
         from .agent_config import get_agent_config_manager
@@ -250,35 +330,17 @@ class LearningCommandHandlersMixin:
                     return
                 args = [key, value]
             elif choice == "security":
-                level = safe_input("  Level (restrictive/balanced/permissive/off): ")
-                if level is None:
-                    return
-                args = ["security_level", level]
+                self._security_settings_menu(config_mgr)
+                return
 
         key_path = args[0]
 
+        if key_path == "security" and len(args) == 1:
+            self._security_settings_menu(config_mgr)
+            return
+
         if key_path == "security_level" and len(args) >= 2:
-            level = args[1].lower()
-            if level == "off" and not self._confirm_security_off(safe_input):
-                print_info("Security level unchanged.")
-                return
-            result = config_mgr.set_security_level(level)
-            if result["success"]:
-                print()
-                print(f"  Security level set to: {level.upper()}")
-                print(f"  Shell mode: {result['shell_mode']}")
-                print("  Tool changes:")
-                for tool, enabled in result["tools"].items():
-                    status = "ON" if enabled else "OFF"
-                    print(f"    {tool:<16} {status}")
-                if level == "off":
-                    print()
-                    print("  Destructive commands now run without confirmation.")
-                    print("  Restore with: /settings security_level balanced")
-                print()
-            else:
-                print_info(f"Error: {result['error']}")
-                print_info(f"Valid levels: {', '.join(result.get('valid_levels', []))}")
+            self._apply_security_level(config_mgr, args[1])
             return
 
         if len(args) < 2:

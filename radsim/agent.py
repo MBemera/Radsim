@@ -51,15 +51,18 @@ def _confirmation_value_error(label, value):
     return None
 
 
-def _security_confirmations_enabled():
-    """Return True unless the user set security_level to "off".
+def _confirmation_required(kind):
+    """Return True unless the user disabled this confirmation in /settings.
+
+    Args:
+        kind: "shell_commands" or "file_deletion"
 
     Fails closed: if the config cannot be read, confirmations stay on.
     """
     try:
         from .agent_config import get_agent_config_manager
 
-        return get_agent_config_manager().destructive_confirmation_enabled()
+        return get_agent_config_manager().confirmation_enabled(kind)
     except Exception:
         return True
 
@@ -506,11 +509,12 @@ class RadSimAgent(
         print_warning("This action cannot be undone!")
 
         # Deletion is irreversible, so it prompts even when auto_confirm is
-        # active. Only an explicit security_level of "off" skips the prompt.
-        if _security_confirmations_enabled():
+        # active. Only explicitly disabling delete confirmation in /settings
+        # skips the prompt.
+        if _confirmation_required("file_deletion"):
             confirmed = confirm_action(f"Delete '{file_path}'? (type 'yes' to confirm)")
         else:
-            print_warning("Security level OFF: deleting without confirmation.")
+            print_warning("Delete confirmation is OFF: deleting without prompt.")
             confirmed = True
 
         if confirmed:
@@ -547,14 +551,14 @@ class RadSimAgent(
         # network, or escape lexical path checks. Static classification is
         # useful for warnings, but it is not a permission boundary. Require a
         # fresh human decision, even when --yes is active, unless the user has
-        # explicitly set security_level to "off" (catastrophic commands stay
-        # blocked by validate_shell_command regardless).
-        if _security_confirmations_enabled():
+        # explicitly disabled shell confirmation in /settings (catastrophic
+        # commands stay blocked by validate_shell_command regardless).
+        if _confirmation_required("shell_commands"):
             if is_destructive:
                 print_warning("Explicit permission required.")
             confirmed = confirm_action(f"Execute: '{command}'?", config=None)
         else:
-            print_warning("Security level OFF: executing without confirmation.")
+            print_warning("Shell confirmation is OFF: executing without prompt.")
             confirmed = True
 
         if confirmed:
