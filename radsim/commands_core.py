@@ -39,14 +39,20 @@ class CoreCommandHandlersMixin:
         print()
 
     def _cmd_clear(self, agent):
-        agent.reset()
+        """Clear the conversation and reset session state for a fresh start."""
         from .background import reset_job_manager
+        from .output import clear_session_files
         from .todo import reset_tracker
 
+        agent.reset()
         reset_tracker()
         reset_job_manager()
         agent._session_capable_model = None
-        print_info("Conversation, task tracker, and background jobs cleared.")
+        if hasattr(agent, "protection"):
+            agent.protection.rate_limiter.reset()
+            agent.protection.budget_guard.reset()
+        clear_session_files()
+        print_info("Fresh start: conversation, tasks, background jobs, and limits reset.")
 
     def _cmd_config(self, agent):
         from .output import print_header
@@ -70,17 +76,6 @@ class CoreCommandHandlersMixin:
         print()
         os._exit(1)
 
-    def _cmd_new(self, agent):
-        """Start a completely fresh conversation."""
-        agent.reset()
-        if hasattr(agent, "protection"):
-            agent.protection.rate_limiter.reset()
-            agent.protection.budget_guard.reset()
-
-        from .output import clear_session_files
-
-        clear_session_files()
-        print_info("Started new conversation with fresh context.")
 
     def _cmd_setup(self, agent):
         """Re-run the setup wizard."""
@@ -485,101 +480,6 @@ class CoreCommandHandlersMixin:
         print(f"  ok Animation level set to: {selected_level}")
         print("    (saved — applies now and on future launches)")
 
-    def _cmd_commands(self, agent):
-        """List all available commands."""
-        print()
-        print("  ═══ ALL COMMANDS ═══")
-        print()
-
-        categories = {
-            "Navigation": [
-                ("/help", "Show help menu"),
-                ("/tools", "List available tools"),
-                ("/commands", "This list"),
-            ],
-            "Provider/Model": [
-                ("/switch", "Quick switch provider/model"),
-                ("/config", "Full configuration setup"),
-                ("/free", "Switch to free model"),
-            ],
-            "Appearance": [
-                ("/theme", "Pick UI color palette"),
-                ("/font", "Pick font / glyph profile"),
-                ("/animations", "Set animation level"),
-            ],
-            "Conversation": [
-                ("/clear", "Clear conversation history"),
-                ("/new", "Fresh conversation + reset limits"),
-            ],
-            "Learning & Feedback": [
-                ("/good, /+", "Mark response as good"),
-                ("/improve, /-", "Mark for improvement"),
-                ("/stats", "Learning statistics"),
-                ("/report", "Full learning report"),
-                ("/preferences", "Show learned preferences"),
-                ("/trust", "Show learned confirmation trust"),
-                ("/trust reset", "Reset learned confirmation trust"),
-                ("/audit", "Audit what was learned"),
-                ("/reset <cat>", "Reset learning data"),
-            ],
-            "Customization": [
-                ("/skill add <text>", "Add custom instruction"),
-                ("/skill list", "List active skills"),
-                ("/skill remove <n>", "Remove a skill"),
-                ("/skill templates", "Show skill examples"),
-            ],
-            "Memory": [
-                ("/memory remember", "Save to persistent memory"),
-                ("/memory forget", "Remove from memory"),
-                ("/memory list", "Show all memories"),
-            ],
-            "Self-Modification": [
-                ("/selfmod path", "Show source directory"),
-                ("/selfmod prompt", "View custom prompt"),
-                ("/selfmod list", "List source files"),
-            ],
-            "Agent Config": [
-                ("/settings", "View/change agent settings"),
-                ("/settings <key> <val>", "Toggle a setting"),
-                ("/settings security_level", "Set security preset"),
-                ("/evolve", "Review self-improvement proposals"),
-                ("/evolve analyze", "Generate new proposals"),
-                ("/evolve history", "View past decisions"),
-                ("/evolve stats", "Improvement statistics"),
-            ],
-            "Modes": [
-                ("/teach, /t", "Toggle Teach Me mode"),
-                ("/awake", "Toggle stay-awake (macOS)"),
-                ("/modes", "List all modes"),
-            ],
-            "Notifications": [
-                ("/telegram setup", "Configure Telegram bot"),
-                ("/telegram listen", "Toggle receive on/off"),
-                ("/telegram test", "Send a test message"),
-                ("/telegram send", "Send a message"),
-                ("/telegram status", "Check configuration"),
-            ],
-            "Code Analysis": [
-                ("/complexity", "Complexity budget & scoring"),
-                ("/complexity budget <N>", "Set complexity budget"),
-                ("/stress", "Adversarial code review"),
-                ("/stress <file>", "Stress test a single file"),
-                ("/archaeology", "Find dead code & zombies"),
-                ("/archaeology clean", "Interactive cleanup"),
-            ],
-            "Session": [
-                ("/exit, /quit", "Exit RadSim"),
-                ("/kill, /stop", "EMERGENCY: Kill agent immediately"),
-                ("/reset budget", "Reset token budget limits"),
-                ("/setup", "Re-run setup wizard"),
-            ],
-        }
-
-        for category, commands in categories.items():
-            print(f"  {category}:")
-            for command, description in commands:
-                print(f"    {command:<18} {description}")
-            print()
 
     def _cmd_teach(self, agent):
         """Toggle Teach Me mode."""

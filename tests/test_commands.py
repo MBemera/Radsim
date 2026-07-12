@@ -100,11 +100,11 @@ def test_help_no_args(capsys):
 
 
 def test_prompt_stats_command(capsys):
-    """Test that /prompt-stats prints runtime prompt layers."""
+    """Test that /stats prompt prints runtime prompt layers."""
     registry = CommandRegistry()
     agent = MockAgent()
 
-    result = registry.handle_input("/prompt-stats", agent)
+    result = registry.handle_input("/stats prompt", agent)
 
     assert result is True
     output = capsys.readouterr().out
