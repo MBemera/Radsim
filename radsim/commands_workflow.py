@@ -599,12 +599,28 @@ class WorkflowCommandHandlersMixin:
             print_info(f"Cleared {removed} finished job(s).")
             return
 
-        if action == "cancel" and len(args) >= 2:
-            try:
-                job_id = int(args[1])
-            except ValueError:
-                print_error("Usage: /bg cancel <id>")
-                return
+        if action == "cancel":
+            if len(args) >= 2:
+                try:
+                    job_id = int(args[1])
+                except ValueError:
+                    print_error("Job ID must be a number.")
+                    return
+            else:
+                from .background import JobStatus
+                from .menu import interactive_menu
+
+                running = [job for job in jobs if job.status == JobStatus.RUNNING]
+                if not running:
+                    print_info("No running jobs to cancel.")
+                    return
+                choice = interactive_menu(
+                    "CANCEL WHICH JOB?",
+                    [(str(job.job_id), job.description[:60]) for job in running],
+                )
+                if choice is None:
+                    return
+                job_id = int(choice)
 
             if manager.cancel_job(job_id):
                 print_success(f"Job #{job_id} cancelled.")
@@ -772,15 +788,9 @@ class WorkflowCommandHandlersMixin:
             return
 
         if action in ("remove", "rm", "delete", "del"):
-            if len(args) < 2:
-                print_error("Usage: /job remove <id>")
+            job_id = self._resolve_job_id(args, list_jobs, describe_schedule, "REMOVE WHICH JOB?")
+            if job_id is None:
                 return
-            try:
-                job_id = int(args[1])
-            except ValueError:
-                print_error("Job ID must be a number.")
-                return
-
             operation_succeeded, removed = self._try_job_operation(remove_job, job_id)
             if not operation_succeeded:
                 return
@@ -791,15 +801,9 @@ class WorkflowCommandHandlersMixin:
             return
 
         if action in ("pause", "disable"):
-            if len(args) < 2:
-                print_error("Usage: /job pause <id>")
+            job_id = self._resolve_job_id(args, list_jobs, describe_schedule, "PAUSE WHICH JOB?")
+            if job_id is None:
                 return
-            try:
-                job_id = int(args[1])
-            except ValueError:
-                print_error("Job ID must be a number.")
-                return
-
             operation_succeeded, disabled = self._try_job_operation(disable_job, job_id)
             if not operation_succeeded:
                 return
@@ -810,15 +814,9 @@ class WorkflowCommandHandlersMixin:
             return
 
         if action in ("resume", "enable"):
-            if len(args) < 2:
-                print_error("Usage: /job resume <id>")
+            job_id = self._resolve_job_id(args, list_jobs, describe_schedule, "RESUME WHICH JOB?")
+            if job_id is None:
                 return
-            try:
-                job_id = int(args[1])
-            except ValueError:
-                print_error("Job ID must be a number.")
-                return
-
             operation_succeeded, enabled = self._try_job_operation(enable_job, job_id)
             if not operation_succeeded:
                 return
@@ -829,15 +827,9 @@ class WorkflowCommandHandlersMixin:
             return
 
         if action == "run":
-            if len(args) < 2:
-                print_error("Usage: /job run <id>")
+            job_id = self._resolve_job_id(args, list_jobs, describe_schedule, "RUN WHICH JOB NOW?")
+            if job_id is None:
                 return
-            try:
-                job_id = int(args[1])
-            except ValueError:
-                print_error("Job ID must be a number.")
-                return
-
             print_info(f"Running job #{job_id}...")
             operation_succeeded, run_result = self._try_job_operation(run_job_now, job_id)
             if not operation_succeeded:
@@ -854,7 +846,42 @@ class WorkflowCommandHandlersMixin:
             return
 
         print_error(f"Unknown subcommand: '{action}'")
-        print_info("Usage: /job [list | add | remove <id> | pause <id> | resume <id> | run <id>]")
+        print_info("Usage: /job [list | add | remove | pause | resume | run]")
+
+    def _resolve_job_id(self, args, list_jobs, describe_schedule, picker_title):
+        """Resolve a job id from args, or show a picker when none was typed.
+
+        Returns the integer job id, or None to abort (bad input, no jobs,
+        or the user cancelled the picker).
+        """
+        from .menu import interactive_menu
+
+        if len(args) >= 2:
+            try:
+                return int(args[1])
+            except ValueError:
+                print_error("Job ID must be a number.")
+                return None
+
+        operation_succeeded, jobs = self._try_job_operation(list_jobs)
+        if not operation_succeeded:
+            return None
+        if not jobs:
+            print_info("No scheduled jobs. Use '/job add' to create one.")
+            return None
+
+        options = [
+            (
+                str(job.job_id),
+                f"{describe_schedule(job.schedule)} — {job.command[:45]}"
+                + ("" if job.enabled else " (paused)"),
+            )
+            for job in jobs
+        ]
+        choice = interactive_menu(picker_title, options)
+        if choice is None:
+            return None
+        return int(choice)
 
     def _cmd_mcp(self, agent, args=None):
         """Manage MCP (Model Context Protocol) server connections."""
@@ -901,10 +928,9 @@ class WorkflowCommandHandlersMixin:
             return
 
         if subcommand == "connect":
-            if len(args) < 2:
-                print_error("Usage: /mcp connect <server-name>")
+            name = args[1] if len(args) >= 2 else self._pick_mcp_server(manager, "CONNECT WHICH SERVER?")
+            if not name:
                 return
-            name = args[1]
             print_info(f"Connecting to '{name}'...")
             if manager.connect(name):
                 connection = manager._connections.get(name)
@@ -917,10 +943,9 @@ class WorkflowCommandHandlersMixin:
             return
 
         if subcommand == "disconnect":
-            if len(args) < 2:
-                print_error("Usage: /mcp disconnect <server-name>")
+            name = args[1] if len(args) >= 2 else self._pick_mcp_server(manager, "DISCONNECT WHICH SERVER?")
+            if not name:
                 return
-            name = args[1]
             manager.disconnect(name)
             print_success(f"Disconnected from '{name}'")
             return
@@ -930,10 +955,9 @@ class WorkflowCommandHandlersMixin:
             return
 
         if subcommand == "remove":
-            if len(args) < 2:
-                print_error("Usage: /mcp remove <server-name>")
+            name = args[1] if len(args) >= 2 else self._pick_mcp_server(manager, "REMOVE WHICH SERVER?")
+            if not name:
                 return
-            name = args[1]
             if manager.remove_server_config(name):
                 print_success(f"Removed server '{name}'")
             else:
@@ -941,7 +965,21 @@ class WorkflowCommandHandlersMixin:
             return
 
         print_error(f"Unknown subcommand: '{subcommand}'")
-        print_info("Usage: /mcp [status | list | connect <name> | disconnect <name> | add | remove <name>]")
+        print_info("Usage: /mcp [status | list | connect | disconnect | add | remove]")
+
+    def _pick_mcp_server(self, manager, picker_title):
+        """Let the user pick a configured MCP server; None if none/cancelled."""
+        from .menu import interactive_menu
+
+        configs = manager.get_server_configs()
+        if not configs:
+            print_info("No MCP servers configured. Use /mcp add to add one.")
+            return None
+        choice = interactive_menu(
+            picker_title,
+            [(name, config.transport) for name, config in configs.items()],
+        )
+        return choice
 
     def _mcp_status(self, manager):
         """Show MCP server connection status."""

@@ -627,17 +627,31 @@ class LearningCommandHandlersMixin:
         print()
 
     def _skill_remove(self, args):
-        """Remove one skill by its list number."""
-        from .skills import remove_skill
+        """Remove one skill, offering a picker when no number is given."""
+        from .menu import interactive_menu
+        from .skills import list_skills, remove_skill
 
-        if not args:
-            print_info("Usage: /skill remove <number>")
-            return
-        try:
-            index = int(args[0]) - 1
-        except ValueError:
-            print_error("Please provide a valid number")
-            return
+        if args:
+            try:
+                index = int(args[0]) - 1
+            except ValueError:
+                print_error("Please provide a valid number")
+                return
+        else:
+            skills = list_skills()
+            if not skills:
+                print_info("No skills configured. Use /skill add to create one.")
+                return
+            choice = interactive_menu(
+                "REMOVE WHICH SKILL?",
+                [
+                    (str(number), skill["instruction"][:60])
+                    for number, skill in enumerate(skills, 1)
+                ],
+            )
+            if choice is None:
+                return
+            index = int(choice) - 1
 
         result = remove_skill(index)
         if result["success"]:

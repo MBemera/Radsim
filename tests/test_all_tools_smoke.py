@@ -20,6 +20,7 @@ from radsim.tools import TOOL_DEFINITIONS, execute_tool
 @pytest.fixture
 def smoke_workspace(tmp_path, monkeypatch):
     """Hermetic workspace: all storage redirected, no network, tmp cwd."""
+    import radsim.jobs
     import radsim.memory
     import radsim.scheduler
     import radsim.skills
@@ -31,6 +32,10 @@ def smoke_workspace(tmp_path, monkeypatch):
     monkeypatch.setattr(
         radsim.scheduler, "SCHEDULES_FILE", confdir / "schedules.json"
     )
+    # schedule_task/list_schedules now delegate to jobs.py; isolate its
+    # store and never let the smoke run touch the real crontab.
+    monkeypatch.setattr(radsim.jobs, "JOBS_FILE", confdir / "jobs.json")
+    monkeypatch.setattr("radsim.jobs.sync_crontab", lambda: None)
     monkeypatch.setattr(radsim.skills, "SKILLS_FILE", confdir / "skills.json")
 
     # add_tool persists generated code — never let tests write into the package

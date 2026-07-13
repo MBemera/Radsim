@@ -272,6 +272,42 @@ class TestSessionCommands:
         assert "Restored" in capsys.readouterr().out
 
 
+class TestSchedulerUnification:
+    """schedule_task (model tool) and /job (user command) share one store."""
+
+    def test_scheduled_task_appears_in_job_list(self, tmp_path, monkeypatch):
+        import radsim.jobs as jobs
+        from radsim.scheduler import list_schedules, schedule_task
+
+        monkeypatch.setattr(jobs, "JOBS_FILE", tmp_path / "jobs.json")
+        monkeypatch.setattr("radsim.jobs.sync_crontab", lambda: None)
+
+        result = schedule_task(
+            name="nightly-backup", schedule="daily", command="echo backup"
+        )
+        assert result["success"] is True
+
+        # The user command reads the same store the tool wrote to.
+        user_jobs = jobs.list_jobs()
+        assert len(user_jobs) == 1
+        assert user_jobs[0].command == "echo backup"
+
+        # And list_schedules (the model's read-back) sees it too.
+        listed = list_schedules()
+        assert listed["count"] == 1
+        assert listed["jobs"][0]["command"] == "echo backup"
+
+    def test_invalid_schedule_is_rejected(self, tmp_path, monkeypatch):
+        import radsim.jobs as jobs
+        from radsim.scheduler import schedule_task
+
+        monkeypatch.setattr(jobs, "JOBS_FILE", tmp_path / "jobs.json")
+        monkeypatch.setattr("radsim.jobs.sync_crontab", lambda: None)
+
+        result = schedule_task(name="bad", schedule="not-a-schedule", command="echo x")
+        assert result["success"] is False
+
+
 class TestProjectContext:
     def test_radsim_md_is_included_in_project_context(self, isolated_env):
         from radsim.memory import ProjectMemory
