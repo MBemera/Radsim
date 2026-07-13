@@ -1083,6 +1083,65 @@ HELP_DETAILS = {
             "Set autoConnect: true in config to connect on startup.",
         ],
     },
+    "usage": {
+        "title": "Session Usage & Cost",
+        "aliases": ["/cost"],
+        "summary": "Show this session's token usage and estimated cost.",
+        "usage": ["/usage"],
+        "details": (
+            "Displays input/output token totals for the current session and\n"
+            "an estimated cost based on the active model's pricing. Models\n"
+            "without pricing data show cost as n/a."
+        ),
+        "examples": ["/usage", "/cost"],
+        "related": ["/stats", "/ratelimit"],
+    },
+    "copy": {
+        "title": "Copy to Clipboard",
+        "aliases": ["/cp"],
+        "summary": "Copy the last response, code block, or written file.",
+        "usage": ["/copy", "/copy code", "/copy file"],
+        "details": (
+            "Copies content to the system clipboard:\n"
+            "  • /copy       — the last full response\n"
+            "  • /copy code  — the last fenced code block in the response\n"
+            "  • /copy file  — the content of the last written file"
+        ),
+        "examples": ["/copy code"],
+        "related": ["/show", "/export"],
+    },
+    "export": {
+        "title": "Export Conversation",
+        "aliases": [],
+        "summary": "Save the conversation as a markdown file.",
+        "usage": ["/export", "/export <filename>"],
+        "details": (
+            "Writes the conversation to a markdown file in the project\n"
+            "directory (default: a timestamped name). Tool calls are noted;\n"
+            "tool results and images are omitted to keep the export readable.\n"
+            "Existing files are never overwritten."
+        ),
+        "examples": ["/export", "/export review-session.md"],
+        "related": ["/copy", "/clear"],
+    },
+    "undo": {
+        "title": "Undo File Changes",
+        "aliases": [],
+        "summary": "Restore files to their state before the last agent edit.",
+        "usage": ["/undo", "/undo list"],
+        "details": (
+            "Before the agent writes, edits, renames, patches, or deletes a\n"
+            "file, RadSim snapshots it. /undo restores the most recent\n"
+            "checkpoint: rewritten files get their old content back, and\n"
+            "files that did not exist before are removed.\n\n"
+            "Covers write_file, replace_in_file, delete_file, rename_file,\n"
+            "multi_edit, and apply_patch. Keeps the last 20 checkpoints per\n"
+            "project; files over 5 MB are recorded but not snapshotted."
+        ),
+        "examples": ["/undo", "/undo list"],
+        "related": ["/show"],
+        "tips": ["Run /undo repeatedly to step further back."],
+    },
     "hook": {
         "title": "Lifecycle Hooks",
         "aliases": ["/hooks"],
@@ -1677,6 +1736,11 @@ def print_help(topic=None):
             print(line)
         print()
 
+    print(
+        colorize("  ! <command>  ", "cyan")
+        + colorize("Run a shell command yourself — output is shared with the agent", "dim")
+    )
+    print()
     print(
         colorize("  Tip: ", "yellow")
         + colorize("/help <command> ", "cyan")

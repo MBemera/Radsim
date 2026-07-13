@@ -7,6 +7,8 @@ CONFIRMATION_TOOLS = {
     "delete_file",
     "run_shell_command",
     "web_fetch",
+    "http_request",
+    "screen_capture",
     "git_commit",
     "git_checkout",
     "git_stash",

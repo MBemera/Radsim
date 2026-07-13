@@ -1139,6 +1139,7 @@ class LearningCommandHandlersMixin:
     def _prompt_hook_fields(self, valid_events):
         """Interactively collect hook fields; None cancels."""
         from .menu import interactive_menu, safe_input
+        from .user_hooks import TOOL_EVENTS
 
         event = interactive_menu(
             "HOOK EVENT",
@@ -1149,9 +1150,12 @@ class LearningCommandHandlersMixin:
         name = safe_input("  Hook name (letters, digits, - _): ")
         if not name:
             return None
-        matcher = safe_input("  Tool matcher (glob, e.g. run_shell_command or git_* or *): ")
-        if matcher is None:
-            return None
+        if event in TOOL_EVENTS:
+            matcher = safe_input("  Tool matcher (glob, e.g. run_shell_command or git_* or *): ")
+            if matcher is None:
+                return None
+        else:
+            matcher = "*"  # session events fire unconditionally
         command = safe_input("  Shell command to run: ")
         if not command:
             return None

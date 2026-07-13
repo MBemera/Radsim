@@ -34,6 +34,7 @@ HOOKS_FILE = Path.home() / ".radsim" / "hooks.json"
 
 VALID_EVENTS = ("pre_tool", "post_tool", "session_start", "session_end", "on_error")
 BLOCKING_EVENTS = ("pre_tool",)
+TOOL_EVENTS = ("pre_tool", "post_tool", "on_error")
 
 MAX_USER_HOOKS = 20
 MIN_TIMEOUT_SECONDS = 1
@@ -166,6 +167,10 @@ def add_user_hook(name, event, matcher, command, timeout=DEFAULT_TIMEOUT_SECONDS
     if any(hook.name == name for hook in hooks):
         return {"success": False, "error": f"A hook named '{name}' already exists"}
 
+    # Session events have no tool to match; store "*" so the list is honest.
+    if event not in TOOL_EVENTS:
+        matcher = "*"
+
     hook = UserHook(name=name, event=event, matcher=matcher, command=command, timeout=timeout)
     hooks.append(hook)
     save_user_hooks(hooks)
@@ -248,10 +253,28 @@ def _run_hook_command(hook, payload):
         return "failed", str(error)
 
     if completed.returncode == 0:
-        return "allow", None
+        return "allow", completed.stdout or ""
     if completed.returncode == 2:
         return "block", _sanitize_reason(completed.stderr or "exit code 2 (no reason on stderr)")
     return "failed", f"exited with code {completed.returncode}"
+
+
+def _hook_matches(hook, event, tool_name):
+    """Session events always match — there is no tool name to glob against."""
+    if hook.event != event:
+        return False
+    if event in TOOL_EVENTS:
+        return fnmatch.fnmatchcase(tool_name, hook.matcher)
+    return True
+
+
+def _print_hook_output(name, stdout):
+    """Show a hook's first output lines so the user can see it fired."""
+    from .output import print_info
+
+    lines = [line for line in (stdout or "").strip().splitlines() if line.strip()][:3]
+    for line in lines:
+        print_info(f"hook {name}: {_sanitize_reason(line)}")
 
 
 def fire_hooks(event, tool_name="", extra=None):
@@ -267,21 +290,20 @@ def fire_hooks(event, tool_name="", extra=None):
 
     payload = None
     for hook in load_user_hooks():
-        if not hook.enabled or hook.event != event:
-            continue
-        if not fnmatch.fnmatchcase(tool_name, hook.matcher):
+        if not hook.enabled or not _hook_matches(hook, event, tool_name):
             continue
         if payload is None:
             payload = _build_payload(event, tool_name, extra)
 
-        outcome, reason = _run_hook_command(hook, payload)
+        outcome, detail = _run_hook_command(hook, payload)
         if outcome == "allow":
+            _print_hook_output(hook.name, detail)
             continue
         if event in BLOCKING_EVENTS:
             if outcome == "failed":
-                reason = f"hook could not run ({reason}) — failing closed"
-            return False, f"hook '{hook.name}': {reason}"
-        print_warning(f"Hook '{hook.name}' failed: {reason}")
+                detail = f"hook could not run ({detail}) — failing closed"
+            return False, f"hook '{hook.name}': {detail}"
+        print_warning(f"Hook '{hook.name}' failed: {detail}")
 
     return True, None
 

@@ -69,6 +69,7 @@ class AgentConversationMixin:
         self._current_task_tools = []
         self._injected_job_ids = set()
         self._session_approve_shell = False
+        self._pending_user_context = []
 
     def estimate_tokens(self, text):
         """Estimate token count for text (rough approximation)."""
@@ -183,6 +184,11 @@ class AgentConversationMixin:
                     "content": "I have the background job results. Let me incorporate them.",
                 }
             )
+
+        pending_context = getattr(self, "_pending_user_context", None)
+        if pending_context:
+            user_input = "\n\n".join([*pending_context, user_input])
+            pending_context.clear()
 
         self.messages.append({"role": "user", "content": user_input})
         self.check_and_prune(threshold=80)

@@ -177,7 +177,18 @@ class AgentPolicyMixin:
                 ),
             }
 
+        from .undo import commit_checkpoint, discard_checkpoint, prepare_checkpoint
+
+        pending_checkpoint = prepare_checkpoint(tool_name, tool_input)
+
         result = self._dispatch_tool(tool_name, tool_input)
+
+        if pending_checkpoint:
+            if isinstance(result, dict) and result.get("success"):
+                commit_checkpoint(pending_checkpoint)
+            else:
+                discard_checkpoint(pending_checkpoint)
+
         fire_tool_hooks("post_tool", tool_name, tool_input, result=result)
         return result
 
