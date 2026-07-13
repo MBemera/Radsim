@@ -332,6 +332,41 @@ TOOL_DEFINITIONS = [
             "required": ["url"],
         },
     },
+    {
+        "name": "http_request",
+        "description": "Make an HTTP request to an API endpoint (GET/POST/PUT/PATCH/DELETE/HEAD) with optional headers and body. Use for JSON/REST APIs; use web_fetch for reading web pages.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Full http(s) URL"},
+                "method": {"type": "string", "description": "HTTP method (default GET)"},
+                "headers": {
+                    "type": "object",
+                    "description": "Optional request headers as name: value pairs",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Optional request body (JSON should be a serialized string)",
+                },
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default 30)"},
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "screen_capture",
+        "description": "Capture the user's screen (macOS only) and attach the screenshot to the conversation for visual interpretation. Requires a vision-capable model. Use when the user says 'look at my screen' or asks about something they can see.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "save_path": {
+                    "type": "string",
+                    "description": "Optional filename for the screenshot (defaults to a timestamped name)",
+                }
+            },
+            "required": [],
+        },
+    },
     # Git Tools
     {
         "name": "git_status",

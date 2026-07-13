@@ -116,6 +116,7 @@ class RadSimAgent(
         # Session-level model for capable/review sub-agent tasks
         self._session_capable_model = None
         self._session_approve_shell = False
+        self._pending_user_context = []
 
         # Background job manager — completion notifications and result tracking
         self._injected_job_ids = set()

@@ -295,13 +295,21 @@ class ProjectMemory(BaseMemory):
         return self._save_json(self.json_file, self.data)
 
     def read_agents_md(self) -> str:
-        """Read the human-readable project memory."""
-        if self.agents_file.exists():
+        """Read project context: top-level RADSIM.md plus .radsim/agents.md.
+
+        RADSIM.md is the user-authored project brief (like a README for
+        the agent); agents.md is RadSim's own project memory. Both are
+        untrusted input and size-capped by the prompt builder.
+        """
+        parts = []
+        for candidate in (self.project_dir / "RADSIM.md", self.agents_file):
+            if not candidate.exists():
+                continue
             try:
-                return self.agents_file.read_text()
+                parts.append(candidate.read_text())
             except OSError:
-                return ""
-        return ""
+                continue
+        return "\n\n".join(parts)
 
 
 class SessionMemory(BaseMemory):

@@ -190,6 +190,24 @@ class TestFiring:
     def test_no_hooks_file_means_everything_proceeds(self):
         assert fire_hooks("pre_tool", tool_name="anything") == (True, None)
 
+    def test_session_hook_fires_even_with_tool_matcher(self, capsys):
+        # Regression: a session_start hook saved with a tool-name matcher
+        # must still fire — session events have no tool name to match.
+        save_user_hooks([UserHook("greet", "session_start", "run_shell_command", "echo booted")])
+        proceed, _ = fire_hooks("session_start")
+        assert proceed is True
+        assert "booted" in capsys.readouterr().out
+
+    def test_successful_hook_output_is_shown(self, capsys):
+        save_user_hooks([UserHook("who", "session_start", "*", "echo visible-line")])
+        fire_hooks("session_start")
+        output = capsys.readouterr().out
+        assert "hook who: visible-line" in output
+
+    def test_add_normalizes_matcher_for_session_events(self):
+        add_user_hook("greet", "session_start", "run_shell_command", "echo hi")
+        assert load_user_hooks()[0].matcher == "*"
+
 
 class TestAgentWiring:
     """A blocking hook stops the tool call at the agent choke point."""

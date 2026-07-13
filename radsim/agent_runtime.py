@@ -7,6 +7,53 @@ from .rate_limiter import BudgetExceeded, CircuitBreakerOpen, RateLimitExceeded
 from .runtime_context import get_runtime_context
 
 
+def _run_user_shell_command(command, agent):
+    """Run a user-typed `!command` and share the output with the agent.
+
+    The user typed the command themselves, so it runs without a
+    confirmation prompt — but it still passes the command policy, so
+    catastrophic commands stay blocked at every security level. Output
+    is queued into the next message so the model can see what happened.
+    """
+    import subprocess
+
+    from .output import print_error, print_info
+    from .tools.command_policy import get_command_policy
+
+    allowed, reason = get_command_policy().is_command_allowed(command)
+    if not allowed:
+        print_error(reason)
+        return
+
+    try:
+        completed = subprocess.run(
+            command, shell=True, capture_output=True, text=True, timeout=120
+        )
+    except subprocess.TimeoutExpired:
+        print_error("Command timed out after 120s")
+        return
+    except OSError as error:
+        print_error(str(error))
+        return
+
+    output = (completed.stdout or "").strip()
+    if completed.stderr and completed.stderr.strip():
+        output = f"{output}\n{completed.stderr.strip()}" if output else completed.stderr.strip()
+
+    shown_lines = output.splitlines()[:40]
+    for line in shown_lines:
+        print(f"  {line}")
+    hidden_count = len(output.splitlines()) - len(shown_lines)
+    if hidden_count > 0:
+        print(f"  ... ({hidden_count} more lines)")
+    print_info(f"exit {completed.returncode} — output shared with the agent")
+
+    agent._pending_user_context.append(
+        f"[User ran shell command: {command}]\n"
+        f"[exit code: {completed.returncode}]\n{output[:4000]}"
+    )
+
+
 def run_single_shot(config, prompt, context_file=None):
     """Run a single-shot command and return the result."""
     from .agent import RadSimAgent
@@ -99,6 +146,11 @@ def run_interactive(config, context_file=None):
             break
 
         if not user_input.strip():
+            continue
+
+        stripped_input = user_input.strip()
+        if stripped_input.startswith("!") and len(stripped_input) > 1:
+            _run_user_shell_command(stripped_input[1:].strip(), agent)
             continue
 
         action = check_action_hotkey(user_input.strip())

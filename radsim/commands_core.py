@@ -570,6 +570,208 @@ class CoreCommandHandlersMixin:
         )
         print()
 
+    def _cmd_usage(self, agent):
+        """Show session token usage and estimated cost."""
+        from .config import get_model_pricing
+
+        input_tokens = agent.usage_stats.get("input_tokens", 0)
+        output_tokens = agent.usage_stats.get("output_tokens", 0)
+        model = agent.config.model
+
+        print()
+        print(f"  Model:          {model}")
+        print(f"  Input tokens:   {input_tokens:,}")
+        print(f"  Output tokens:  {output_tokens:,}")
+        print(f"  Total tokens:   {input_tokens + output_tokens:,}")
+
+        pricing = get_model_pricing(model)
+        if pricing is None:
+            print("  Cost:           n/a (no pricing data for this model)")
+        else:
+            input_cost = (input_tokens / 1_000_000) * pricing[0]
+            output_cost = (output_tokens / 1_000_000) * pricing[1]
+            print(
+                f"  Est. cost:      ${input_cost + output_cost:.4f}"
+                f"  (in ${input_cost:.4f} / out ${output_cost:.4f})"
+            )
+        print()
+
+    def _cmd_copy(self, agent, args=None):
+        """Copy the last response, code block, or written file to the clipboard."""
+        from .output import get_last_written_file
+
+        target = args[0].lower() if args else "response"
+        if target == "code":
+            text = _extract_last_code_block(getattr(agent, "_last_response", ""))
+            label = "last code block"
+        elif target == "file":
+            text = (get_last_written_file() or {}).get("content", "")
+            label = "last written file"
+        else:
+            text = getattr(agent, "_last_response", "")
+            label = "last response"
+
+        if not text:
+            print_info(f"Nothing to copy — no {label} yet.")
+            return
+
+        copied, error = _copy_to_clipboard(text)
+        if copied:
+            print_info(f"Copied {label} to clipboard ({len(text):,} characters).")
+        else:
+            from .output import print_error
+
+            print_error(f"Clipboard copy failed: {error}")
+
+    def _cmd_export(self, agent, args=None):
+        """Export the conversation to a markdown file in the project."""
+        import time as time_module
+
+        from .output import print_error
+        from .tools.validation import validate_path
+
+        filename = (
+            args[0] if args else f"radsim-conversation-{time_module.strftime('%Y%m%d-%H%M%S')}.md"
+        )
+        if not filename.endswith(".md"):
+            filename += ".md"
+
+        is_safe, path, error = validate_path(filename)
+        if not is_safe:
+            print_error(error)
+            return
+        if path.exists():
+            print_error(f"{filename} already exists — pass a different name.")
+            return
+
+        markdown = _conversation_to_markdown(agent.messages, agent.config.model)
+        if not markdown:
+            print_info("Nothing to export yet.")
+            return
+
+        path.write_text(markdown)
+        print_info(f"Exported {len(agent.messages)} messages to {path.name}")
+
+    def _cmd_undo(self, agent, args=None):
+        """Restore files to their state before the last agent change."""
+        from .output import print_error, print_success, print_warning
+        from .safety import ask_confirmation
+        from .undo import list_checkpoints, undo_last
+
+        if args and args[0].lower() == "list":
+            checkpoints = list_checkpoints()
+            print()
+            if not checkpoints:
+                print_info("No checkpoints recorded yet.")
+                return
+            for line in checkpoints:
+                print(f"  {line}")
+            print()
+            print_info("/undo restores the most recent checkpoint.")
+            return
+
+        checkpoints = list_checkpoints()
+        if not checkpoints:
+            print_info("Nothing to undo — no checkpoints recorded yet.")
+            return
+
+        print_info(f"Will restore: {checkpoints[-1]}")
+        if ask_confirmation("  Undo this change?") != "yes":
+            print_info("Cancelled.")
+            return
+
+        result = undo_last()
+        if not result["success"]:
+            print_error(result["error"])
+            return
+        for restored_path in result["restored"]:
+            print_success(f"Restored: {restored_path}")
+        for deleted_path in result["deleted"]:
+            print_success(f"Removed (did not exist before): {deleted_path}")
+        for skipped in result["skipped"]:
+            print_warning(f"Skipped: {skipped}")
+
+
+def _extract_last_code_block(text):
+    """Return the contents of the last fenced code block in a response."""
+    import re
+
+    blocks = re.findall(r"```[^\n]*\n(.*?)```", text or "", re.DOTALL)
+    return blocks[-1].strip() if blocks else ""
+
+
+def _copy_to_clipboard(text):
+    """Copy text using the platform clipboard tool.
+
+    Returns:
+        Tuple of (success, error_message).
+    """
+    import platform
+    import shutil
+    import subprocess
+
+    system = platform.system()
+    if system == "Darwin":
+        command = ["pbcopy"]
+    elif system == "Windows":
+        command = ["clip"]
+    elif shutil.which("xclip"):
+        command = ["xclip", "-selection", "clipboard"]
+    elif shutil.which("xsel"):
+        command = ["xsel", "--clipboard", "--input"]
+    else:
+        return False, "No clipboard tool found (install xclip or xsel)"
+
+    try:
+        subprocess.run(command, input=text.encode("utf-8"), check=True, timeout=10)
+        return True, None
+    except (subprocess.SubprocessError, OSError) as error:
+        return False, str(error)
+
+
+def _conversation_to_markdown(messages, model):
+    """Render the internal message history as readable markdown."""
+    import time as time_module
+
+    if not messages:
+        return ""
+
+    lines = [
+        "# RadSim Conversation",
+        f"*Exported {time_module.strftime('%Y-%m-%d %H:%M:%S')} — model: {model}*",
+        "",
+    ]
+    for message in messages:
+        role = message.get("role", "unknown").capitalize()
+        content = message.get("content", "")
+        rendered = _message_content_to_markdown(content)
+        if rendered:
+            lines.extend([f"## {role}", "", rendered, ""])
+    return "\n".join(lines)
+
+
+def _message_content_to_markdown(content):
+    """Flatten one message's content blocks to markdown text."""
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+
+    parts = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        block_type = block.get("type", "")
+        if block_type == "text":
+            parts.append(block.get("text", "").strip())
+        elif block_type == "tool_use":
+            parts.append(f"*[tool call: {block.get('name', 'unknown')}]*")
+        elif block_type == "tool_result":
+            parts.append("*[tool result omitted]*")
+        elif block_type == "image":
+            parts.append("*[image attached]*")
+    return "\n\n".join(part for part in parts if part)
+
 
 def _hex_to_rgb(hex_color):
     h = hex_color.lstrip("#")

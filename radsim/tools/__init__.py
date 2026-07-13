@@ -172,6 +172,16 @@ _TOOL_REGISTRY = {
         ("working_dir", None),
     ),
     "web_fetch": _build_tool_executor(".web", "web_fetch", ("url", "")),
+    "http_request": _build_tool_executor(
+        ".web",
+        "http_request",
+        ("url", ""),
+        ("method", "GET"),
+        ("headers", None),
+        ("body", ""),
+        ("timeout", 30),
+    ),
+    "screen_capture": _build_tool_executor(".screen", "screen_capture", ("save_path", "")),
     "git_status": _build_tool_executor(".git", "git_status"),
     "git_diff": _build_tool_executor(
         ".git",

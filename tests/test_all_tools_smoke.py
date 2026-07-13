@@ -102,6 +102,10 @@ def build_smoke_inputs(ws):
         "search_files": {"pattern": "main"},
         "run_shell_command": {"command": "echo radsim_smoke"},
         "web_fetch": {"url": "http://127.0.0.1:9/"},
+        "http_request": {"url": "http://127.0.0.1:9/", "method": "GET"},
+        # Traversal path fails validation BEFORE screencapture would run —
+        # the smoke test must never actually photograph the screen.
+        "screen_capture": {"save_path": "../outside.png"},
         "git_status": {},
         "git_diff": {},
         "git_log": {},
