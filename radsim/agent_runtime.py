@@ -91,11 +91,13 @@ def run_interactive(config, context_file=None):
 
     from .user_hooks import fire_session_hooks
 
+    print_header(config.provider, config.model)
+
+    # Fire AFTER the banner so hook output lands where the user is
+    # looking, not scrolled above the logo.
     fire_session_hooks("session_start", provider=config.provider, model=config.model)
     # atexit covers every way the loop can end: /exit, Ctrl+C, or a crash.
     atexit.register(fire_session_hooks, "session_end", config.provider, config.model)
-
-    print_header(config.provider, config.model)
 
     memory_result = load_memory(memory_type="preference")
     user_name = None
