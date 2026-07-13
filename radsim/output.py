@@ -1149,17 +1149,20 @@ HELP_DETAILS = {
         "aliases": ["/hooks"],
         "summary": "Run your own shell commands on agent events.",
         "usage": [
-            "/hook",
+            "/hook            (interactive menu)",
+            "/hook list",
             "/hook add",
+            "/hook toggle     (arrow-key on/off switches)",
+            "/hook remove     (pick from a list)",
             "/hook add <name> <event> <matcher> <command...>",
-            "/hook remove <name>",
-            "/hook on <name>",
-            "/hook off <name>",
         ],
         "details": (
             "Hooks run a shell command when an agent event fires. Events:\n"
             "pre_tool, post_tool, session_start, session_end, on_error.\n"
-            "The matcher is a glob against the tool name (git_*, *, ...).\n\n"
+            "The matcher is a glob against the tool name (git_*, *, ...);\n"
+            "session hooks always fire.\n\n"
+            "Every action works without arguments: bare /hook opens a menu,\n"
+            "and remove/on/off show a picker of your hooks.\n\n"
             "Each hook receives a JSON payload on stdin. A pre_tool hook\n"
             "that exits with code 2 BLOCKS the tool call and its stderr is\n"
             "shown as the reason. Hooks can only block actions — they can\n"

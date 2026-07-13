@@ -209,6 +209,60 @@ class TestFiring:
         assert load_user_hooks()[0].matcher == "*"
 
 
+class TestHookCommandMenus:
+    """Every /hook action must work with zero typed arguments."""
+
+    def make_registry_and_agent(self):
+        from types import SimpleNamespace
+
+        from radsim.commands import CommandRegistry
+
+        return CommandRegistry(), SimpleNamespace()
+
+    def test_bare_hook_opens_action_menu(self, monkeypatch, capsys):
+        registry, agent = self.make_registry_and_agent()
+        add_user_hook("greet", "session_start", "*", "echo hi")
+        monkeypatch.setattr("radsim.menu.interactive_menu", lambda *a, **k: "list")
+
+        registry.handle_input("/hook", agent)
+
+        assert "greet" in capsys.readouterr().out
+
+    def test_remove_without_name_offers_picker(self, monkeypatch, capsys):
+        registry, agent = self.make_registry_and_agent()
+        add_user_hook("greet", "session_start", "*", "echo hi")
+        monkeypatch.setattr("radsim.menu.interactive_menu", lambda *a, **k: "greet")
+
+        registry.handle_input("/hook remove", agent)
+
+        assert load_user_hooks() == []
+        assert "removed" in capsys.readouterr().out
+
+    def test_toggle_uses_switch_menu_and_persists(self, monkeypatch, capsys):
+        registry, agent = self.make_registry_and_agent()
+        add_user_hook("greet", "session_start", "*", "echo hi")
+        add_user_hook("lint", "post_tool", "write_file", "echo ok")
+        monkeypatch.setattr(
+            "radsim.menu.toggle_menu", lambda *a, **k: {"greet": False, "lint": True}
+        )
+
+        registry.handle_input("/hook toggle", agent)
+
+        states = {hook.name: hook.enabled for hook in load_user_hooks()}
+        assert states == {"greet": False, "lint": True}
+        assert "1 hook(s) updated" in capsys.readouterr().out
+
+    def test_cancelled_menu_exits_quietly(self, monkeypatch, capsys):
+        registry, agent = self.make_registry_and_agent()
+        monkeypatch.setattr("radsim.menu.interactive_menu", lambda *a, **k: None)
+
+        registry.handle_input("/hook", agent)
+        registry.handle_input("/hook remove", agent)
+
+        output = capsys.readouterr().out
+        assert "error" not in output.lower()
+
+
 class TestAgentWiring:
     """A blocking hook stops the tool call at the agent choke point."""
 

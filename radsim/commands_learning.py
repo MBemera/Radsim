@@ -1075,10 +1075,16 @@ class LearningCommandHandlersMixin:
 
     def _cmd_hook(self, agent, args=None):
         """Create and manage lifecycle hooks."""
-        action = args[0].lower() if args else "list"
+        if not args:
+            args = self._prompt_hook_action()
+            if args is None:
+                return
+
+        action = args[0].lower()
         handlers = {
             "list": self._hook_list,
             "add": self._hook_add,
+            "toggle": self._hook_toggle,
             "remove": self._hook_remove,
             "on": lambda rest: self._hook_set_enabled(rest, True),
             "off": lambda rest: self._hook_set_enabled(rest, False),
@@ -1086,9 +1092,40 @@ class LearningCommandHandlersMixin:
         handler = handlers.get(action)
         if handler is None:
             print_error(f"Unknown action: {action}")
-            print_info("Usage: /hook [list | add | remove <name> | on <name> | off <name>]")
+            print_info("Usage: /hook [list | add | toggle | remove | on | off]")
             return
-        handler(args[1:] if args else [])
+        handler(args[1:])
+
+    def _prompt_hook_action(self):
+        """Show the hooks menu and return the equivalent command args."""
+        from .menu import interactive_menu
+
+        choice = interactive_menu(
+            "HOOKS",
+            [
+                ("list", "Show configured hooks"),
+                ("add", "Create a new hook"),
+                ("toggle", "Switch hooks on/off"),
+                ("remove", "Delete a hook"),
+            ],
+        )
+        if choice is None:
+            return None
+        return [choice]
+
+    def _pick_hook_name(self, title):
+        """Let the user pick one hook by menu; None when cancelled or empty."""
+        from .menu import interactive_menu
+        from .user_hooks import load_user_hooks
+
+        hooks = load_user_hooks()
+        if not hooks:
+            print_info("No hooks configured. Use /hook add to create one.")
+            return None
+        return interactive_menu(
+            title,
+            [(hook.name, f"{hook.event} — {hook.command[:50]}") for hook in hooks],
+        )
 
     def _hook_list(self, args):
         """Show every configured hook and how to use them."""
@@ -1097,15 +1134,46 @@ class LearningCommandHandlersMixin:
         hooks = load_user_hooks()
         print()
         if not hooks:
-            print_info("No hooks configured.")
+            print_info("No hooks configured. Use /hook add to create one.")
+            return
         for hook in hooks:
             state = "on " if hook.enabled else "off"
             print(f"  [{state}] {hook.name}  ({hook.event}, matcher: {hook.matcher})")
             print(f"        {hook.command}")
         print()
         print_info(f"Stored in {HOOKS_FILE}")
-        print_info("Usage: /hook add | remove <name> | on <name> | off <name>")
-        print_info("A pre_tool hook receives JSON on stdin; exit 2 blocks the tool call.")
+        print_info("/hook toggle switches hooks on/off; /hook remove deletes one.")
+
+    def _hook_toggle(self, args):
+        """Arrow-key on/off switches for every hook, like /settings security."""
+        from .menu import toggle_menu
+        from .user_hooks import load_user_hooks, set_user_hook_enabled
+
+        hooks = load_user_hooks()
+        if not hooks:
+            print_info("No hooks configured. Use /hook add to create one.")
+            return
+
+        items = [
+            {
+                "key": hook.name,
+                "label": f"{hook.name} ({hook.event}: {hook.command[:40]})",
+                "value": hook.enabled,
+            }
+            for hook in hooks
+        ]
+        states = toggle_menu("HOOKS ON/OFF", items)
+        if states is None:
+            print_info("Cancelled.")
+            return
+
+        changed = 0
+        for hook in hooks:
+            new_state = states.get(hook.name, hook.enabled)
+            if new_state != hook.enabled:
+                set_user_hook_enabled(hook.name, new_state)
+                changed += 1
+        print_info(f"{changed} hook(s) updated." if changed else "No changes.")
 
     def _hook_add(self, args):
         """Add a hook: /hook add <name> <event> <matcher> <command...> or interactive."""
@@ -1162,27 +1230,28 @@ class LearningCommandHandlersMixin:
         return name.strip(), event, (matcher.strip() or "*"), command.strip()
 
     def _hook_remove(self, args):
-        """Delete a hook by name."""
+        """Delete a hook, offering a picker when no name is given."""
         from .user_hooks import remove_user_hook
 
-        if not args:
-            print_error("Usage: /hook remove <name>")
+        name = args[0] if args else self._pick_hook_name("REMOVE WHICH HOOK?")
+        if not name:
             return
-        result = remove_user_hook(args[0])
+        result = remove_user_hook(name)
         if result["success"]:
-            print_info(f"Hook '{args[0]}' removed.")
+            print_info(f"Hook '{name}' removed.")
         else:
             print_error(result["error"])
 
     def _hook_set_enabled(self, args, enabled):
-        """Toggle a hook on or off without deleting it."""
+        """Toggle a hook on or off, offering a picker when no name is given."""
         from .user_hooks import set_user_hook_enabled
 
-        if not args:
-            print_error(f"Usage: /hook {'on' if enabled else 'off'} <name>")
+        action = "TURN ON" if enabled else "TURN OFF"
+        name = args[0] if args else self._pick_hook_name(f"{action} WHICH HOOK?")
+        if not name:
             return
-        result = set_user_hook_enabled(args[0], enabled)
+        result = set_user_hook_enabled(name, enabled)
         if result["success"]:
-            print_info(f"Hook '{args[0]}' is now {'enabled' if enabled else 'disabled'}.")
+            print_info(f"Hook '{name}' is now {'enabled' if enabled else 'disabled'}.")
         else:
             print_error(result["error"])
