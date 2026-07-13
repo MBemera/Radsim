@@ -412,40 +412,64 @@ class Scheduler:
 def schedule_task(name, schedule, command, description=None):
     """Schedule a recurring task.
 
+    Delegates to jobs.py so model-scheduled tasks land in the SAME store
+    the user manages with /job. Both previously wrote separate files and
+    could not see each other; this is the single source of truth.
+
     Args:
-        name: Unique name for the job
-        schedule: Cron expression (e.g., "0 9 * * *" for 9am daily)
-                  Format: minute hour day-of-month month day-of-week
-                  Common examples:
-                    - "*/5 * * * *" = every 5 minutes
-                    - "0 * * * *" = every hour
-                    - "0 9 * * *" = daily at 9am
-                    - "0 9 * * 1" = every Monday at 9am
-                    - "0 0 1 * *" = 1st of each month
-        command: Shell command to execute
-        description: Optional description
+        name: Human label for the job (stored as the description).
+        schedule: Cron expression ("0 9 * * *") or a preset ("daily",
+                  "weekdays @8:00").
+        command: Shell command to execute.
+        description: Optional description (falls back to name).
 
     Returns:
-        dict with success status
+        dict with success status and the created job.
     """
+    from .jobs import add_job, resolve_schedule
+
+    cron = resolve_schedule(schedule)
+    if cron is None:
+        return {"success": False, "error": f"Invalid schedule: {schedule}"}
     try:
-        scheduler = Scheduler()
-        result = scheduler.add_job(name, schedule, command, description)
-        return result
+        job = add_job(cron, command, description or name or command[:50], is_radsim_task=False)
+        return {
+            "success": True,
+            "job": {
+                "id": job.job_id,
+                "name": name,
+                "schedule": job.schedule,
+                "command": job.command,
+            },
+        }
     except Exception as error:
         return {"success": False, "error": str(error)}
 
 
 def list_schedules():
-    """List all scheduled tasks.
+    """List all scheduled tasks from the shared jobs store.
 
     Returns:
-        dict with success status and jobs list
+        dict with success status and jobs list.
     """
+    from .jobs import describe_schedule, list_jobs
+
     try:
-        scheduler = Scheduler()
-        jobs = scheduler.list_jobs()
-        return {"success": True, "jobs": jobs, "count": len(jobs)}
+        jobs = list_jobs()
     except Exception as error:
         return {"success": False, "error": str(error)}
+    return {
+        "success": True,
+        "count": len(jobs),
+        "jobs": [
+            {
+                "id": job.job_id,
+                "schedule": job.schedule,
+                "human": describe_schedule(job.schedule),
+                "command": job.command,
+                "enabled": job.enabled,
+            }
+            for job in jobs
+        ],
+    }
 

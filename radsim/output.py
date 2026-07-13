@@ -1023,20 +1023,23 @@ HELP_DETAILS = {
         "usage": [
             "/job",
             "/job add",
-            "/job remove <id>",
-            "/job pause <id>",
-            "/job resume <id>",
-            "/job run <id>",
+            "/job remove   (pick from a list)",
+            "/job pause    (pick from a list)",
+            "/job resume   (pick from a list)",
+            "/job run      (pick from a list)",
         ],
         "details": (
-            "Schedules recurring commands (cron-style):\n\n"
+            "Schedules recurring commands (cron-style). Every action works\n"
+            "without an id — you get a picker of your jobs:\n\n"
             "  • (no args)   — List all scheduled jobs\n"
             "  • add         — Create a new scheduled job\n"
-            "  • remove      — Delete a job by id\n"
+            "  • remove      — Delete a job\n"
             "  • pause/resume— Toggle a job without deleting it\n"
-            "  • run         — Run a job immediately"
+            "  • run         — Run a job immediately\n\n"
+            "Jobs the agent schedules for you (via the schedule_task tool)\n"
+            "show up here too — they share one store."
         ),
-        "examples": ["/job", "/job add", "/job run 2"],
+        "examples": ["/job", "/job add", "/job run"],
         "related": ["/background", "/telegram"],
     },
     "ratelimit": {
