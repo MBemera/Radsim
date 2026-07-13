@@ -243,6 +243,8 @@ def print_boot_sequence(provider, model, animated=True):
         colorize("    /tools", "cyan")
         + colorize(f" - List available tools ({_count_tools()} total)", "dim")
     )
+    print(colorize("    /undo", "cyan") + colorize(" - Revert the last file change", "dim"))
+    print(colorize("    !<cmd>", "cyan") + colorize(" - Run a shell command yourself", "dim"))
     print(colorize("    /exit", "cyan") + colorize(" - Quit RadSim", "dim"))
     print()
 
