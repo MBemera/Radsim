@@ -13,7 +13,7 @@ sits on your machine, calls a model over the network, and sends back tool
 results until the task is done.
 
 It works on Python 3.10+, macOS, Linux, and Windows. The current version on
-`main` is `1.5.1`.
+`main` is `1.6.0`.
 
 ## Why RadSim exists
 
