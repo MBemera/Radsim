@@ -265,7 +265,12 @@ class ToolEventHandle:
             console.print(line)
 
         if not ok and error:
-            console.print(f"  └ error: {error}", style="error")
+            # markup=False: error text comes from tools and files, so
+            # bracketed content must never be interpreted as rich markup.
+            error_lines = error.splitlines()
+            console.print(f"  └ error: {error_lines[0]}", style="error", markup=False)
+            for extra_line in error_lines[1:]:
+                console.print(f"           {extra_line}", style="error", markup=False)
 
         self.is_finished = True
 
