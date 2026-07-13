@@ -34,7 +34,7 @@ from .prompts import get_system_prompt
 from .rate_limiter import (
     ProtectionManager,
 )
-from .safety import confirm_action, confirm_write, is_path_safe
+from .safety import ask_confirmation, confirm_action, confirm_write, is_path_safe
 from .tools import DESTRUCTIVE_COMMANDS, execute_tool
 from .tools.command_analysis import is_destructive_command
 from .tools.validation import has_terminal_control_character, validate_shell_command
@@ -115,6 +115,7 @@ class RadSimAgent(
 
         # Session-level model for capable/review sub-agent tasks
         self._session_capable_model = None
+        self._session_approve_shell = False
 
         # Background job manager — completion notifications and result tracking
         self._injected_job_ids = set()
@@ -505,16 +506,14 @@ class RadSimAgent(
         """Handle delete_file tool with confirmation (always requires confirmation)."""
         file_path = tool_input.get("file_path", "")
 
-        print_warning(f"DELETE: {file_path}")
-        print_warning("This action cannot be undone!")
-
         # Deletion is irreversible, so it prompts even when auto_confirm is
         # active. Only explicitly disabling delete confirmation in /settings
         # skips the prompt.
         if _confirmation_required("file_deletion"):
-            confirmed = confirm_action(f"Delete '{file_path}'? (type 'yes' to confirm)")
+            print_warning(f"DELETE (cannot be undone): {file_path}")
+            confirmed = ask_confirmation(f"Delete '{file_path}'?") == "yes"
         else:
-            print_warning("Delete confirmation is OFF: deleting without prompt.")
+            print_warning(f"Delete confirmation is OFF — deleting without prompt: {file_path}")
             confirmed = True
 
         if confirmed:
@@ -531,6 +530,41 @@ class RadSimAgent(
                 "error": "STOPPED: User rejected delete. Do NOT retry. Ask user what to do instead.",
             }
 
+    def _confirm_shell_command(self, command, is_destructive):
+        """Decide whether one shell command may run.
+
+        A general shell can read, write, execute project code, reach the
+        network, or escape lexical path checks, so static classification is
+        not a permission boundary: every command needs a fresh human
+        decision, even when --yes is active. The only exceptions are an
+        explicit session-wide "all" answer (non-destructive commands only)
+        and disabling shell confirmation in /settings. Catastrophic
+        commands stay blocked by validate_shell_command regardless.
+        """
+        if not _confirmation_required("shell_commands"):
+            if is_destructive:
+                print_warning(f"DESTRUCTIVE COMMAND (confirmation OFF): {command}")
+            else:
+                print_warning("Shell confirmation is OFF: executing without prompt.")
+            return True
+
+        if is_destructive:
+            print_warning("Destructive command — explicit confirmation required.")
+            return ask_confirmation(f"Execute: '{command}'?") == "yes"
+
+        if self._session_approve_shell:
+            print_info(f"Auto-approved (session 'all'): {command}")
+            return True
+
+        answer = ask_confirmation(f"Execute: '{command}'?", offer_all=True)
+        if answer == "all":
+            self._session_approve_shell = True
+            print_info(
+                "Approving non-destructive shell commands for the rest of this "
+                "session. Destructive commands still prompt. Reset with /clear."
+            )
+        return answer in ("yes", "all")
+
     def _handle_shell_command(self, tool_input):
         """Handle shell command with confirmation."""
         command = tool_input.get("command", "")
@@ -544,22 +578,7 @@ class RadSimAgent(
         # or absolute-path forms ("env sudo", "/usr/bin/sudo") and destructive
         # commands in any pipeline segment cannot bypass confirmation.
         is_destructive = is_destructive_command(command, DESTRUCTIVE_COMMANDS)
-        if is_destructive:
-            print_warning(f"DESTRUCTIVE COMMAND: {command}")
-
-        # A general shell can read, write, execute project code, reach the
-        # network, or escape lexical path checks. Static classification is
-        # useful for warnings, but it is not a permission boundary. Require a
-        # fresh human decision, even when --yes is active, unless the user has
-        # explicitly disabled shell confirmation in /settings (catastrophic
-        # commands stay blocked by validate_shell_command regardless).
-        if _confirmation_required("shell_commands"):
-            if is_destructive:
-                print_warning("Explicit permission required.")
-            confirmed = confirm_action(f"Execute: '{command}'?", config=None)
-        else:
-            print_warning("Shell confirmation is OFF: executing without prompt.")
-            confirmed = True
+        confirmed = self._confirm_shell_command(command, is_destructive)
 
         if confirmed:
             tool_start_time = time.time()

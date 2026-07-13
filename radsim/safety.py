@@ -318,38 +318,59 @@ def confirm_write(file_path, content, config=None):
         return False
 
 
-def confirm_action(message, config=None):
-    """Ask user to confirm an action."""
-    if config and config.auto_confirm:
-        return True
+def ask_confirmation(message, offer_all=False):
+    """Prompt for a decision and return "yes", "no", or "all".
 
+    "all" is offered and accepted only when the caller can actually
+    honor it — the prompt suffix always matches what an answer does.
+
+    Returns:
+        "yes", "no", or "all" (only when offer_all is True).
+    """
     # Telegram confirmation mode
     if _telegram_confirm_fn:
-        return _telegram_confirm_fn(message)
+        return "yes" if _telegram_confirm_fn(message) else "no"
 
+    suffix = "[y/n/all]" if offer_all else "[y/n]"
     try:
-        response = _prompt_for_confirmation(f"{message} [y/n/all]: ")
+        response = _prompt_for_confirmation(f"{message} {suffix}: ")
 
         # Check for emergency stop commands
         if response.lower() in STOP_COMMANDS:
             _emergency_stop()
 
         # Handle Shift+Tab (\x1b[Z)
-        if "\x1b[Z" in response:
+        if offer_all and "\x1b[Z" in response:
             response = "all"
 
         response = response.lower()
 
         if response in ["y", "yes"]:
-            return True
+            return "yes"
 
-        if response in ["a", "all", "always"]:
-            if config:
-                config.auto_confirm = True
-                print("  ok Auto-confirm enabled (dangerous actions will still prompt)")
-            return True
+        if offer_all and response in ["a", "all", "always"]:
+            return "all"
 
-        return False
+        return "no"
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
-        return False
+        return "no"
+
+
+def confirm_action(message, config=None):
+    """Ask user to confirm an action.
+
+    "all" is only offered when a config is present to persist it —
+    otherwise the prompt shows [y/n] so it never promises an
+    auto-confirm it cannot deliver.
+    """
+    if config and config.auto_confirm:
+        return True
+
+    answer = ask_confirmation(message, offer_all=bool(config))
+
+    if answer == "all":
+        config.auto_confirm = True
+        print("  ok Auto-confirm enabled (dangerous actions will still prompt)")
+
+    return answer in ("yes", "all")

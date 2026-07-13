@@ -68,6 +68,7 @@ class AgentConversationMixin:
         self._current_task_start = None
         self._current_task_tools = []
         self._injected_job_ids = set()
+        self._session_approve_shell = False
 
     def estimate_tokens(self, text):
         """Estimate token count for text (rough approximation)."""

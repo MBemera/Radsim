@@ -589,7 +589,7 @@ def _result_summary(tool_name, result):
     success = result.get("success", False)
 
     if not success:
-        return f"exit {result['returncode']}" if "returncode" in result else ""
+        return f"exit {result['returncode']}" if "returncode" in result else "error"
 
     if tool_name == "read_file":
         return f"{result.get('line_count', 0)} lines"
@@ -633,12 +633,27 @@ def _result_summary(tool_name, result):
     return "ok"
 
 
+def _truncate_at_word(value, max_width):
+    """Truncate on a word boundary so cut-off text stays readable."""
+    text = str(value).strip()
+    if len(text) <= max_width:
+        return text
+    ellipsis = glyph("ellipsis")
+    cut = text[: max(max_width - len(ellipsis), 0)]
+    head, _, _ = cut.rpartition(" ")
+    return f"{head or cut}{ellipsis}"
+
+
 def _extract_error_text(result):
+    """Return up to three error lines — failures deserve full detail."""
     error_text = result.get("error") or result.get("stderr") or ""
     if not error_text:
         return None
-    first_line = error_text.strip().splitlines()[0]
-    return _truncate_text(first_line, 140)
+    lines = [line.strip() for line in error_text.strip().splitlines() if line.strip()]
+    shown = [_truncate_at_word(line, 300) for line in lines[:3]]
+    if len(lines) > 3:
+        shown.append(f"({len(lines) - 3} more lines)")
+    return "\n".join(shown)
 
 
 def print_tool_call(tool_name, tool_input, style="full", show_code=False):
@@ -1068,6 +1083,39 @@ HELP_DETAILS = {
             "Set autoConnect: true in config to connect on startup.",
         ],
     },
+    "hook": {
+        "title": "Lifecycle Hooks",
+        "aliases": ["/hooks"],
+        "summary": "Run your own shell commands on agent events.",
+        "usage": [
+            "/hook",
+            "/hook add",
+            "/hook add <name> <event> <matcher> <command...>",
+            "/hook remove <name>",
+            "/hook on <name>",
+            "/hook off <name>",
+        ],
+        "details": (
+            "Hooks run a shell command when an agent event fires. Events:\n"
+            "pre_tool, post_tool, session_start, session_end, on_error.\n"
+            "The matcher is a glob against the tool name (git_*, *, ...).\n\n"
+            "Each hook receives a JSON payload on stdin. A pre_tool hook\n"
+            "that exits with code 2 BLOCKS the tool call and its stderr is\n"
+            "shown as the reason. Hooks can only block actions — they can\n"
+            "never approve, skip a confirmation, or bypass validation.\n"
+            "A pre_tool hook that fails to run blocks the call (fail closed)."
+        ),
+        "examples": [
+            "/hook add test-gate pre_tool git_push pytest -q",
+            "/hook add lint-after post_tool write_file ruff check .",
+            "/hook off lint-after",
+        ],
+        "related": ["/skill", "/settings"],
+        "tips": [
+            "Hooks are stored in ~/.radsim/hooks.json (max 20).",
+            "The command is everything after the matcher — no quotes needed.",
+        ],
+    },
     "skill": {
         "title": "Custom Skills & Instructions",
         "aliases": ["/skills"],
@@ -1494,19 +1542,24 @@ def print_help_detail(topic):
     alias_str = ", ".join(aliases) if aliases else ""
 
     # Header box
-    print()
-    print(colorize("  ╭─────────────────────────────────────────────╮", "dim"))
+    inner_width = 45
     header_text = f"  /{topic}"
     if alias_str:
         header_text += f"  ({alias_str})"
-    padded = header_text.ljust(46)
-    print(colorize("  │", "dim") + colorize(padded[2:], "bold") + colorize("│", "dim"))
+
+    print()
+    print(colorize("  ╭" + "─" * inner_width + "╮", "dim"))
     print(
         colorize("  │", "dim")
-        + colorize(f"  {title}".ljust(44), "bright_cyan")
+        + colorize(header_text[:inner_width].ljust(inner_width), "bold")
         + colorize("│", "dim")
     )
-    print(colorize("  ╰─────────────────────────────────────────────╯", "dim"))
+    print(
+        colorize("  │", "dim")
+        + colorize(f"  {title}"[:inner_width].ljust(inner_width), "bright_cyan")
+        + colorize("│", "dim")
+    )
+    print(colorize("  ╰" + "─" * inner_width + "╯", "dim"))
     print()
 
     # Summary
@@ -1590,14 +1643,21 @@ def print_help(topic=None):
     # never drift out of sync with the commands that actually exist.
     from .commands_metadata import DEFAULT_COMMAND_SPECS
 
+    title = "RadSim Help Menu"
+    inner_width = 45
+    left_pad = " " * ((inner_width - len(title)) // 2)
+    right_pad = " " * (inner_width - len(title) - len(left_pad))
+
     print()
-    print(colorize("  ╭─────────────────────────────────────────────╮", "dim"))
+    print(colorize("  ╭" + "─" * inner_width + "╮", "dim"))
     print(
         colorize("  │", "dim")
-        + colorize("           RadSim Help Menu", "bold")
-        + colorize("                │", "dim")
+        + left_pad
+        + colorize(title, "bold")
+        + right_pad
+        + colorize("│", "dim")
     )
-    print(colorize("  ╰─────────────────────────────────────────────╯", "dim"))
+    print(colorize("  ╰" + "─" * inner_width + "╯", "dim"))
     print()
     print(colorize(f"  {len(DEFAULT_COMMAND_SPECS)} commands, {_count_tools()} tools", "dim"))
     print()

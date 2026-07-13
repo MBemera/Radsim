@@ -223,6 +223,12 @@ class AgentApiMixin:
             logger.exception("Tool %s crashed during execution", tool_name)
             print_error(f"{tool_name} crashed: {type(error).__name__}: {error}")
             try:
+                from .user_hooks import fire_error_hooks
+
+                fire_error_hooks(tool_name, type(error).__name__, str(error))
+            except Exception:
+                logger.debug("on_error hooks failed during tool crash handling")
+            try:
                 record_error(
                     error_type=type(error).__name__,
                     error_message=str(error),

@@ -10,9 +10,14 @@ from .runtime_context import get_runtime_context
 def run_single_shot(config, prompt, context_file=None):
     """Run a single-shot command and return the result."""
     from .agent import RadSimAgent
+    from .user_hooks import fire_session_hooks
 
     agent = RadSimAgent(config, context_file)
-    return agent.process_message(prompt)
+    fire_session_hooks("session_start", provider=config.provider, model=config.model)
+    try:
+        return agent.process_message(prompt)
+    finally:
+        fire_session_hooks("session_end", provider=config.provider, model=config.model)
 
 
 def run_interactive(config, context_file=None):
@@ -34,6 +39,14 @@ def run_interactive(config, context_file=None):
     agent = RadSimAgent(config, context_file)
     registry = CommandRegistry()
     set_active_agent(agent)
+
+    import atexit
+
+    from .user_hooks import fire_session_hooks
+
+    fire_session_hooks("session_start", provider=config.provider, model=config.model)
+    # atexit covers every way the loop can end: /exit, Ctrl+C, or a crash.
+    atexit.register(fire_session_hooks, "session_end", config.provider, config.model)
 
     print_header(config.provider, config.model)
 

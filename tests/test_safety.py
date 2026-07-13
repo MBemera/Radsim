@@ -127,3 +127,43 @@ def test_confirm_action_accepts_all(monkeypatch):
 
     assert result is True
     assert config.auto_confirm is True
+
+
+def test_confirm_action_without_config_never_offers_all(monkeypatch):
+    """The prompt must not advertise 'all' when nothing can persist it."""
+    from radsim import safety
+
+    prompts = []
+    monkeypatch.setattr(
+        safety, "_prompt_for_confirmation", lambda prompt: prompts.append(prompt) or "all"
+    )
+
+    result = safety.confirm_action("Proceed?")
+
+    assert result is False  # 'all' is not accepted when it was not offered
+    assert "[y/n]:" in prompts[0]
+    assert "all" not in prompts[0]
+
+
+def test_ask_confirmation_returns_all_only_when_offered(monkeypatch):
+    """'all' answers round-trip only for callers that can honor them."""
+    from radsim import safety
+
+    prompts = []
+    monkeypatch.setattr(
+        safety, "_prompt_for_confirmation", lambda prompt: prompts.append(prompt) or "all"
+    )
+
+    assert safety.ask_confirmation("Run?", offer_all=True) == "all"
+    assert "[y/n/all]:" in prompts[0]
+    assert safety.ask_confirmation("Run?") == "no"
+
+
+def test_ask_confirmation_yes_and_no(monkeypatch):
+    from radsim import safety
+
+    monkeypatch.setattr(safety, "_prompt_for_confirmation", lambda prompt: "y")
+    assert safety.ask_confirmation("Run?") == "yes"
+
+    monkeypatch.setattr(safety, "_prompt_for_confirmation", lambda prompt: "nope")
+    assert safety.ask_confirmation("Run?") == "no"

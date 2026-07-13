@@ -31,6 +31,7 @@ ARG_VARIANTS = {
     "/help": ["skill"],
     "/stats": ["prefs"],
     "/skill": ["list"],
+    "/hook": ["list"],
     "/memory": ["list"],
     "/mcp": ["status"],
     "/trust": [],

@@ -1072,3 +1072,113 @@ class LearningCommandHandlersMixin:
 
         print_error(f"Unknown action: {action}")
         print_info("Use /telegram for options")
+
+    def _cmd_hook(self, agent, args=None):
+        """Create and manage lifecycle hooks."""
+        action = args[0].lower() if args else "list"
+        handlers = {
+            "list": self._hook_list,
+            "add": self._hook_add,
+            "remove": self._hook_remove,
+            "on": lambda rest: self._hook_set_enabled(rest, True),
+            "off": lambda rest: self._hook_set_enabled(rest, False),
+        }
+        handler = handlers.get(action)
+        if handler is None:
+            print_error(f"Unknown action: {action}")
+            print_info("Usage: /hook [list | add | remove <name> | on <name> | off <name>]")
+            return
+        handler(args[1:] if args else [])
+
+    def _hook_list(self, args):
+        """Show every configured hook and how to use them."""
+        from .user_hooks import HOOKS_FILE, load_user_hooks
+
+        hooks = load_user_hooks()
+        print()
+        if not hooks:
+            print_info("No hooks configured.")
+        for hook in hooks:
+            state = "on " if hook.enabled else "off"
+            print(f"  [{state}] {hook.name}  ({hook.event}, matcher: {hook.matcher})")
+            print(f"        {hook.command}")
+        print()
+        print_info(f"Stored in {HOOKS_FILE}")
+        print_info("Usage: /hook add | remove <name> | on <name> | off <name>")
+        print_info("A pre_tool hook receives JSON on stdin; exit 2 blocks the tool call.")
+
+    def _hook_add(self, args):
+        """Add a hook: /hook add <name> <event> <matcher> <command...> or interactive."""
+        from .user_hooks import DEFAULT_TIMEOUT_SECONDS, VALID_EVENTS, add_user_hook
+
+        if len(args) >= 4:
+            name, event, matcher = args[0], args[1], args[2]
+            command = " ".join(args[3:])
+        else:
+            fields = self._prompt_hook_fields(VALID_EVENTS)
+            if fields is None:
+                print_info("Cancelled.")
+                return
+            name, event, matcher, command = fields
+
+        from .safety import ask_confirmation
+
+        print()
+        print_info(f"Hook '{name}' will run on {event} (matcher: {matcher}):")
+        print(f"    {command}")
+        if ask_confirmation("  Save this hook?") != "yes":
+            print_info("Cancelled.")
+            return
+
+        result = add_user_hook(name, event, matcher, command, DEFAULT_TIMEOUT_SECONDS)
+        if result["success"]:
+            print_info(f"Hook '{name}' saved.")
+        else:
+            print_error(result["error"])
+
+    def _prompt_hook_fields(self, valid_events):
+        """Interactively collect hook fields; None cancels."""
+        from .menu import interactive_menu, safe_input
+
+        event = interactive_menu(
+            "HOOK EVENT",
+            [(event, f"Fires on {event.replace('_', ' ')}") for event in valid_events],
+        )
+        if event is None:
+            return None
+        name = safe_input("  Hook name (letters, digits, - _): ")
+        if not name:
+            return None
+        matcher = safe_input("  Tool matcher (glob, e.g. run_shell_command or git_* or *): ")
+        if matcher is None:
+            return None
+        command = safe_input("  Shell command to run: ")
+        if not command:
+            return None
+        return name.strip(), event, (matcher.strip() or "*"), command.strip()
+
+    def _hook_remove(self, args):
+        """Delete a hook by name."""
+        from .user_hooks import remove_user_hook
+
+        if not args:
+            print_error("Usage: /hook remove <name>")
+            return
+        result = remove_user_hook(args[0])
+        if result["success"]:
+            print_info(f"Hook '{args[0]}' removed.")
+        else:
+            print_error(result["error"])
+
+    def _hook_set_enabled(self, args, enabled):
+        """Toggle a hook on or off without deleting it."""
+        from .user_hooks import set_user_hook_enabled
+
+        if not args:
+            print_error(f"Usage: /hook {'on' if enabled else 'off'} <name>")
+            return
+        result = set_user_hook_enabled(args[0], enabled)
+        if result["success"]:
+            print_info(f"Hook '{args[0]}' is now {'enabled' if enabled else 'disabled'}.")
+        else:
+            print_error(result["error"])

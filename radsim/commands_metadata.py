@@ -170,6 +170,14 @@ DEFAULT_COMMAND_SPECS = [
         "telegram_safe": False,
     },
     {
+        "names": ["/hook", "/hooks"],
+        "handler_name": "_cmd_hook",
+        "description": "Create and manage lifecycle hooks",
+        "category": "customization",
+        "accepts_args": True,
+        "telegram_safe": False,
+    },
+    {
         "names": ["/memory", "/mem"],
         "handler_name": "_cmd_memory",
         "description": "Manage persistent memory",

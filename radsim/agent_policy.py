@@ -158,7 +158,31 @@ class AgentPolicyMixin:
         return result
 
     def _execute_with_permission(self, tool_name, tool_input):
-        """Execute a tool with appropriate permission checks."""
+        """Execute a tool with hooks and appropriate permission checks.
+
+        Hooks can only block a call, never approve one: a pre_tool block
+        short-circuits before any confirmation, and the permission checks
+        in _dispatch_tool run unchanged when hooks allow the call.
+        """
+        from .user_hooks import fire_tool_hooks
+
+        proceed, reason = fire_tool_hooks("pre_tool", tool_name, tool_input)
+        if not proceed:
+            print_warning(f"Hook blocked {tool_name}: {reason}")
+            return {
+                "success": False,
+                "error": (
+                    f"Blocked by {reason}. Do not retry the same call; "
+                    "adjust the approach or ask the user."
+                ),
+            }
+
+        result = self._dispatch_tool(tool_name, tool_input)
+        fire_tool_hooks("post_tool", tool_name, tool_input, result=result)
+        return result
+
+    def _dispatch_tool(self, tool_name, tool_input):
+        """Route one allowed tool call to its permission-checked handler."""
         self._warn_if_known_error(tool_name, tool_input)
 
         disabled_result = self._check_tool_disabled(tool_name)
