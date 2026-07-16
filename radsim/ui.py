@@ -33,15 +33,7 @@ register_mascot_spinner()
 
 logger = logging.getLogger(__name__)
 
-try:
-    from prompt_toolkit import PromptSession
-    from prompt_toolkit.formatted_text import ANSI
-    from prompt_toolkit.patch_stdout import patch_stdout
-
-    _PTK_AVAILABLE = True
-except ImportError:
-    _PTK_AVAILABLE = False
-
+_PTK_AVAILABLE = None
 _prompt_session = None
 
 # RadSim palette — sourced from ~/.radsim/settings.json (user-selectable).
@@ -343,26 +335,48 @@ def print_prompt(active_modes: list = None, registry=None) -> str:
 
     prompt = mode_prefix + f"[primary]{glyph('prompt')}[/primary] "
 
-    if _PTK_AVAILABLE and registry is not None and sys.stdin.isatty():
-        from .command_completer import build_completer
-
-        global _prompt_session
-        if _prompt_session is None:
-            _prompt_session = PromptSession()
-
-        with console.capture() as cap:
-            console.print(prompt, end="")
-        ansi_prompt = ANSI(cap.get().rstrip("\n"))
-
-        with patch_stdout(raw=True):
-            return _prompt_session.prompt(
-                ansi_prompt,
-                completer=build_completer(registry),
-                complete_while_typing=True,
-            )
-
+    if registry is not None and sys.stdin.isatty():
+        prompt_toolkit = _load_prompt_toolkit()
+        if prompt_toolkit is not None:
+            return _prompt_with_completions(prompt, registry, prompt_toolkit)
 
     return console.input(prompt)
+
+
+def _load_prompt_toolkit():
+    """Load interactive prompt dependencies only when completions are needed."""
+    global _PTK_AVAILABLE
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.formatted_text import ANSI
+        from prompt_toolkit.patch_stdout import patch_stdout
+    except ImportError:
+        _PTK_AVAILABLE = False
+        return None
+
+    _PTK_AVAILABLE = True
+    return PromptSession, ANSI, patch_stdout
+
+
+def _prompt_with_completions(prompt, registry, prompt_toolkit):
+    """Read interactive input with slash-command completions."""
+    PromptSession, ANSI, patch_stdout = prompt_toolkit
+    from .command_completer import build_completer
+
+    global _prompt_session
+    if _prompt_session is None:
+        _prompt_session = PromptSession()
+
+    with console.capture() as cap:
+        console.print(prompt, end="")
+    ansi_prompt = ANSI(cap.get().rstrip("\n"))
+
+    with patch_stdout(raw=True):
+        return _prompt_session.prompt(
+            ansi_prompt,
+            completer=build_completer(registry),
+            complete_while_typing=True,
+        )
 
 
 def print_success(message):
