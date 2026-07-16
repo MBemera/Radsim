@@ -1,0 +1,26 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /switch  (/model)                          │
+  │  Quick Switch Provider/Model                │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Interactively switch your AI provider and model.
+
+  Usage:
+    /switch
+
+  Details:
+    Opens an interactive menu to select a new provider (Claude, GPT-5,
+    Gemini, Vertex AI, OpenRouter) and then pick a model. Requires an
+    API key already configured in your .env file.
+
+  Examples:
+    $ /switch
+    $ /model
+
+  Tips:
+    Tip: Use /free to instantly switch to the cheapest model.
+
+  Related: /config  /free
+

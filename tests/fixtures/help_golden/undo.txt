@@ -1,0 +1,32 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /undo                                      │
+  │  Undo File Changes                          │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Restore files to their state before the last agent edit.
+
+  Usage:
+    /undo
+    /undo list
+
+  Details:
+    Before the agent writes, edits, renames, patches, or deletes a
+    file, RadSim snapshots it. /undo restores the most recent
+    checkpoint: rewritten files get their old content back, and
+    files that did not exist before are removed.
+    
+    Covers write_file, replace_in_file, delete_file, rename_file,
+    multi_edit, and apply_patch. Keeps the last 20 checkpoints per
+    project; files over 5 MB are recorded but not snapshotted.
+
+  Examples:
+    $ /undo
+    $ /undo list
+
+  Tips:
+    Tip: Run /undo repeatedly to step further back.
+
+  Related: /show
+

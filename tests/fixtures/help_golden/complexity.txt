@@ -1,0 +1,30 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /complexity  (/cx)                         │
+  │  Complexity Budget & Scoring                │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Analyze and manage code complexity.
+
+  Usage:
+    /complexity
+    /complexity budget <N>
+    /complexity analyze <file>
+    /complexity report
+
+  Details:
+    The complexity system scores code and enforces budgets:
+    
+      • (no args) — Interactive menu
+      • budget N  — Set max complexity budget
+      • analyze   — Score a specific file
+      • report    — Full project complexity report
+
+  Examples:
+    $ /complexity
+    $ /cx budget 50
+    $ /complexity analyze src/auth.py
+
+  Related: /stress  /archaeology
+

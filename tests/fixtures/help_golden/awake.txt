@@ -1,0 +1,23 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /awake  (/caffeinate)                      │
+  │  Stay-Awake Mode                            │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Toggle stay-awake mode (prevents macOS sleep).
+
+  Usage:
+    /awake
+    /caffeinate
+
+  Details:
+    Uses macOS 'caffeinate' to prevent the system from sleeping.
+    Useful during long-running tasks. Toggle off when done.
+
+  Examples:
+    $ /awake
+    $ /caffeinate
+
+  Related: /modes
+

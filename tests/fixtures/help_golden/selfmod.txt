@@ -1,0 +1,29 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /selfmod  (/self)                          │
+  │  Self-Modification                          │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    View or edit RadSim source code and custom prompt.
+
+  Usage:
+    /selfmod
+    /selfmod path
+    /selfmod prompt
+    /selfmod list
+
+  Details:
+    Access RadSim's own source code:
+    
+      • path   — Show the RadSim source directory
+      • prompt — View/edit the custom system prompt
+      • list   — List all source files
+
+  Examples:
+    $ /selfmod path
+    $ /selfmod prompt
+    $ /self list
+
+  Related: /evolve  /settings
+

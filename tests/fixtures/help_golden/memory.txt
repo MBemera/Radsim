@@ -1,0 +1,29 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /memory  (/mem)                            │
+  │  Persistent Memory                          │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Save, recall, and manage persistent memory entries.
+
+  Usage:
+    /memory
+    /memory remember <text>
+    /memory forget <n>
+    /memory list
+
+  Details:
+    Memory lets RadSim remember facts across conversations.
+    
+      • remember — Save a piece of information
+      • forget   — Remove a memory by number
+      • list     — Show all stored memories
+
+  Examples:
+    $ /memory remember My project uses PostgreSQL 16
+    $ /memory list
+    $ /memory forget 3
+
+  Related: /skill  /stats
+

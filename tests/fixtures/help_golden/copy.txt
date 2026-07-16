@@ -1,0 +1,25 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /copy  (/cp)                               │
+  │  Copy to Clipboard                          │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Copy the last response, code block, or written file.
+
+  Usage:
+    /copy
+    /copy code
+    /copy file
+
+  Details:
+    Copies content to the system clipboard:
+      • /copy       — the last full response
+      • /copy code  — the last fenced code block in the response
+      • /copy file  — the content of the last written file
+
+  Examples:
+    $ /copy code
+
+  Related: /show  /export
+

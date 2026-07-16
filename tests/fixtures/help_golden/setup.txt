@@ -1,0 +1,22 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /setup  (/onboarding)                      │
+  │  Setup Wizard                               │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Re-run the initial setup wizard.
+
+  Usage:
+    /setup
+    /onboarding
+
+  Details:
+    Runs the full onboarding flow again: provider selection, API key
+    entry, and model selection.
+
+  Examples:
+    $ /setup
+
+  Related: /config  /switch
+

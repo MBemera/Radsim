@@ -1,0 +1,24 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /theme  (/palette)                         │
+  │  Color Theme                                │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Pick the UI color palette.
+
+  Usage:
+    /theme
+    /theme <name>
+
+  Details:
+    Changes RadSim's terminal color palette. Run without arguments
+    for an interactive picker, or pass a palette name directly.
+    The choice is saved in ~/.radsim/settings.json.
+
+  Examples:
+    $ /theme
+    $ /palette
+
+  Related: /font  /animations
+

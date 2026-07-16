@@ -1,0 +1,41 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /skill  (/skills)                          │
+  │  Custom Skills & Instructions               │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Add, list, remove, or import custom instructions.
+
+  Usage:
+    /skill
+    /skill add <instruction>
+    /skill list
+    /skill remove <n>
+    /skill templates
+    /skill learn <file>
+    /skill clear
+
+  Details:
+    Skills are persistent custom instructions that shape how RadSim
+    responds. They survive across conversations.
+    
+      • add       — Add a new instruction (e.g. 'Always use TypeScript')
+      • list      — Show all active skills
+      • remove    — Remove a skill by number
+      • templates — Show example skills to get started
+      • learn     — Import skills from a file
+      • clear     — Remove all skills
+
+  Examples:
+    $ /skill add Always use TypeScript instead of JavaScript
+    $ /skill list
+    $ /skill remove 2
+    $ /skill templates
+
+  Tips:
+    Tip: Skills are stored in ~/.radsim/skills.json
+    Tip: Use /skill templates for inspiration
+
+  Related: /stats  /settings
+

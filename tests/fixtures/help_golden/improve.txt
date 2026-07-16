@@ -1,0 +1,23 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /improve  (/-)                             │
+  │  Improvement Feedback                       │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Mark the last response for improvement (negative feedback).
+
+  Usage:
+    /improve
+    /-
+
+  Details:
+    Records that the last response could be better. RadSim uses this
+    alongside positive feedback to learn what works and what doesn't.
+
+  Examples:
+    $ /improve
+    $ /-
+
+  Related: /good  /stats
+

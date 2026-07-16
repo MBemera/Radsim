@@ -1,0 +1,37 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /job  (/jobs, /cron)                       │
+  │  Scheduled Jobs                             │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Manage scheduled cron jobs.
+
+  Usage:
+    /job
+    /job add
+    /job remove   (pick from a list)
+    /job pause    (pick from a list)
+    /job resume   (pick from a list)
+    /job run      (pick from a list)
+
+  Details:
+    Schedules recurring commands (cron-style). Every action works
+    without an id — you get a picker of your jobs:
+    
+      • (no args)   — List all scheduled jobs
+      • add         — Create a new scheduled job
+      • remove      — Delete a job
+      • pause/resume— Toggle a job without deleting it
+      • run         — Run a job immediately
+    
+    Jobs the agent schedules for you (via the schedule_task tool)
+    show up here too — they share one store.
+
+  Examples:
+    $ /job
+    $ /job add
+    $ /job run
+
+  Related: /background  /telegram
+

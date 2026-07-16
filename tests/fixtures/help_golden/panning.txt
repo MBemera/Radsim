@@ -1,0 +1,27 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /panning  (/pan)                           │
+  │  Brain-Dump Processing                      │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Process messy brain-dumps into structured synthesis.
+
+  Usage:
+    /panning
+    /panning <brain dump text>
+
+  Details:
+    Panning mode takes unstructured thoughts, ideas, or notes and
+    synthesizes them into a structured, actionable output. Great for:
+    
+      • Converting rough notes into a spec
+      • Organizing scattered requirements
+      • Turning brainstorms into action items
+
+  Examples:
+    $ /panning I need auth, maybe OAuth, also user profiles, and...
+    $ /pan
+
+  Related: /plan
+

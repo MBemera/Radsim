@@ -1,0 +1,21 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /tools                                     │
+  │  Available Tools                            │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    List all available tools the agent can use.
+
+  Usage:
+    /tools
+
+  Details:
+    Displays the full list of tools available to RadSim, including
+    file operations, git, shell, search, testing, and more.
+
+  Examples:
+    $ /tools
+
+  Related: /help
+

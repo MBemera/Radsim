@@ -1,0 +1,20 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /modes                                     │
+  │  Available Modes                            │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    List all available mode toggles.
+
+  Usage:
+    /modes
+
+  Details:
+    Shows all modes (teach, awake, etc.) and their current on/off status.
+
+  Examples:
+    $ /modes
+
+  Related: /teach  /awake
+

@@ -1,0 +1,47 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /mcp                                       │
+  │  MCP Server Connections                     │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Manage MCP (Model Context Protocol) server connections.
+
+  Usage:
+    /mcp
+    /mcp status
+    /mcp list
+    /mcp add
+    /mcp connect <name>
+    /mcp disconnect <name>
+    /mcp remove <name>
+
+  Details:
+    Connect to external MCP servers to extend RadSim with additional tools.
+    MCP is the same protocol used by Claude Desktop, Cursor, and other tools.
+    
+    Subcommands:
+      status     - Show all servers and connection state (default)
+      list       - Show all tools from connected servers
+      add        - Interactively add a new server
+      connect    - Connect to a configured server
+      disconnect - Disconnect from a server
+      remove     - Remove a server configuration
+    
+    Config file: ~/.radsim/mcp.json
+    Supports: stdio, SSE, and Streamable HTTP transports.
+    Install MCP SDK: pip install radsimcli[mcp]
+
+  Examples:
+    $ /mcp
+    $ /mcp add
+    $ /mcp connect filesystem
+    $ /mcp list
+
+  Tips:
+    Tip: MCP tools appear alongside native tools in /tools output.
+    Tip: All MCP tools require confirmation unless auto_confirm is enabled.
+    Tip: Set autoConnect: true in config to connect on startup.
+
+  Related: /tools  /config
+

@@ -1,0 +1,28 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /login                                     │
+  │  Provider Login                             │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Log in to a provider with an API key.
+
+  Usage:
+    /login
+    /login <provider>
+
+  Details:
+    Configures API credentials from inside RadSim:
+    
+      • (no args)    — Pick a provider from a numbered menu
+      • <provider>   — Run the API-key wizard for that provider
+    
+    After login, RadSim hot-swaps to the newly configured provider.
+
+  Examples:
+    $ /login
+    $ /login openrouter
+    $ /login claude
+
+  Related: /logout  /config  /switch
+

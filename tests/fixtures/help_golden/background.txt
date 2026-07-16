@@ -1,0 +1,25 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /background  (/bg)                         │
+  │  Background Jobs                            │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    View and manage background sub-agent jobs.
+
+  Usage:
+    /background
+    /bg
+    /bg<N>
+
+  Details:
+    Lists background sub-agent jobs with status and runtime.
+    Use /bg<N> (e.g. /bg2) to view the result of job N.
+    Job results are also injected into the conversation when done.
+
+  Examples:
+    $ /background
+    $ /bg1
+
+  Related: /job
+

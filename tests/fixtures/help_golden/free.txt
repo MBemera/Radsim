@@ -1,0 +1,24 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /free                                      │
+  │  Cheapest Model                             │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Instantly switch to the cheapest OpenRouter model.
+
+  Usage:
+    /free
+
+  Details:
+    Switches to DeepSeek V4 Flash on OpenRouter ($0.09/$0.18 per 1M tokens).
+    Requires an OPENROUTER_API_KEY in your .env file.
+
+  Examples:
+    $ /free
+
+  Tips:
+    Tip: Great for quick tasks where you don't need a top-tier model.
+
+  Related: /switch  /config
+

@@ -1,0 +1,33 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /stats                                     │
+  │  Learning Statistics                        │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Show learning statistics and deeper learning views.
+
+  Usage:
+    /stats
+    /stats report
+    /stats audit
+    /stats prefs
+    /stats prompt
+
+  Details:
+    Bare /stats shows key learning metrics: tasks completed, success
+    rate, errors tracked, feedback received, and tools tracked.
+    
+    Subactions:
+      report — export the full-text learning report
+      audit  — audit every learned preference
+      prefs  — show learned code style preferences
+      prompt — show system prompt size by layer
+
+  Examples:
+    $ /stats
+    $ /stats prefs
+    $ /stats prompt
+
+  Related: /reset  /skill
+

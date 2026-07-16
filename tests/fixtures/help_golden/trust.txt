@@ -1,0 +1,27 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /trust                                     │
+  │  Confirmation Trust                         │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    View or reset learned confirmation trust.
+
+  Usage:
+    /trust
+    /trust reset [tool]
+    /trust low
+    /trust medium
+
+  Details:
+    RadSim learns which safe actions you routinely approve and can
+    auto-confirm them (trust bandit). This command shows what has
+    been learned, adjusts the trust threshold, or resets it.
+
+  Examples:
+    $ /trust
+    $ /trust reset
+    $ /trust reset write_file
+
+  Related: /settings  /stats
+

@@ -1,0 +1,31 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /teach  (/t)                               │
+  │  Teach Me Mode                              │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Toggle teach mode — adds explanations to every response.
+
+  Usage:
+    /teach
+    /t
+
+  Details:
+    When teach mode is ON, RadSim adds [teach] inline annotations explaining
+    what each piece of code does and why. Great for learning new
+    languages, frameworks, or understanding unfamiliar codebases.
+    
+    Annotations appear in magenta and are automatically stripped
+    from files written to disk.
+
+  Examples:
+    $ /teach
+    $ /t
+
+  Tips:
+    Tip: Press T as a hotkey to toggle teach mode quickly
+    Tip: Annotations are stripped from saved files automatically
+
+  Related: /modes  /show
+

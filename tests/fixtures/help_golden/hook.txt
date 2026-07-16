@@ -1,0 +1,43 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /hook  (/hooks)                            │
+  │  Lifecycle Hooks                            │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Run your own shell commands on agent events.
+
+  Usage:
+    /hook            (interactive menu)
+    /hook list
+    /hook add
+    /hook toggle     (arrow-key on/off switches)
+    /hook remove     (pick from a list)
+    /hook add <name> <event> <matcher> <command...>
+
+  Details:
+    Hooks run a shell command when an agent event fires. Events:
+    pre_tool, post_tool, session_start, session_end, on_error.
+    The matcher is a glob against the tool name (git_*, *, ...);
+    session hooks always fire.
+    
+    Every action works without arguments: bare /hook opens a menu,
+    and remove/on/off show a picker of your hooks.
+    
+    Each hook receives a JSON payload on stdin. A pre_tool hook
+    that exits with code 2 BLOCKS the tool call and its stderr is
+    shown as the reason. Hooks can only block actions — they can
+    never approve, skip a confirmation, or bypass validation.
+    A pre_tool hook that fails to run blocks the call (fail closed).
+
+  Examples:
+    $ /hook add test-gate pre_tool git_push pytest -q
+    $ /hook add lint-after post_tool write_file ruff check .
+    $ /hook off lint-after
+
+  Tips:
+    Tip: Hooks are stored in ~/.radsim/hooks.json (max 20).
+    Tip: The command is everything after the matcher — no quotes needed.
+
+  Related: /skill  /settings
+

@@ -1,0 +1,23 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /good  (/+)                                │
+  │  Positive Feedback                          │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Mark the last response as good (positive feedback).
+
+  Usage:
+    /good
+    /+
+
+  Details:
+    Records positive feedback on the last response. RadSim uses this
+    to learn your preferences and improve future responses.
+
+  Examples:
+    $ /good
+    $ /+
+
+  Related: /improve  /stats
+

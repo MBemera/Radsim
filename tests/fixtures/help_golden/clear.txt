@@ -1,0 +1,24 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /clear  (/c, /new, /fresh)                 │
+  │  Clear Conversation                         │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Clear the conversation and start fresh.
+
+  Usage:
+    /clear
+    /new
+
+  Details:
+    Clears conversation history, the task tracker, and background
+    jobs, and resets rate limiters and budget counters. Learned
+    preferences and skills are kept — use /reset for those.
+
+  Examples:
+    $ /clear
+    $ /new
+
+  Related: /reset
+

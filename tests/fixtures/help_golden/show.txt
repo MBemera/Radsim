@@ -1,0 +1,29 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /show                                      │
+  │  Show Last Written File                     │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Display the content of the last file written by the agent.
+
+  Usage:
+    /show
+    /show all
+
+  Details:
+    Shows the last file RadSim wrote, with line numbers. In teach
+    mode, annotations are highlighted in magenta.
+    
+      • (no args) — Show last written file
+      • all       — Show all files written this session
+
+  Examples:
+    $ /show
+    $ /show all
+
+  Tips:
+    Tip: Press S during a write confirmation to preview code.
+
+  Related: /teach
+

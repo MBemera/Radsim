@@ -1,0 +1,29 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /archaeology  (/arch, /dead)               │
+  │  Dead Code Archaeology                      │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Find dead code, zombie functions, and unused imports.
+
+  Usage:
+    /archaeology
+    /archaeology clean
+
+  Details:
+    Scans your project for:
+    
+      • Unused imports
+      • Dead functions never called
+      • Zombie code (commented out blocks)
+      • Unreachable code paths
+    
+    Use 'clean' for interactive cleanup.
+
+  Examples:
+    $ /archaeology
+    $ /arch clean
+
+  Related: /complexity  /stress
+

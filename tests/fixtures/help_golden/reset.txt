@@ -1,0 +1,31 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /reset                                     │
+  │  Reset Learning Data                        │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Reset a category of learned data or the token budget.
+
+  Usage:
+    /reset
+    /reset <category>
+
+  Details:
+    Reset specific learning categories:
+    
+      • budget       — Reset token budget counters
+      • preferences  — Reset learned code style
+      • errors       — Reset error patterns
+      • examples     — Reset few-shot examples
+      • tools        — Reset tool effectiveness data
+      • reflections  — Reset task reflections
+      • all          — Reset everything
+
+  Examples:
+    $ /reset budget
+    $ /reset preferences
+    $ /reset all
+
+  Related: /stats
+
