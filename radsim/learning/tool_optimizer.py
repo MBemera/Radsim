@@ -4,10 +4,13 @@ Learn which tools work best for different tasks and suggest
 optimal tool chains based on past success.
 """
 
+import atexit
 import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+from ..persistence import atomic_write_json
 
 
 @dataclass
@@ -49,6 +52,7 @@ class ToolOptimizer:
         self._chains: list[dict] = []
         self._scores: dict = {}
         self._current_chain: list[str] = []
+        self._dirty = False
         self._load()
 
     def _load(self):
@@ -71,11 +75,15 @@ class ToolOptimizer:
             except (OSError, json.JSONDecodeError):
                 self._scores = {}
 
-    def _save(self):
-        """Persist tool data to disk."""
-        self.executions_file.write_text(json.dumps(self._executions[-500:], indent=2))
-        self.chains_file.write_text(json.dumps(self._chains[-100:], indent=2))
-        self.scores_file.write_text(json.dumps(self._scores, indent=2))
+    def flush(self) -> bool:
+        """Persist all dirty tool data once at a lifecycle boundary."""
+        if not self._dirty:
+            return False
+        atomic_write_json(self.executions_file, self._executions[-500:])
+        atomic_write_json(self.chains_file, self._chains[-100:])
+        atomic_write_json(self.scores_file, self._scores)
+        self._dirty = False
+        return True
 
     def track_tool_execution(
         self,
@@ -118,7 +126,7 @@ class ToolOptimizer:
         # Update tool scores
         self._update_tool_score(tool_name, success, duration_ms)
 
-        self._save()
+        self._dirty = True
 
     def _update_tool_score(self, tool_name: str, success: bool, duration_ms: float):
         """Update running effectiveness score for a tool."""
@@ -165,7 +173,7 @@ class ToolOptimizer:
         self._chains.append(chain_record)
         self._current_chain = []  # Reset for next task
 
-        self._save()
+        self._dirty = True
 
     def suggest_tool_chain(self, task_description: str) -> list[str]:
         """Suggest a sequence of tools based on past success.
@@ -343,7 +351,7 @@ class ToolOptimizer:
         self._chains = []
         self._scores = {}
         self._current_chain = []
-        self._save()
+        self._dirty = True
 
 
 # Global instance
@@ -356,6 +364,24 @@ def get_tool_optimizer() -> ToolOptimizer:
     if _tool_optimizer is None:
         _tool_optimizer = ToolOptimizer()
     return _tool_optimizer
+
+
+def flush_tool_optimizer() -> bool:
+    """Flush the global optimizer without creating it as a side effect."""
+    if _tool_optimizer is None:
+        return False
+    return _tool_optimizer.flush()
+
+
+def _flush_tool_optimizer_at_exit() -> None:
+    """Best-effort durability fallback for interpreter shutdown."""
+    try:
+        flush_tool_optimizer()
+    except Exception:
+        pass
+
+
+atexit.register(_flush_tool_optimizer_at_exit)
 
 
 def track_tool_execution(

@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from .api_client import create_client
-from .learning import get_reflection_engine, get_tool_optimizer
+from .learning import flush_tool_optimizer, get_reflection_engine, get_tool_optimizer
 from .output import print_error, print_info, print_success, print_warning
 
 logger = logging.getLogger(__name__)
@@ -211,6 +211,10 @@ class AgentConversationMixin:
         try:
             return self._process_message_inner(user_input)
         finally:
+            try:
+                flush_tool_optimizer()
+            except Exception:
+                logger.debug("Tool optimizer flush failed at turn boundary", exc_info=True)
             stop_escape_listener()
             self._is_processing.clear()
 
