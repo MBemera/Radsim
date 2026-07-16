@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 
+PRE_REFACTOR_PROMPT_LENGTH = 27_484
+
 
 def test_composed_prompt_names_voice_tools_and_memory_operations():
     """Test that the composed prompt wires markdown fragments into runtime."""
@@ -30,6 +32,19 @@ def test_prompt_requires_affirmative_consent_before_acting():
         assert stop_word in prompt
     # Explicitly covers the ambiguous "no pause" case from the field report
     assert "no pause" in prompt
+
+
+def test_compact_prompt_preserves_security_guidance():
+    """The schema catalogue shrinks without removing behavioral safety rules."""
+    from radsim.prompts import get_system_prompt
+
+    prompt = get_system_prompt()
+
+    assert len(prompt) <= PRE_REFACTOR_PROMPT_LENGTH - 3_000
+    assert "NEVER write raw binary bytes through write_file" in prompt
+    assert "Destructive operations require user confirmation" in prompt
+    assert "Proceed ONLY on an unambiguous yes" in prompt
+    assert "Sub-agents run in the **background by default**" in prompt
 
 
 def test_prompt_stats_match_layer_lengths():
