@@ -173,6 +173,39 @@ def is_retryable_error(error) -> tuple[bool, bool]:
     return is_retryable, is_rate_limit
 
 
+def _parse_tool_arguments(raw_arguments, tool_name):
+    """Parse a provider tool-call argument string into a dict.
+
+    Providers emit an empty string for some zero-argument calls, and a model
+    can produce malformed JSON. Returning a marked error dict instead of
+    raising keeps one bad tool call from aborting the whole turn; the agent
+    surfaces the parse error back to the model as the tool result.
+    """
+    if not raw_arguments or not raw_arguments.strip():
+        return {}
+
+    try:
+        parsed = json.loads(raw_arguments)
+    except json.JSONDecodeError as error:
+        logger.error(
+            f"Tool argument JSON parse failed for {tool_name or 'unknown'}: "
+            f"{error}. Raw: {raw_arguments[:200]}"
+        )
+        return {"__parse_error__": str(error), "__raw__": raw_arguments[:500]}
+
+    if not isinstance(parsed, dict):
+        logger.error(
+            f"Tool arguments for {tool_name or 'unknown'} are not a JSON "
+            f"object. Raw: {raw_arguments[:200]}"
+        )
+        return {
+            "__parse_error__": "tool arguments must be a JSON object",
+            "__raw__": raw_arguments[:500],
+        }
+
+    return parsed
+
+
 def _block_to_openai_part(block):
     """Convert one Anthropic-style content block to an OpenAI content part.
 
@@ -305,18 +338,9 @@ class ClaudeClient(BaseAPIClient):
 
                 elif event.type == "content_block_stop":
                     if current_tool_use:
-                        # Parse the collected JSON string
-                        try:
-                            current_tool_use["input"] = json.loads(current_tool_use["input"])
-                        except json.JSONDecodeError as e:
-                            # Log error and preserve context for upstream handling
-                            import logging
-                            raw_preview = current_tool_use["input"][:200] if current_tool_use["input"] else "(empty)"
-                            logging.error(f"Claude tool input parse failed for {current_tool_use.get('name', 'unknown')}: {e}. Raw: {raw_preview}")
-                            current_tool_use["input"] = {
-                                "__parse_error__": str(e),
-                                "__raw__": current_tool_use["input"][:500] if current_tool_use["input"] else ""
-                            }
+                        current_tool_use["input"] = _parse_tool_arguments(
+                            current_tool_use["input"], current_tool_use.get("name")
+                        )
                         current_tool_use = None
 
                 elif event.type == "message_delta":
@@ -516,13 +540,7 @@ class OpenAIClient(BaseAPIClient):
 
         for idx in sorted(tool_calls_map.keys()):
             tc = tool_calls_map[idx]
-            try:
-                args = json.loads(tc["arguments"])
-            except json.JSONDecodeError as e:
-                import logging
-                raw_preview = tc["arguments"][:200] if tc["arguments"] else "(empty)"
-                logging.error(f"Tool call JSON parse failed for {tc.get('name', 'unknown')}: {e}. Raw: {raw_preview}")
-                args = {"__parse_error__": str(e), "__raw__": tc["arguments"][:500] if tc["arguments"] else ""}
+            args = _parse_tool_arguments(tc["arguments"], tc.get("name"))
 
             content.append(
                 {
@@ -653,7 +671,9 @@ class OpenAIClient(BaseAPIClient):
                         "type": "tool_use",
                         "id": tool_call.id,
                         "name": tool_call.function.name,
-                        "input": json.loads(tool_call.function.arguments),
+                        "input": _parse_tool_arguments(
+                            tool_call.function.arguments, tool_call.function.name
+                        ),
                     }
                 )
 
