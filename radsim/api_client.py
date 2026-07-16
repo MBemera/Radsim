@@ -6,6 +6,7 @@ import random
 import time
 from abc import ABC, abstractmethod
 from functools import wraps
+from typing import Any
 
 # Production Readiness: Explicit timeouts prevent hung connections
 # Never use default infinite timeouts in production
@@ -262,20 +263,27 @@ class ClaudeClient(BaseAPIClient):
         )
         self.model = model
 
-    def chat(self, messages, system_prompt=None, tools=None):
-        """Send a chat request to Claude with retry logic."""
-        kwargs = {
-            "model": self.model,
-            "max_tokens": 16000,
-            "messages": messages,
-        }
-
+    def _build_request_kwargs(
+        self,
+        messages: list[dict[str, Any]],
+        system_prompt: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        *,
+        stream: bool = False,
+    ) -> dict[str, Any]:
+        """Build one Claude request without performing network I/O."""
+        kwargs = {"model": self.model, "max_tokens": 16000, "messages": messages}
+        if stream:
+            kwargs["stream"] = True
         if system_prompt:
             kwargs["system"] = system_prompt
-
         if tools:
             kwargs["tools"] = tools
+        return kwargs
 
+    def chat(self, messages, system_prompt=None, tools=None):
+        """Send a chat request to Claude with retry logic."""
+        kwargs = self._build_request_kwargs(messages, system_prompt, tools)
         return self._chat_with_retry(**kwargs)
 
     @with_retry(max_retries=DEFAULT_MAX_RETRIES)
@@ -292,19 +300,7 @@ class ClaudeClient(BaseAPIClient):
 
     def stream_chat(self, messages, system_prompt=None, tools=None):
         """Stream a chat request to Claude."""
-        kwargs = {
-            "model": self.model,
-            "max_tokens": 16000,
-            "messages": messages,
-            "stream": True,
-        }
-
-        if system_prompt:
-            kwargs["system"] = system_prompt
-
-        if tools:
-            kwargs["tools"] = tools
-
+        kwargs = self._build_request_kwargs(messages, system_prompt, tools, stream=True)
         final_content = []
         current_tool_use = None
         input_tokens = 0
@@ -419,35 +415,43 @@ class OpenAIClient(BaseAPIClient):
             kwargs["reasoning_effort"] = self.reasoning_effort
         return kwargs
 
-    def chat(self, messages, system_prompt=None, tools=None):
-        """Send a chat request to OpenAI with retry logic."""
+    def _build_messages(
+        self,
+        messages: list[dict[str, Any]],
+        system_prompt: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Convert internal messages into the OpenAI chat format."""
         formatted_messages = []
-
         if system_prompt:
-            formatted_messages.append(
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                }
-            )
+            formatted_messages.append({"role": "system", "content": system_prompt})
 
-        for msg in messages:
-            formatted = self._format_message(msg)
-            # Handle tool results which return a list of messages
+        for message in messages:
+            formatted = self._format_message(message)
             if isinstance(formatted, list):
                 formatted_messages.extend(formatted)
             else:
                 formatted_messages.append(formatted)
+        return formatted_messages
 
-        kwargs = {
-            "model": self.model,
-            "messages": formatted_messages,
-        }
-
+    def _build_request_kwargs(
+        self,
+        messages: list[dict[str, Any]],
+        system_prompt: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        *,
+        stream: bool = False,
+    ) -> dict[str, Any]:
+        """Build one OpenAI request without performing network I/O."""
+        kwargs = {"model": self.model, "messages": self._build_messages(messages, system_prompt)}
+        if stream:
+            kwargs.update(stream=True, stream_options={"include_usage": True})
         if tools:
             kwargs["tools"] = self._convert_tools(tools)
+        return self._apply_reasoning(kwargs)
 
-        self._apply_reasoning(kwargs)
+    def chat(self, messages, system_prompt=None, tools=None):
+        """Send a chat request to OpenAI with retry logic."""
+        kwargs = self._build_request_kwargs(messages, system_prompt, tools)
         return self._chat_with_retry(**kwargs)
 
     @with_retry(max_retries=DEFAULT_MAX_RETRIES)
@@ -464,35 +468,7 @@ class OpenAIClient(BaseAPIClient):
 
     def stream_chat(self, messages, system_prompt=None, tools=None):
         """Stream a chat request to OpenAI."""
-        formatted_messages = []
-
-        if system_prompt:
-            formatted_messages.append(
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                }
-            )
-
-        for msg in messages:
-            formatted = self._format_message(msg)
-            # Handle tool results which return a list of messages
-            if isinstance(formatted, list):
-                formatted_messages.extend(formatted)
-            else:
-                formatted_messages.append(formatted)
-
-        kwargs = {
-            "model": self.model,
-            "messages": formatted_messages,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-
-        if tools:
-            kwargs["tools"] = self._convert_tools(tools)
-
-        self._apply_reasoning(kwargs)
+        kwargs = self._build_request_kwargs(messages, system_prompt, tools, stream=True)
         stream = self.client.chat.completions.create(**kwargs)
 
         final_text = ""

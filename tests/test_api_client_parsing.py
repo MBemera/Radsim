@@ -2,7 +2,15 @@
 
 from types import SimpleNamespace
 
-from radsim.api_client import OpenAIClient, _parse_tool_arguments
+from radsim.api_client import ClaudeClient, OpenAIClient, _parse_tool_arguments
+
+
+class EmptyClaudeStream:
+    def __enter__(self):
+        return iter(())
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
 
 
 class TestParseToolArguments:
@@ -53,3 +61,48 @@ class TestOpenAIParseResponse:
         client = OpenAIClient.__new__(OpenAIClient)
         response = client._parse_response(self._response_with_arguments(""))
         assert response["content"][0]["input"] == {}
+
+
+class TestRequestKwargsParity:
+    messages = [{"role": "user", "content": "hello"}]
+    tools = [
+        {
+            "name": "read_file",
+            "description": "Read a file",
+            "input_schema": {"type": "object", "properties": {}},
+        }
+    ]
+
+    def test_openai_chat_and_stream_use_matching_kwargs(self):
+        chat_kwargs = {}
+        stream_kwargs = {}
+        client = OpenAIClient.__new__(OpenAIClient)
+        client.model = "gpt-test"
+        client.reasoning_effort = "medium"
+        client._chat_with_retry = lambda **kwargs: chat_kwargs.update(kwargs)
+        completions = SimpleNamespace(create=lambda **kwargs: stream_kwargs.update(kwargs) or [])
+        client.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+
+        client.chat(self.messages, "system", self.tools)
+        list(client.stream_chat(self.messages, "system", self.tools))
+
+        stream_kwargs.pop("stream")
+        stream_kwargs.pop("stream_options")
+        assert chat_kwargs == stream_kwargs
+
+    def test_claude_chat_and_stream_use_matching_kwargs(self):
+        chat_kwargs = {}
+        stream_kwargs = {}
+        client = ClaudeClient.__new__(ClaudeClient)
+        client.model = "claude-test"
+        client._chat_with_retry = lambda **kwargs: chat_kwargs.update(kwargs)
+        messages_api = SimpleNamespace(
+            create=lambda **kwargs: stream_kwargs.update(kwargs) or EmptyClaudeStream()
+        )
+        client.client = SimpleNamespace(messages=messages_api)
+
+        client.chat(self.messages, "system", self.tools)
+        list(client.stream_chat(self.messages, "system", self.tools))
+
+        stream_kwargs.pop("stream")
+        assert chat_kwargs == stream_kwargs
