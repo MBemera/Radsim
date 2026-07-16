@@ -9,10 +9,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from radsim.shell_tools import validate_shell_command
 from radsim.tools.command_analysis import is_destructive_command
 from radsim.tools.constants import DESTRUCTIVE_COMMANDS
-from radsim.tools.validation import validate_shell_command as tools_validate_shell_command
+from radsim.tools.validation import validate_shell_command
+
+tools_validate_shell_command = validate_shell_command
 
 # =============================================================================
 # Shell Command Injection Tests
@@ -398,7 +399,7 @@ class TestSchedulerInjection:
 class TestShellExecutionSafety:
     """Integration tests using safe commands to verify execution boundaries."""
 
-    def test_run_shell_command_with_traversal(self):
+    def test_canonical_shell_operation_blocks_traversal(self):
         """Shell command with path traversal should be blocked."""
         from radsim.tools.shell import run_shell_command
 
@@ -421,9 +422,9 @@ class TestShellExecutionSafety:
         assert result["success"] is False
         assert "timed out" in result.get("error", "").lower()
 
-    def test_shell_tools_run_shell_command_with_traversal(self):
-        """Shell_tools version: path traversal should be blocked."""
-        from radsim.shell_tools import run_shell_command as st_run
+    def test_run_shell_command_with_traversal(self):
+        """Path traversal through the canonical shell tool should be blocked."""
+        from radsim.tools.shell import run_shell_command
 
-        result = st_run("cat ../../etc/passwd")
+        result = run_shell_command("cat ../../etc/passwd")
         assert result["success"] is False
