@@ -1,6 +1,9 @@
 import json
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
+import radsim.ui as ui
 from radsim.output import print_shell_output, print_tool_call, print_tool_result_verbose
 from radsim.theme import load_active_animation_level, save_animation_level
 
@@ -49,3 +52,50 @@ def test_shell_output_is_indented_and_truncated(capsys):
     assert output_lines[1].startswith("    ")
     assert output_lines[2].startswith("    ")
     assert "(1 more lines)" in output_lines[3]
+
+
+def test_plain_prompt_does_not_load_prompt_toolkit(monkeypatch):
+    monkeypatch.setattr(ui.sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr(
+        ui,
+        "_load_prompt_toolkit",
+        lambda: (_ for _ in ()).throw(AssertionError("unexpected prompt_toolkit import")),
+    )
+    monkeypatch.setattr(ui.console, "input", lambda prompt: "plain input")
+
+    assert ui.print_prompt(registry=SimpleNamespace(commands={})) == "plain input"
+
+
+def test_missing_prompt_toolkit_falls_back_to_plain_input(monkeypatch):
+    monkeypatch.setattr(ui.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(ui, "_load_prompt_toolkit", lambda: None)
+    monkeypatch.setattr(ui.console, "input", lambda prompt: "fallback input")
+
+    assert ui.print_prompt(registry=SimpleNamespace(commands={})) == "fallback input"
+
+
+def test_interactive_prompt_keeps_command_completion(monkeypatch):
+    recorded = {}
+
+    class FakeSession:
+        def prompt(self, prompt, **kwargs):
+            recorded["prompt"] = prompt
+            recorded.update(kwargs)
+            return "/help"
+
+    monkeypatch.setattr(ui, "_prompt_session", None)
+    prompt_toolkit = (
+        lambda: FakeSession(),
+        lambda value: f"ansi:{value}",
+        lambda raw: nullcontext(),
+    )
+
+    result = ui._prompt_with_completions(
+        "[primary]>[/primary] ",
+        SimpleNamespace(commands={}),
+        prompt_toolkit,
+    )
+
+    assert result == "/help"
+    assert recorded["prompt"].startswith("ansi:")
+    assert recorded["complete_while_typing"] is True
