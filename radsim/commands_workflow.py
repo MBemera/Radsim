@@ -2,7 +2,7 @@
 
 import json
 
-from .output import print_error, print_info, print_success
+from .output import print_block, print_error, print_info, print_success, print_titled_block
 from .runtime_context import get_runtime_context
 
 
@@ -50,8 +50,7 @@ class WorkflowCommandHandlersMixin:
                 result = check_budget(os.getcwd())
                 budget = result["budget"]
                 scan = scan_project_complexity(os.getcwd())
-                for line in format_complexity_report(scan, budget):
-                    print(line)
+                print_block(format_complexity_report(scan, budget), blank_before=False, blank_after=False)
                 return
             if choice == "file":
                 path = safe_input("  File path: ")
@@ -67,17 +66,16 @@ class WorkflowCommandHandlersMixin:
             if len(args) < 2:
                 current = load_budget()
                 if current is not None:
-                    print(f"\n  Current complexity budget: {current}")
+                    message = f"  Current complexity budget: {current}"
                 else:
-                    print("\n  No budget set. Usage: /complexity budget <number>")
-                print()
+                    message = "  No budget set. Usage: /complexity budget <number>"
+                print_block((message,))
                 return
 
             try:
                 budget_value = int(args[1])
             except ValueError:
-                print("\n  Budget must be a number. Example: /complexity budget 200")
-                print()
+                print_block(("  Budget must be a number. Example: /complexity budget 200",))
                 return
 
             save_budget(budget_value)
@@ -95,23 +93,18 @@ class WorkflowCommandHandlersMixin:
         if action == "report":
             budget = load_budget()
             scan = scan_project_complexity(os.getcwd())
-            for line in format_complexity_report(scan, budget):
-                print(line)
+            print_block(format_complexity_report(scan, budget), blank_before=False, blank_after=False)
             return
 
         file_path = " ".join(args)
         if os.path.isfile(file_path):
             result = calculate_file_complexity(file_path)
             if result:
-                for line in format_file_report(result):
-                    print(line)
+                print_block(format_file_report(result), blank_before=False, blank_after=False)
             else:
-                print(f"\n  Unsupported file type: {file_path}")
-                print()
+                print_block((f"  Unsupported file type: {file_path}",))
         else:
-            print(f"\n  File not found: {file_path}")
-            print("  Usage: /complexity [budget <N> | report | <file>]")
-            print()
+            print_block((f"  File not found: {file_path}", "  Usage: /complexity [budget <N> | report | <file>]"))
 
     def _cmd_stress(self, agent, args=None):
         """Adversarial code review."""
@@ -138,8 +131,7 @@ class WorkflowCommandHandlersMixin:
             if choice == "project":
                 print("\n  Scanning project for vulnerabilities...")
                 results = stress_test_directory(os.getcwd())
-                for line in format_stress_report(results):
-                    print(line)
+                print_block(format_stress_report(results), blank_before=False, blank_after=False)
                 return
 
             if choice == "file":
@@ -152,15 +144,11 @@ class WorkflowCommandHandlersMixin:
         if os.path.isfile(file_path):
             result = stress_test_file(file_path)
             if result:
-                for line in format_stress_report(result):
-                    print(line)
+                print_block(format_stress_report(result), blank_before=False, blank_after=False)
             else:
-                print(f"\n  Unsupported file type: {file_path}")
-                print()
+                print_block((f"  Unsupported file type: {file_path}",))
         else:
-            print(f"\n  File not found: {file_path}")
-            print("  Usage: /stress [<file>]")
-            print()
+            print_block((f"  File not found: {file_path}", "  Usage: /stress [<file>]"))
 
     def _cmd_archaeology(self, agent, args=None):
         """Find dead code & zombies."""
@@ -192,8 +180,7 @@ class WorkflowCommandHandlersMixin:
             if choice == "full":
                 print("\n  Excavating codebase...")
                 results = run_full_archaeology(os.getcwd())
-                for line in format_archaeology_report(results):
-                    print(line)
+                print_block(format_archaeology_report(results), blank_before=False, blank_after=False)
                 return
             args = [choice]
 
@@ -201,14 +188,12 @@ class WorkflowCommandHandlersMixin:
 
         if action == "imports":
             results = scan_unused_imports(os.getcwd())
-            for line in format_imports_report(results):
-                print(line)
+            print_block(format_imports_report(results), blank_before=False, blank_after=False)
             return
 
         if action == "deps":
             results = find_zombie_dependencies(os.getcwd())
-            for line in format_deps_report(results):
-                print(line)
+            print_block(format_deps_report(results), blank_before=False, blank_after=False)
             return
 
         if action == "clean":
@@ -221,22 +206,19 @@ class WorkflowCommandHandlersMixin:
             )
 
             if total_items == 0:
-                print("\n  Nothing to clean up. Codebase is tidy.")
-                print()
+                print_block(("  Nothing to clean up. Codebase is tidy.",))
                 return
 
-            for line in format_archaeology_report(results):
-                print(line)
-
-            print("  warning: Cleanup is review-only. No files will be modified.")
-            print("  To remove items, edit the files manually after reviewing.")
-            print("  This ensures you never accidentally delete needed code.")
-            print()
+            print_block(format_archaeology_report(results), blank_before=False, blank_after=False)
+            warning_lines = (
+                "  warning: Cleanup is review-only. No files will be modified.",
+                "  To remove items, edit the files manually after reviewing.",
+                "  This ensures you never accidentally delete needed code.",
+            )
+            print_block(warning_lines, blank_before=False)
             return
 
-        print(f"\n  Unknown sub-command: {action}")
-        print("  Usage: /archaeology [imports | deps | clean]")
-        print()
+        print_block((f"  Unknown sub-command: {action}", "  Usage: /archaeology [imports | deps | clean]"))
 
     def _cmd_plan(self, agent, args=None):
         """Structured plan-confirm-execute workflow."""
@@ -395,8 +377,7 @@ class WorkflowCommandHandlersMixin:
             return
 
         description = " ".join(args)
-        print(f"\n  Generating plan for: {description}")
-        print("  Thinking...")
+        print_block((f"  Generating plan for: {description}", "  Thinking..."), blank_after=False)
 
         from .prompts import PLANNING_SYSTEM_PROMPT
 
@@ -415,8 +396,11 @@ class WorkflowCommandHandlersMixin:
             if plan:
                 print(plan_manager.show_plan())
             else:
-                print("  warning: Could not parse plan from response.")
-                print("  The response was displayed above. Try again with a clearer description.")
+                lines = (
+                    "  warning: Could not parse plan from response.",
+                    "  The response was displayed above. Try again with a clearer description.",
+                )
+                print_block(lines, blank_before=False, blank_after=False)
         else:
             print("  warning: No response from agent. Check your API key and provider.")
 
@@ -470,8 +454,8 @@ class WorkflowCommandHandlersMixin:
             if not session.active:
                 session = start_new_session()
                 session.start()
-            print(session.process_file(path))
-            print("  Type '/panning end' to generate synthesis.")
+            lines = (session.process_file(path), "  Type '/panning end' to generate synthesis.")
+            print_block(lines, blank_before=False, blank_after=False)
             return
 
         if action == "end":
@@ -554,8 +538,11 @@ class WorkflowCommandHandlersMixin:
             session = start_new_session()
             session.start()
         session.add_dump(" ".join(args))
-        print(f"  ok Added to panning session ({len(session.dumps)} dump(s) collected)")
-        print("  Keep dumping, or type '/panning end' to synthesise.")
+        lines = (
+            f"  ok Added to panning session ({len(session.dumps)} dump(s) collected)",
+            "  Keep dumping, or type '/panning end' to synthesise.",
+        )
+        print_block(lines, blank_before=False, blank_after=False)
 
     def _cmd_background(self, agent, args=None):
         """View and manage background sub-agent jobs."""
@@ -571,10 +558,8 @@ class WorkflowCommandHandlersMixin:
                 print_info("No background jobs.")
                 return
 
-            print()
-            print("  ═══ BACKGROUND JOBS ═══")
-            print()
-            for job in jobs:
+            job_lines = []
+            for job_index, job in enumerate(jobs):
                 status_icon = {
                     "running": "\033[33m...\033[0m",
                     "completed": "\033[32m ok\033[0m",
@@ -582,14 +567,24 @@ class WorkflowCommandHandlersMixin:
                     "cancelled": "\033[2m --\033[0m",
                 }.get(job.status.value, " ? ")
                 duration = f"{job.duration:.1f}s"
-                print(f"  [{status_icon}] #{job.job_id}  {job.model}  ({duration})")
-                print(f"        {job.description[:80]}")
+                job_lines.extend(
+                    (
+                        f"  [{status_icon}] #{job.job_id}  {job.model}  ({duration})",
+                        f"        {job.description[:80]}",
+                    )
+                )
                 if job.sub_tasks:
-                    for index, sub_task in enumerate(job.sub_tasks, 1):
-                        print(f"        {index}. {sub_task[:70]}")
-                print()
-            print("  /bg <id> — view results  |  /bg cancel <id>  |  /bg clear")
-            print()
+                    job_lines.extend(
+                        f"        {index}. {sub_task[:70]}"
+                        for index, sub_task in enumerate(job.sub_tasks, 1)
+                    )
+                if job_index < len(jobs) - 1:
+                    job_lines.append("")
+            print_titled_block(
+                "BACKGROUND JOBS",
+                job_lines,
+                footer=("  /bg <id> — view results  |  /bg cancel <id>  |  /bg clear",),
+            )
             return
 
         action = args[0].lower()
@@ -639,42 +634,41 @@ class WorkflowCommandHandlersMixin:
             print_error(f"Job #{job_id} not found.")
             return
 
-        print()
-        print(f"  ═══ BACKGROUND JOB #{job.job_id} ═══")
-        print()
-
         status_display = {
             "running": "\033[33mRUNNING\033[0m",
             "completed": "\033[32mCOMPLETED\033[0m",
             "failed": "\033[31mFAILED\033[0m",
             "cancelled": "\033[2mCANCELLED\033[0m",
         }.get(job.status.value, job.status.value)
-        print(f"  Status:   {status_display}")
-        print(f"  Model:    {job.model}")
-        print(f"  Tier:     {job.tier}")
-        print(f"  Duration: {job.duration:.1f}s")
+        detail_rows = [
+            ("Status:", status_display),
+            ("Model:", job.model),
+            ("Tier:", job.tier),
+            ("Duration:", f"{job.duration:.1f}s"),
+        ]
         if job.input_tokens or job.output_tokens:
-            print(f"  Tokens:   {job.input_tokens} in / {job.output_tokens} out")
+            detail_rows.append(("Tokens:", f"{job.input_tokens} in / {job.output_tokens} out"))
         started = time_module.strftime("%H:%M:%S", time_module.localtime(job.started_at))
-        print(f"  Started:  {started}")
-        print(f"  Task:     {job.description}")
+        detail_rows.extend((("Started:", started), ("Task:", job.description)))
+        detail_lines = [f"  {label:<10}{value}" for label, value in detail_rows]
 
         if job.sub_tasks:
-            print()
-            print("  ─── Sub-tasks ───")
-            for index, sub_task in enumerate(job.sub_tasks, 1):
-                print(f"    {index}. {sub_task}")
-
-        print()
+            detail_lines.extend(
+                (
+                    "",
+                    "  ─── Sub-tasks ───",
+                    *(f"    {index}. {sub_task}" for index, sub_task in enumerate(job.sub_tasks, 1)),
+                )
+            )
+        print_titled_block(f"BACKGROUND JOB #{job.job_id}", detail_lines)
 
         if job.error:
             print_error(f"Error: {job.error}")
         elif job.result_content:
-            print("  ─── Output ───")
-            print()
-            for line in job.result_content.splitlines():
-                print(f"  {line}")
-            print()
+            print_block(
+                ("  ─── Output ───", "", *(f"  {line}" for line in job.result_content.splitlines())),
+                blank_before=False,
+            )
         elif job.status.value == "running":
             print_info("Still running...")
         else:
@@ -707,9 +701,7 @@ class WorkflowCommandHandlersMixin:
                 print_info("No scheduled jobs. Use '/job add' to create one.")
                 return
 
-            print()
-            print("  ═══ SCHEDULED JOBS ═══")
-            print()
+            job_lines = []
             for job in jobs:
                 status_icon = "\033[32mok\033[0m" if job.enabled else "\033[33m⏸\033[0m"
                 schedule_desc = describe_schedule(job.schedule)
@@ -717,13 +709,20 @@ class WorkflowCommandHandlersMixin:
                     command_display = f'radsim "{job.command[:50]}"'
                 else:
                     command_display = job.command[:60]
-                print(f"  [{status_icon}] #{job.job_id}  {schedule_desc:<18} {command_display}")
+                job_lines.append(
+                    f"  [{status_icon}] #{job.job_id}  {schedule_desc:<18} {command_display}"
+                )
                 if job.last_run:
                     last = job.last_run[:19].replace("T", " ")
-                    print(f"        last run: {last}")
-            print()
-            print("  /job add | /job remove <id> | /job pause <id> | /job resume <id> | /job run <id>")
-            print()
+                    job_lines.append(f"        last run: {last}")
+            print_titled_block(
+                "SCHEDULED JOBS",
+                job_lines,
+                footer=(
+                    "  /job add | /job remove <id> | /job pause <id> | "
+                    "/job resume <id> | /job run <id>",
+                ),
+            )
             return
 
         if action == "add":
@@ -839,10 +838,7 @@ class WorkflowCommandHandlersMixin:
                 print_success(f"Job #{job_id} completed.")
             else:
                 print_error(f"Job #{job_id} failed.")
-            print()
-            for line in output.splitlines()[:20]:
-                print(f"  {line}")
-            print()
+            print_block(f"  {line}" for line in output.splitlines()[:20])
             return
 
         print_error(f"Unknown subcommand: '{action}'")
@@ -988,8 +984,7 @@ class WorkflowCommandHandlersMixin:
             print_info("No MCP servers configured. Use /mcp add to add one.")
             return
 
-        print(f"\n MCP Servers ({len(statuses)}):")
-        print("-" * 50)
+        status_lines = [f" MCP Servers ({len(statuses)}):", "-" * 50]
         for status in statuses:
             if status["connected"]:
                 state = "connected"
@@ -1002,8 +997,10 @@ class WorkflowCommandHandlersMixin:
                 tools = ""
 
             auto = " [auto]" if status["auto_connect"] else ""
-            print(f"  {status['name']} ({status['transport']}{auto}): {state}{tools}")
-        print()
+            status_lines.append(
+                f"  {status['name']} ({status['transport']}{auto}): {state}{tools}"
+            )
+        print_block(status_lines)
 
     def _mcp_list(self, manager):
         """Show all tools from connected MCP servers."""
@@ -1012,16 +1009,15 @@ class WorkflowCommandHandlersMixin:
             print_info("No MCP tools available. Connect a server first with /mcp connect <name>.")
             return
 
-        print(f"\n MCP Tools ({len(tools)}):")
-        print("-" * 50)
+        tool_lines = [f" MCP Tools ({len(tools)}):", "-" * 50]
         current_server = None
         for tool in tools:
             if tool["server"] != current_server:
                 current_server = tool["server"]
-                print(f"\n  {current_server}:")
+                tool_lines.extend(("", f"  {current_server}:"))
             description = f" — {tool['description']}" if tool["description"] else ""
-            print(f"    {tool['namespaced']}{description}")
-        print()
+            tool_lines.append(f"    {tool['namespaced']}{description}")
+        print_block(tool_lines)
 
     def _mcp_add_interactive(self, manager):
         """Guided MCP server addition."""

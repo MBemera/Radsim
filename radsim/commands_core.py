@@ -3,7 +3,14 @@
 import sys
 
 from .config import setup_config
-from .output import print_help, print_info
+from .output import (
+    print_block,
+    print_help,
+    print_info,
+    print_labeled_values,
+    print_numbered_options,
+    print_titled_block,
+)
 
 
 class CoreCommandHandlersMixin:
@@ -26,17 +33,17 @@ class CoreCommandHandlersMixin:
         from .prompts import get_prompt_stats
 
         stats = get_prompt_stats()
-        print()
-        print("  Prompt Stats")
-        print(f"  Total: {stats['total_chars']:,} chars (~{stats['approx_tokens']:,} tokens)")
-        print()
-        for layer in stats["layers"]:
-            print(
-                f"  - {layer['name']:<18} "
-                f"{layer['chars']:>7,} chars  "
-                f"~{layer['approx_tokens']:>6,} tokens"
-            )
-        print()
+        lines = [
+            "  Prompt Stats",
+            f"  Total: {stats['total_chars']:,} chars (~{stats['approx_tokens']:,} tokens)",
+            "",
+        ]
+        lines.extend(
+            f"  - {layer['name']:<18} {layer['chars']:>7,} chars  "
+            f"~{layer['approx_tokens']:>6,} tokens"
+            for layer in stats["layers"]
+        )
+        print_block(lines)
 
     def _cmd_clear(self, agent):
         """Clear the conversation and reset session state for a fresh start."""
@@ -70,12 +77,8 @@ class CoreCommandHandlersMixin:
         """EMERGENCY: Immediately terminate the agent and all operations."""
         import os
 
-        print()
-        print("  EMERGENCY STOP")
-        print("  Terminating all agent operations immediately...")
-        print()
+        print_block(("  EMERGENCY STOP", "  Terminating all agent operations immediately..."))
         os._exit(1)
-
 
     def _cmd_setup(self, agent):
         """Re-run the setup wizard."""
@@ -101,12 +104,8 @@ class CoreCommandHandlersMixin:
 
         provider = (args[0].lower() if args else "").strip()
         if not provider:
-            print()
-            print("  Log in - Select provider:")
             keys = list(PROVIDERS)
-            for i, name in enumerate(keys, 1):
-                print(f"    {i}. {PROVIDERS[name]['label']}")
-            print()
+            print_numbered_options("Log in - Select provider:", [PROVIDERS[name]["label"] for name in keys])
             try:
                 choice = input(f"  Enter 1-{len(keys)}: ").strip()
             except (KeyboardInterrupt, EOFError):
@@ -119,8 +118,8 @@ class CoreCommandHandlersMixin:
                 return
 
         if provider not in PROVIDERS:
-            print(f"  Unknown provider: {provider}")
-            print(f"  Choices: {', '.join(PROVIDERS)}")
+            lines = (f"  Unknown provider: {provider}", f"  Choices: {', '.join(PROVIDERS)}")
+            print_block(lines, blank_before=False, blank_after=False)
             return
 
         login_module.run_login(provider)
@@ -141,12 +140,8 @@ class CoreCommandHandlersMixin:
 
         provider = (args[0].lower() if args else "").strip()
         if not provider:
-            print()
-            print("  Log out - Select provider:")
             keys = list(PROVIDERS)
-            for i, name in enumerate(keys, 1):
-                print(f"    {i}. {PROVIDERS[name]['label']}")
-            print()
+            print_numbered_options("Log out - Select provider:", [PROVIDERS[name]["label"] for name in keys])
             try:
                 choice = input(f"  Enter 1-{len(keys)}: ").strip()
             except (KeyboardInterrupt, EOFError):
@@ -174,12 +169,7 @@ class CoreCommandHandlersMixin:
         )
         from .output import print_header
 
-        print()
-        print("  Quick Switch - Select provider:")
-        print("    1. OpenRouter")
-        print("    2. GPT-5 (OpenAI)")
-        print("    3. Claude (Anthropic)")
-        print()
+        print_numbered_options("Quick Switch - Select provider:", ("OpenRouter", "GPT-5 (OpenAI)", "Claude (Anthropic)"))
 
         try:
             choice = input("  Enter 1-3: ").strip()
@@ -187,11 +177,7 @@ class CoreCommandHandlersMixin:
             print("\n  Cancelled.")
             return
 
-        provider_map = {
-            "1": "openrouter",
-            "2": "openai",
-            "3": "claude",
-        }
+        provider_map = {"1": "openrouter", "2": "openai", "3": "claude"}
         provider = provider_map.get(choice)
 
         if not provider:
@@ -215,12 +201,8 @@ class CoreCommandHandlersMixin:
                 print("\n  Cancelled.")
                 return
         else:
-            print()
-            print("  Select model:")
             models = PROVIDER_MODELS[provider]
-            for index, (_, model_name) in enumerate(models, 1):
-                print(f"    {index}. {model_name}")
-            print()
+            print_numbered_options("Select model:", [model_name for _, model_name in models])
 
             try:
                 model_choice = input(f"  Enter 1-{len(models)} [1]: ").strip() or "1"
@@ -240,8 +222,7 @@ class CoreCommandHandlersMixin:
         _maybe_prompt_reasoning_effort(provider, model)
 
         agent.update_config(provider, api_key, model)
-        print()
-        print(f"  ok Switched to {provider} / {model}")
+        print_block((f"  ok Switched to {provider} / {model}",), blank_after=False)
         print_header(provider, model)
 
     CHEAPEST_OPENROUTER_MODEL = "deepseek/deepseek-v4-flash"
@@ -255,18 +236,21 @@ class CoreCommandHandlersMixin:
         api_key = env_config.get("keys", {}).get("OPENROUTER_API_KEY")
 
         if not api_key or api_key.lower().startswith("paste_your"):
-            print("  warning: No OpenRouter API key found. Add OPENROUTER_API_KEY to .env")
-            print("  Get key at: https://openrouter.ai/keys")
+            lines = (
+                "  warning: No OpenRouter API key found. Add OPENROUTER_API_KEY to .env",
+                "  Get key at: https://openrouter.ai/keys",
+            )
+            print_block(lines, blank_before=False, blank_after=False)
             return
 
         model = self.CHEAPEST_OPENROUTER_MODEL
         agent.update_config("openrouter", api_key, model)
 
         pricing = get_model_pricing(model)
-        print()
-        print(f"  ok Switched to cheapest model: {model}")
+        lines = [f"  ok Switched to cheapest model: {model}"]
         if pricing:
-            print(f"    (${pricing[0]} input / ${pricing[1]} output per 1M tokens)")
+            lines.append(f"    (${pricing[0]} input / ${pricing[1]} output per 1M tokens)")
+        print_block(lines, blank_after=False)
         print_header("openrouter", model)
 
     def _cmd_ratelimit(self, agent, args=None):
@@ -280,16 +264,15 @@ class CoreCommandHandlersMixin:
 
         current_tier = load_settings_file().get("rate_limit_tier", DEFAULT_RATE_LIMIT_TIER)
 
-        print()
-        print("  Rate Limit - API calls allowed per turn:")
-        print()
-
         tier_keys = list(RATE_LIMIT_TIERS.keys())
-        for index, key in enumerate(tier_keys, 1):
-            tier = RATE_LIMIT_TIERS[key]
-            marker = " (current)" if key == current_tier else ""
-            print(f"    {index}. {tier['label']} - {tier['description']}{marker}")
-        print()
+        print_numbered_options(
+            "Rate Limit - API calls allowed per turn:",
+            [
+                f"{RATE_LIMIT_TIERS[key]['label']} - {RATE_LIMIT_TIERS[key]['description']}"
+                f"{' (current)' if key == current_tier else ''}"
+                for key in tier_keys
+            ],
+        )
 
         try:
             choice = input(f"  Enter 1-{len(tier_keys)}: ").strip()
@@ -314,9 +297,11 @@ class CoreCommandHandlersMixin:
         agent.protection.rate_limiter.max_calls_per_turn = new_max
         agent.config.max_api_calls_per_turn = new_max
 
-        print()
-        print(f"  ok Rate limit set to: {RATE_LIMIT_TIERS[selected_tier]['label']}")
-        print(f"    {new_max} API calls per turn (saved for future sessions)")
+        lines = (
+            f"  ok Rate limit set to: {RATE_LIMIT_TIERS[selected_tier]['label']}",
+            f"    {new_max} API calls per turn (saved for future sessions)",
+        )
+        print_block(lines, blank_after=False)
 
     def _cmd_theme(self, agent, args=None):
         """Pick and persist the UI color palette."""
@@ -330,16 +315,18 @@ class CoreCommandHandlersMixin:
         current = load_active_palette_name()
         palette_keys = list(PALETTES.keys())
 
-        print()
-        print("  UI Palette:")
-        print()
-        for index, key in enumerate(palette_keys, 1):
-            palette = PALETTES[key]
-            marker = " (current)" if key == current else ""
-            print(f"    {index}. {palette['label']}{marker}")
-            print(f"       {palette['description']}")
-            print(f"       {_render_palette_swatch(palette['colors'])}")
-            print()
+        print_numbered_options(
+            "UI Palette:",
+            [
+                (
+                    f"{PALETTES[key]['label']}{' (current)' if key == current else ''}",
+                    PALETTES[key]["description"],
+                    _render_palette_swatch(PALETTES[key]["colors"]),
+                )
+                for key in palette_keys
+            ],
+            blank_between=True,
+        )
 
         try:
             raw = input(f"  Enter 1-{len(palette_keys)} (p=preview tool calls): ").strip().lower()
@@ -364,9 +351,8 @@ class CoreCommandHandlersMixin:
         save_palette_selection(selected_key)
         ui.reload_theme()
 
-        print()
-        print(f"  ok Palette set to: {PALETTES[selected_key]['label']}")
-        print("    (saved — applies now and on future launches)")
+        lines = (f"  ok Palette set to: {PALETTES[selected_key]['label']}", "    (saved — applies now and on future launches)")
+        print_block(lines, blank_after=False)
 
     def _cmd_font(self, agent, args=None):
         """Pick and persist the font/glyph profile."""
@@ -380,25 +366,25 @@ class CoreCommandHandlersMixin:
         current = load_active_font_profile_name()
         profile_keys = list(FONT_PROFILES.keys())
 
-        print()
-        print("  Font / Glyph Profile:")
-        print("  (This controls which text glyphs RadSim uses — your terminal")
-        print("   font controls how they render.)")
-        print()
-        for index, key in enumerate(profile_keys, 1):
+        def describe_font_profile(key):
             profile = FONT_PROFILES[key]
-            marker = " (current)" if key == current else ""
             glyphs = profile["glyphs"]
             sample = (
-                f"{glyphs['prompt']} prompt  "
-                f"{glyphs['diff_add']} add  "
-                f"{glyphs['diff_del']} del  "
-                f"{glyphs['ellipsis']} ellipsis"
+                f"{glyphs['prompt']} prompt  {glyphs['diff_add']} add  "
+                f"{glyphs['diff_del']} del  {glyphs['ellipsis']} ellipsis"
             )
-            print(f"    {index}. {profile['label']}{marker}")
-            print(f"       {profile['description']}")
-            print(f"       Sample: {sample}")
-            print()
+            marker = " (current)" if key == current else ""
+            return f"{profile['label']}{marker}", profile["description"], f"Sample: {sample}"
+
+        print_numbered_options(
+            "Font / Glyph Profile:",
+            [describe_font_profile(key) for key in profile_keys],
+            introduction=(
+                "  (This controls which text glyphs RadSim uses — your terminal",
+                "   font controls how they render.)",
+            ),
+            blank_between=True,
+        )
 
         try:
             raw = input(f"  Enter 1-{len(profile_keys)} (f=recommended fonts): ").strip().lower()
@@ -407,15 +393,13 @@ class CoreCommandHandlersMixin:
             return
 
         if raw == "f":
-            print()
-            print("  Recommended terminal fonts:")
-            print()
-            for name, desc in RECOMMENDED_FONTS:
-                print(f"    • {name}")
-                print(f"      {desc}")
-            print()
-            print("  Install one and set it in your terminal preferences,")
-            print("  then run /font again and pick the 'Nerd Font' profile.")
+            font_lines = [line for name, desc in RECOMMENDED_FONTS for line in (f"    • {name}", f"      {desc}")]
+            lines = (
+                "  Recommended terminal fonts:", "", *font_lines, "",
+                "  Install one and set it in your terminal preferences,",
+                "  then run /font again and pick the 'Nerd Font' profile.",
+            )
+            print_block(lines, blank_after=False)
             return
 
         try:
@@ -430,9 +414,8 @@ class CoreCommandHandlersMixin:
 
         save_font_profile_selection(selected_key)
 
-        print()
-        print(f"  ok Font profile set to: {FONT_PROFILES[selected_key]['label']}")
-        print("    (saved — applies on future launches)")
+        lines = (f"  ok Font profile set to: {FONT_PROFILES[selected_key]['label']}", "    (saved — applies on future launches)")
+        print_block(lines, blank_after=False)
 
     def _cmd_animations(self, agent, args=None):
         """Pick and persist the animation level."""
@@ -449,14 +432,16 @@ class CoreCommandHandlersMixin:
             "off": "No spinner output, final tool line only",
         }
 
-        print()
-        print("  Animation Level:")
-        print()
-        for index, level in enumerate(ANIMATION_LEVELS, 1):
-            marker = " (current)" if level == current else ""
-            print(f"    {index}. {level}{marker}")
-            print(f"       {descriptions[level]}")
-        print()
+        print_numbered_options(
+            "Animation Level:",
+            [
+                (
+                    f"{level}{' (current)' if level == current else ''}",
+                    descriptions[level],
+                )
+                for level in ANIMATION_LEVELS
+            ],
+        )
 
         try:
             raw = input(f"  Enter 1-{len(ANIMATION_LEVELS)} [2 = subtle]: ").strip() or "2"
@@ -476,27 +461,25 @@ class CoreCommandHandlersMixin:
 
         save_animation_level(selected_level)
 
-        print()
-        print(f"  ok Animation level set to: {selected_level}")
-        print("    (saved — applies now and on future launches)")
-
+        lines = (f"  ok Animation level set to: {selected_level}", "    (saved — applies now and on future launches)")
+        print_block(lines, blank_after=False)
 
     def _cmd_teach(self, agent):
         """Toggle Teach Me mode."""
         from .modes import toggle_mode
 
         is_active, message = toggle_mode("teach")
-        print()
         if is_active:
-            print("  ok " + message)
-            print("  The agent will now teach in EVERY response — text and code.")
-            print("  [teach] annotations explain HOW and WHY in all responses.")
-            print("  Code annotations appear as inline magenta comments.")
-            print("  Use /teach again to turn off.")
+            lines = (
+                "  ok " + message,
+                "  The agent will now teach in EVERY response — text and code.",
+                "  [teach] annotations explain HOW and WHY in all responses.",
+                "  Code annotations appear as inline magenta comments.",
+                "  Use /teach again to turn off.",
+            )
         else:
-            print("  ok " + message)
-            print("  Back to normal execution mode.")
-        print()
+            lines = ("  ok " + message, "  Back to normal execution mode.")
+        print_block(lines)
 
     def _cmd_awake(self, agent):
         """Toggle stay-awake mode (caffeinate)."""
@@ -509,16 +492,16 @@ class CoreCommandHandlersMixin:
             return
 
         is_active, message = toggle_mode("awake")
-        print()
         if is_active:
-            print("  ok " + message)
-            print("  macOS sleep prevention is active (display, idle, system).")
-            print("  Your Mac will stay awake while RadSim is running.")
-            print("  Use /awake again to turn off.")
+            lines = (
+                "  ok " + message,
+                "  macOS sleep prevention is active (display, idle, system).",
+                "  Your Mac will stay awake while RadSim is running.",
+                "  Use /awake again to turn off.",
+            )
         else:
-            print("  ok " + message)
-            print("  macOS can now sleep normally.")
-        print()
+            lines = ("  ok " + message, "  macOS can now sleep normally.")
+        print_block(lines)
 
     def _cmd_modes(self, agent):
         """List all available modes."""
@@ -528,19 +511,16 @@ class CoreCommandHandlersMixin:
         modes = manager.get_all_modes()
         active = manager.get_active_modes()
 
-        print()
-        print("  ═══ AVAILABLE MODES ═══")
-        print()
-        print("  Mode          Status    Shortcut        Description")
-        print("  " + "─" * 60)
-
-        for mode in modes:
-            status = "ON " if mode.name in active else "OFF"
-            print(f"  {mode.name:<12}  {status:<8}  {mode.shortcut:<14}  {mode.description}")
-
-        print()
-        print("  Toggle with: /teach or Shift+T (in supported terminals)")
-        print()
+        mode_lines = [
+            f"  {mode.name:<12}  {'ON ' if mode.name in active else 'OFF':<8}  "
+            f"{mode.shortcut:<14}  {mode.description}"
+            for mode in modes
+        ]
+        print_titled_block(
+            "AVAILABLE MODES",
+            ("  Mode          Status    Shortcut        Description", "  " + "─" * 60, *mode_lines),
+            footer=("  Toggle with: /teach or Shift+T (in supported terminals)",),
+        )
 
     def _cmd_show(self, agent, args=None):
         """Show the last written file content."""
@@ -548,19 +528,18 @@ class CoreCommandHandlersMixin:
 
         last_file = get_last_written_file()
         if not last_file.get("content"):
-            print()
-            print("  No file has been written yet this session.")
-            print("  Use /show after the agent writes a file to see its content.")
-            print("  Or type S to see all session files.")
-            print()
+            lines = (
+                "  No file has been written yet this session.",
+                "  Use /show after the agent writes a file to see its content.",
+                "  Or type S to see all session files.",
+            )
+            print_block(lines)
             return
 
         content = last_file.get("display_content") or last_file["content"]
         has_teach = last_file.get("display_content") is not None
 
-        print()
-        print(f"  Last written file: {last_file['path']}")
-        print()
+        print_block((f"  Last written file: {last_file['path']}",))
         print_code_content(
             content,
             last_file["path"],
@@ -578,23 +557,22 @@ class CoreCommandHandlersMixin:
         output_tokens = agent.usage_stats.get("output_tokens", 0)
         model = agent.config.model
 
-        print()
-        print(f"  Model:          {model}")
-        print(f"  Input tokens:   {input_tokens:,}")
-        print(f"  Output tokens:  {output_tokens:,}")
-        print(f"  Total tokens:   {input_tokens + output_tokens:,}")
-
+        rows = [("Model:", model), ("Input tokens:", f"{input_tokens:,}")]
+        rows += [("Output tokens:", f"{output_tokens:,}"), ("Total tokens:", f"{input_tokens + output_tokens:,}")]
         pricing = get_model_pricing(model)
         if pricing is None:
-            print("  Cost:           n/a (no pricing data for this model)")
+            rows.append(("Cost:", "n/a (no pricing data for this model)"))
         else:
             input_cost = (input_tokens / 1_000_000) * pricing[0]
             output_cost = (output_tokens / 1_000_000) * pricing[1]
-            print(
-                f"  Est. cost:      ${input_cost + output_cost:.4f}"
-                f"  (in ${input_cost:.4f} / out ${output_cost:.4f})"
+            rows.append(
+                (
+                    "Est. cost:",
+                    f"${input_cost + output_cost:.4f}"
+                    f"  (in ${input_cost:.4f} / out ${output_cost:.4f})",
+                )
             )
-        print()
+        print_labeled_values(rows, label_width=16)
 
     def _cmd_copy(self, agent, args=None):
         """Copy the last response, code block, or written file to the clipboard."""
@@ -660,13 +638,11 @@ class CoreCommandHandlersMixin:
 
         if args and args[0].lower() == "list":
             checkpoints = list_checkpoints()
-            print()
             if not checkpoints:
+                print()
                 print_info("No checkpoints recorded yet.")
                 return
-            for line in checkpoints:
-                print(f"  {line}")
-            print()
+            print_block(f"  {line}" for line in checkpoints)
             print_info("/undo restores the most recent checkpoint.")
             return
 
@@ -794,13 +770,11 @@ def _preview_all_palettes():
     """Print a tool-call sample rendered in every palette for comparison."""
     from .theme import PALETTES
 
-    print()
-    print("  Preview — same tool-call list rendered in each palette:")
-    print()
+    print_block(("  Preview — same tool-call list rendered in each palette:",))
     for _key, palette in PALETTES.items():
         colors = palette["colors"]
-        print(f"    {palette['label']}")
-        print(f"    {_render_palette_swatch(colors)}")
+        lines = (f"    {palette['label']}", f"    {_render_palette_swatch(colors)}")
+        print_block(lines, blank_before=False, blank_after=False)
         _print_sample_tool_calls(colors)
         print()
 

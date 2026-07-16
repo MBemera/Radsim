@@ -1,6 +1,6 @@
 """Learning, customization, and integration slash-command handlers."""
 
-from .output import print_error, print_info
+from .output import print_block, print_error, print_info, print_labeled_values, print_titled_block
 from .runtime_context import get_runtime_context
 
 
@@ -57,18 +57,19 @@ class LearningCommandHandlersMixin:
         stats = get_learning_stats()
         summary = stats.get("summary", {})
 
-        print()
-        print("  ═══ LEARNING STATISTICS ═══")
-        print()
-        print(f"  Tasks Completed:    {summary.get('total_tasks_completed', 0)}")
-        print(f"  Success Rate:       {summary.get('overall_task_success_rate', 0):.1%}")
-        print(f"  Errors Tracked:     {summary.get('total_errors_tracked', 0)}")
-        print(f"  Feedback Received:  {summary.get('total_feedback_received', 0)}")
-        print(f"  Examples Stored:    {summary.get('total_examples_stored', 0)}")
-        print(f"  Tools Tracked:      {summary.get('total_tools_tracked', 0)}")
-        print()
-        print("  Use /report for full details, /audit to review preferences.")
-        print()
+        rows = (
+            ("Tasks Completed:", summary.get("total_tasks_completed", 0)),
+            ("Success Rate:", f"{summary.get('overall_task_success_rate', 0):.1%}"),
+            ("Errors Tracked:", summary.get("total_errors_tracked", 0)),
+            ("Feedback Received:", summary.get("total_feedback_received", 0)),
+            ("Examples Stored:", summary.get("total_examples_stored", 0)),
+            ("Tools Tracked:", summary.get("total_tools_tracked", 0)),
+        )
+        print_titled_block(
+            "LEARNING STATISTICS",
+            [f"  {label:<20}{value}" for label, value in rows],
+            footer=("  Use /report for full details, /audit to review preferences.",),
+        )
 
     def _cmd_report(self, agent):
         """Export detailed learning report."""
@@ -84,20 +85,16 @@ class LearningCommandHandlersMixin:
         analytics = get_analytics()
         audit = analytics.audit_learned_preferences()
 
-        print()
-        print("  ═══ LEARNED PREFERENCES AUDIT ═══")
-        print()
-
-        if not audit:
-            print("  No preferences learned yet.")
-        else:
-            for key, info in audit.items():
-                value = info["current_value"]
-                print(f"  {key}: {value}")
-
-        print()
-        print("  Use /reset preferences to clear all preferences.")
-        print()
+        lines = (
+            [f"  {key}: {info['current_value']}" for key, info in audit.items()]
+            if audit
+            else ["  No preferences learned yet."]
+        )
+        print_titled_block(
+            "LEARNED PREFERENCES AUDIT",
+            lines,
+            footer=("  Use /reset preferences to clear all preferences.",),
+        )
 
     def _cmd_reset(self, agent, args=None):
         """Reset learned data or budget for a category."""
@@ -152,22 +149,21 @@ class LearningCommandHandlersMixin:
 
         prefs = get_learned_preferences()
 
-        print()
-        print("  ═══ LEARNED PREFERENCES ═══")
-        print()
-
         style = prefs.get("code_style", {})
-        print(f"  Code Indentation:   {style.get('indentation', 4)} spaces")
-        print(f"  Naming Convention:  {style.get('naming_convention', 'snake_case')}")
-        print(f"  Prefers Comments:   {'Yes' if style.get('prefers_comments') else 'No'}")
-        print(f"  Prefers Type Hints: {'Yes' if style.get('prefers_type_hints') else 'No'}")
-        print(f"  Verbosity:          {prefs.get('verbosity', 'medium')}")
-
+        rows = [
+            ("Code Indentation:", f"{style.get('indentation', 4)} spaces"),
+            ("Naming Convention:", style.get("naming_convention", "snake_case")),
+            ("Prefers Comments:", "Yes" if style.get("prefers_comments") else "No"),
+            ("Prefers Type Hints:", "Yes" if style.get("prefers_type_hints") else "No"),
+            ("Verbosity:", prefs.get("verbosity", "medium")),
+        ]
         preferred_tools = prefs.get("preferred_tools", [])
         if preferred_tools:
-            print(f"  Preferred Tools:    {', '.join(preferred_tools[:5])}")
-
-        print()
+            rows.append(("Preferred Tools:", ", ".join(preferred_tools[:5])))
+        print_titled_block(
+            "LEARNED PREFERENCES",
+            [f"  {label:<20}{value}" for label, value in rows],
+        )
 
     def _cmd_trust(self, agent, args=None):
         """View or reset learned confirmation trust."""
@@ -197,10 +193,7 @@ class LearningCommandHandlersMixin:
         stats = bandit.get_stats()
         mode = getattr(agent.config, "trust_mode", "medium")
 
-        print()
-        print("  Trust bandit")
-        print(f"  Mode: {mode}")
-        print()
+        print_block(("  Trust bandit", f"  Mode: {mode}"))
 
         if not stats:
             print_info("No trust data yet. Learning starts after 5 confirms per action.")
@@ -277,18 +270,18 @@ class LearningCommandHandlersMixin:
             print_info(f"Valid levels: 1-4 or {', '.join(result.get('valid_levels', []))}")
             return
 
-        print()
-        print(f"  Security level set to: {level.upper()}")
-        print(f"  Shell mode: {result['shell_mode']}")
-        print("  Tool changes:")
+        lines = [
+            f"  Security level set to: {level.upper()}",
+            f"  Shell mode: {result['shell_mode']}",
+            "  Tool changes:",
+        ]
         for tool, enabled in result["tools"].items():
             status = "ON" if enabled else "OFF"
-            print(f"    {tool:<16} {status}")
+            lines.append(f"    {tool:<16} {status}")
         if level == "off":
-            print()
-            print("  Destructive commands now run without confirmation.")
-            print("  Restore with: /settings security_level balanced")
-        print()
+            lines.extend(("", "  Destructive commands now run without confirmation."))
+            lines.append("  Restore with: /settings security_level balanced")
+        print_block(lines)
 
     def _customize_security_switches(self, config_mgr):
         """Toggle individual security switches and persist the result."""
@@ -307,11 +300,9 @@ class LearningCommandHandlersMixin:
             print_info("No changes.")
             return
 
-        print()
-        print("  Saved. Changed switches:")
-        for key in changed:
-            status = "ON" if states[key] else "OFF"
-            print(f"    {key:<28} {status}")
+        lines = ["  Saved. Changed switches:"]
+        lines.extend(f"    {key:<28} {'ON' if states[key] else 'OFF'}" for key in changed)
+        print_block(lines, blank_after=False)
         if not config_mgr.destructive_confirmation_enabled():
             print()
             for line in SECURITY_OFF_WARNING_LINES:
@@ -365,9 +356,7 @@ class LearningCommandHandlersMixin:
         if len(args) < 2:
             value = config_mgr.get(key_path)
             if value is not None:
-                print()
-                print(f"  {key_path} = {value}")
-                print()
+                print_block((f"  {key_path} = {value}",))
             else:
                 print_info(f"Setting not found: {key_path}")
             return
@@ -384,9 +373,7 @@ class LearningCommandHandlersMixin:
 
         old_value = config_mgr.get(key_path)
         config_mgr.set(key_path, value)
-        print()
-        print(f"  {key_path}: {old_value} -> {value}")
-        print()
+        print_block((f"  {key_path}: {old_value} -> {value}",))
 
     def _cmd_evolve(self, agent, args=None):
         """Review self-improvement proposals."""
@@ -398,10 +385,12 @@ class LearningCommandHandlersMixin:
         improver = get_self_improver()
 
         if not config_mgr.get("self_improvement.enabled", False):
-            print()
-            print("  Self-improvement is disabled.")
-            print("  Enable with: /settings self_improvement.enabled true")
-            print()
+            print_block(
+                (
+                    "  Self-improvement is disabled.",
+                    "  Enable with: /settings self_improvement.enabled true",
+                )
+            )
             return
 
         if not args:
@@ -421,73 +410,75 @@ class LearningCommandHandlersMixin:
         action = args[0].lower()
 
         if action == "analyze":
-            print()
-            print("  Analyzing learning data...")
+            print_block(("  Analyzing learning data...",), blank_after=False)
             new_proposals = improver.analyze_and_propose()
             if new_proposals:
-                print(f"  Generated {len(new_proposals)} new proposal(s).")
-                for proposal in new_proposals:
-                    print(f"    - {proposal['title']}")
+                lines = [f"  Generated {len(new_proposals)} new proposal(s)."]
+                lines.extend(f"    - {proposal['title']}" for proposal in new_proposals)
             else:
-                print("  No new proposals at this time.")
-            print()
+                lines = ["  No new proposals at this time."]
+            print_block(lines, blank_before=False)
             return
 
         if action == "history":
             history = improver.get_history(limit=15)
-            print()
-            print("  === IMPROVEMENT HISTORY ===")
-            print()
             if not history:
-                print("  No resolved proposals yet.")
+                history_lines = ["  No resolved proposals yet."]
             else:
+                history_lines = []
                 for proposal in history:
                     status_icon = {"approved": "+", "rejected": "-", "skipped": "~"}.get(
                         proposal["status"], "?"
                     )
                     resolved = proposal.get("resolved_at", "")[:10]
-                    print(f"  [{status_icon}] {proposal['title']}")
-                    print(f"      {proposal['status'].upper()} on {resolved}")
-            print()
+                    history_lines.extend(
+                        (
+                            f"  [{status_icon}] {proposal['title']}",
+                            f"      {proposal['status'].upper()} on {resolved}",
+                        )
+                    )
+            print_block(("  === IMPROVEMENT HISTORY ===", "", *history_lines))
             return
 
         if action == "stats":
             stats = improver.get_stats()
-            print()
-            print("  === SELF-IMPROVEMENT STATS ===")
-            print()
-            print(f"  Total Proposals:  {stats['total_proposals']}")
-            print(f"  Pending:          {stats['pending_count']}")
-            print(f"  Approved:         {stats['approved_count']}")
-            print(f"  Rejected:         {stats['rejected_count']}")
-            print(f"  Skipped:          {stats['skipped_count']}")
-            print(f"  Approval Rate:    {stats['approval_rate']:.0%}")
+            stat_lines = [
+                "  === SELF-IMPROVEMENT STATS ===",
+                "",
+                f"  Total Proposals:  {stats['total_proposals']}",
+                f"  Pending:          {stats['pending_count']}",
+                f"  Approved:         {stats['approved_count']}",
+                f"  Rejected:         {stats['rejected_count']}",
+                f"  Skipped:          {stats['skipped_count']}",
+                f"  Approval Rate:    {stats['approval_rate']:.0%}",
+            ]
             if stats["by_type"]:
-                print()
-                print("  By Type:")
-                for proposal_type, count in stats["by_type"].items():
-                    print(f"    {proposal_type:<20} {count}")
-            print()
+                stat_lines.extend(("", "  By Type:"))
+                stat_lines.extend(
+                    f"    {proposal_type:<20} {count}"
+                    for proposal_type, count in stats["by_type"].items()
+                )
+            print_block(stat_lines)
             return
 
         pending = improver.get_pending_proposals()
         if not pending:
-            print()
-            print("  No pending proposals.")
-            print("  Use '/evolve analyze' to generate new proposals from learning data.")
-            print()
+            print_block(
+                (
+                    "  No pending proposals.",
+                    "  Use '/evolve analyze' to generate new proposals from learning data.",
+                )
+            )
             return
 
-        print()
-        print(f"  === {len(pending)} PENDING PROPOSAL(S) ===")
-        print()
+        print_block((f"  === {len(pending)} PENDING PROPOSAL(S) ===",))
 
         for index, proposal in enumerate(pending, 1):
-            print(f"  [{index}] {proposal['title']}")
-            print(f"      Type: {proposal['proposal_type']}")
-            print(f"      {proposal['description']}")
-            print(f"      Reason: {proposal['reason']}")
-            print()
+            lines = (
+                f"  [{index}] {proposal['title']}", f"      Type: {proposal['proposal_type']}",
+                f"      {proposal['description']}", f"      Reason: {proposal['reason']}",
+            )
+            print_block(lines, blank_before=False)
 
             while True:
                 try:
@@ -519,8 +510,7 @@ class LearningCommandHandlersMixin:
 
             print()
 
-        print("  All proposals reviewed.")
-        print()
+        print_block(("  All proposals reviewed.",), blank_before=False)
 
     def _cmd_skill(self, agent, args=None):
         """Configure custom skills/instructions."""
@@ -571,16 +561,16 @@ class LearningCommandHandlersMixin:
         if choice == "remove":
             skills = list_skills()
             if not skills:
-                print("  No skills configured. Add one with /skill add <instruction>")
-                print()
+                message = "  No skills configured. Add one with /skill add <instruction>"
+                print_block((message,), blank_before=False)
                 return None
-            print()
+            skill_lines = []
             for index, skill in enumerate(skills, 1):
                 preview = skill["instruction"][:60]
                 if len(skill["instruction"]) > 60:
                     preview += "..."
-                print(f"    {index}. {preview}")
-            print()
+                skill_lines.append(f"    {index}. {preview}")
+            print_block(skill_lines)
             number = safe_input("  Skill number to remove: ")
             return None if number is None else ["remove", number]
 
@@ -612,19 +602,17 @@ class LearningCommandHandlersMixin:
         from .skills import list_skills
 
         skills = list_skills()
-        print()
-        print("  ═══ ACTIVE SKILLS ═══")
-        print()
         if skills:
+            lines = []
             for index, skill in enumerate(skills, 1):
-                print(f"  {index}. {skill['instruction']}")
+                lines.append(f"  {index}. {skill['instruction']}")
                 if skill.get("category"):
-                    print(f"     Category: {skill['category']}")
-            print()
-            print(f"  Total: {len(skills)} skill(s)")
+                    lines.append(f"     Category: {skill['category']}")
+            footer = (f"  Total: {len(skills)} skill(s)",)
         else:
-            print("  No skills configured.")
-        print()
+            lines = ["  No skills configured."]
+            footer = ()
+        print_titled_block("ACTIVE SKILLS", lines, footer=footer)
 
     def _skill_remove(self, args):
         """Remove one skill, offering a picker when no number is given."""
@@ -671,15 +659,12 @@ class LearningCommandHandlersMixin:
             ("Naming", "Use snake_case for Python, camelCase for JavaScript"),
             ("Brevity", "Keep responses concise, skip explanations unless asked"),
         ]
-        print()
-        print("  ═══ SKILL TEMPLATES ═══")
-        print()
-        print("  Copy and modify these examples:")
-        print()
-        for name, example in templates:
-            print(f"  {name}:")
-            print(f"    /skill add {example}")
-            print()
+        lines = ["  Copy and modify these examples:", ""]
+        for index, (name, example) in enumerate(templates):
+            lines.extend((f"  {name}:", f"    /skill add {example}"))
+            if index < len(templates) - 1:
+                lines.append("")
+        print_titled_block("SKILL TEMPLATES", lines)
 
     def _skill_learn(self, args):
         """Extract skills from a markdown file and review them one by one."""
@@ -800,38 +785,37 @@ class LearningCommandHandlersMixin:
         action = args[0].lower()
 
         if action == "view":
-            print("\n  ═══ GLOBAL MEMORY ═══")
             prefs = memory.global_mem.data.get("preferences", {})
             if prefs:
-                for key, value in prefs.items():
-                    print(f"  • {key}: {value}")
+                global_lines = [f"  • {key}: {value}" for key, value in prefs.items()]
             else:
-                print("  No global preferences set.")
+                global_lines = ["  No global preferences set."]
+            print_block(("  ═══ GLOBAL MEMORY ═══", *global_lines), blank_after=False)
 
             patterns = memory.global_mem.data.get("learned_patterns", [])
             if patterns:
-                print("\n  ═══ LEARNED PATTERNS ═══")
+                pattern_lines = []
                 for pattern in patterns[-5:]:
                     if isinstance(pattern, dict):
-                        print(
+                        pattern_lines.append(
                             f"  • [{pattern.get('confidence', 'medium')}] {pattern.get('pattern')}"
                         )
                     else:
-                        print(f"  • {pattern}")
+                        pattern_lines.append(f"  • {pattern}")
+                print_block(("  ═══ LEARNED PATTERNS ═══", *pattern_lines), blank_after=False)
 
-            print("\n  ═══ PROJECT MEMORY ═══")
-            print(
+            project_lines = [
                 f"  Active Project: {memory.project_mem.data.get('project', {}).get('name', 'Unknown')}"
-            )
+            ]
             decisions = memory.project_mem.data.get("decisions", [])
             if decisions:
-                print(f"  Recent Decisions ({len(decisions)} total):")
+                project_lines.append(f"  Recent Decisions ({len(decisions)} total):")
                 for decision in decisions[-3:]:
-                    print(
+                    project_lines.append(
                         f"  • {decision.get('decision')} "
                         f"(Rationale: {decision.get('rationale', 'none')})"
                     )
-            print()
+            print_block(("  ═══ PROJECT MEMORY ═══", *project_lines))
             return
 
         if action == "edit":
@@ -926,22 +910,20 @@ class LearningCommandHandlersMixin:
         action = args[0].lower()
 
         if action == "path":
-            print()
-            print(f"  RadSim source: {PACKAGE_DIR}")
-            print(f"  Custom prompt: {CUSTOM_PROMPT_FILE}")
-            print()
+            print_labeled_values(
+                (("RadSim source:", PACKAGE_DIR), ("Custom prompt:", CUSTOM_PROMPT_FILE)),
+                label_width=15,
+            )
             return
 
         if action == "prompt":
             if CUSTOM_PROMPT_FILE.exists():
                 content = CUSTOM_PROMPT_FILE.read_text(encoding="utf-8").strip()
                 if content:
-                    print()
-                    print("  ═══ CUSTOM PROMPT ═══")
-                    print()
-                    for line in content.splitlines():
-                        print(f"    {line}")
-                    print()
+                    print_titled_block(
+                        "CUSTOM PROMPT",
+                        [f"    {line}" for line in content.splitlines()],
+                    )
                 else:
                     print_info("Custom prompt file exists but is empty.")
             else:
@@ -952,16 +934,12 @@ class LearningCommandHandlersMixin:
             return
 
         if action == "list":
-            print()
-            print("  ═══ RADSIM SOURCE FILES ═══")
-            print()
             source_files = sorted(PACKAGE_DIR.rglob("*.py"))
-            for source_file in source_files:
-                relative = source_file.relative_to(PACKAGE_DIR)
-                print(f"    {relative}")
-            print()
-            print(f"  Total: {len(source_files)} Python files")
-            print()
+            print_titled_block(
+                "RADSIM SOURCE FILES",
+                [f"    {source_file.relative_to(PACKAGE_DIR)}" for source_file in source_files],
+                footer=(f"  Total: {len(source_files)} Python files",),
+            )
             return
 
         print_error(f"Unknown action: {action}")
@@ -1001,15 +979,16 @@ class LearningCommandHandlersMixin:
         action = args[0].lower()
 
         if action == "setup":
-            print()
-            print("  ═══ SECURITY WARNING ═══")
-            print()
-            print("  - Your bot token grants full control of your Telegram bot")
-            print("  - Token is stored in ~/.radsim/.env (chmod 600, never committed to git)")
-            print("  - Messages are sent over HTTPS but NOT end-to-end encrypted")
-            print("  - Anyone with the token can impersonate your bot")
-            print("  - Do NOT share your bot token publicly")
-            print()
+            print_titled_block(
+                "SECURITY WARNING",
+                (
+                    "  - Your bot token grants full control of your Telegram bot",
+                    "  - Token is stored in ~/.radsim/.env (chmod 600, never committed to git)",
+                    "  - Messages are sent over HTTPS but NOT end-to-end encrypted",
+                    "  - Anyone with the token can impersonate your bot",
+                    "  - Do NOT share your bot token publicly",
+                ),
+            )
             token = safe_input("  Bot token (from @BotFather): ")
             if token is None:
                 return
@@ -1031,20 +1010,16 @@ class LearningCommandHandlersMixin:
             if toggle == "on":
                 result = start_listening()
                 if result["success"]:
-                    print()
-                    print("  ok Telegram listener: ON")
-                    print("  Receiving messages from your Telegram bot.")
-                    print("  Messages will appear in your RadSim session.")
-                    print("  Use /telegram listen off to stop.")
-                    print()
+                    lines = (
+                        "  ok Telegram listener: ON", "  Receiving messages from your Telegram bot.",
+                        "  Messages will appear in your RadSim session.", "  Use /telegram listen off to stop.",
+                    )
+                    print_block(lines)
                 else:
                     print_error(f"Failed to start: {result['error']}")
             elif toggle == "off":
                 stop_listening()
-                print()
-                print("  ok Telegram listener: OFF")
-                print("  No longer receiving Telegram messages.")
-                print()
+                print_block(("  ok Telegram listener: OFF", "  No longer receiving Telegram messages."))
             else:
                 print_error("Use: /telegram listen on  or  /telegram listen off")
             return
@@ -1073,15 +1048,18 @@ class LearningCommandHandlersMixin:
 
         if action == "status":
             token, chat_id = load_telegram_config()
-            print()
             if token:
-                masked = token[:8] + "..." + token[-4:] if len(token) > 12 else "***"
-                print(f"  Bot Token:  {masked}")
+                token_display = token[:8] + "..." + token[-4:] if len(token) > 12 else "***"
             else:
-                print("  Bot Token:  Not configured")
-            print(f"  Chat ID:    {chat_id or 'Not configured'}")
-            print(f"  Listening:  {'ON' if is_listening() else 'OFF'}")
-            print()
+                token_display = "Not configured"
+            print_labeled_values(
+                (
+                    ("Bot Token:", token_display),
+                    ("Chat ID:", chat_id or "Not configured"),
+                    ("Listening:", "ON" if is_listening() else "OFF"),
+                ),
+                label_width=12,
+            )
             return
 
         print_error(f"Unknown action: {action}")
@@ -1146,15 +1124,15 @@ class LearningCommandHandlersMixin:
         from .user_hooks import HOOKS_FILE, load_user_hooks
 
         hooks = load_user_hooks()
-        print()
         if not hooks:
+            print()
             print_info("No hooks configured. Use /hook add to create one.")
             return
+        lines = []
         for hook in hooks:
             state = "on " if hook.enabled else "off"
-            print(f"  [{state}] {hook.name}  ({hook.event}, matcher: {hook.matcher})")
-            print(f"        {hook.command}")
-        print()
+            lines.extend((f"  [{state}] {hook.name}  ({hook.event}, matcher: {hook.matcher})", f"        {hook.command}"))
+        print_block(lines)
         print_info(f"Stored in {HOOKS_FILE}")
         print_info("/hook toggle switches hooks on/off; /hook remove deletes one.")
 
