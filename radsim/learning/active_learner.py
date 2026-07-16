@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from ..persistence import atomic_write_json
+
 
 @dataclass
 class UncertaintyAssessment:
@@ -52,7 +54,7 @@ class ActiveLearner:
 
     def _save(self):
         """Persist Q&A history to disk."""
-        self.qa_file.write_text(json.dumps(self._qa_history, indent=2))
+        atomic_write_json(self.qa_file, self._qa_history)
 
     def assess_uncertainty(
         self,

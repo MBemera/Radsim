@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from ..persistence import atomic_write_json
+
 
 @dataclass
 class TaskReflection:
@@ -63,8 +65,8 @@ class ReflectionEngine:
 
     def _save(self):
         """Persist reflection data to disk."""
-        self.reflections_file.write_text(json.dumps(self._reflections[-200:], indent=2))
-        self.insights_file.write_text(json.dumps(self._insights, indent=2))
+        atomic_write_json(self.reflections_file, self._reflections[-200:])
+        atomic_write_json(self.insights_file, self._insights)
 
     def reflect_on_completion(
         self,

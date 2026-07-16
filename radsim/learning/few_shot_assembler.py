@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from ..persistence import atomic_write_json
+
 
 @dataclass
 class TaskExample:
@@ -53,7 +55,7 @@ class FewShotAssembler:
 
     def _save(self):
         """Persist examples to disk."""
-        self.examples_file.write_text(json.dumps(self._examples, indent=2))
+        atomic_write_json(self.examples_file, self._examples)
 
     def record_task_completion(
         self,
