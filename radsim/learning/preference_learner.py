@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from ..persistence import atomic_write_json
+
 
 @dataclass
 class FeedbackSignal:
@@ -63,8 +65,8 @@ class PreferenceLearner:
 
     def _save(self):
         """Persist preferences to disk."""
-        self.prefs_file.write_text(json.dumps(self._preferences, indent=2))
-        self.feedback_file.write_text(json.dumps(self._feedback, indent=2))
+        atomic_write_json(self.prefs_file, self._preferences)
+        atomic_write_json(self.feedback_file, self._feedback)
 
     def record_feedback(
         self,

@@ -13,6 +13,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from ..persistence import atomic_write_json
+
 logger = logging.getLogger(__name__)
 
 # Minimum thresholds for generating proposals
@@ -93,9 +95,7 @@ class SelfImprover:
     def _save(self):
         """Write proposals to disk."""
         try:
-            self.proposals_file.write_text(
-                json.dumps(self._proposals, indent=2, default=str) + "\n"
-            )
+            atomic_write_json(self.proposals_file, self._proposals, default=str)
         except OSError as error:
             logger.error("Failed to save proposals: %s", error)
 
@@ -469,7 +469,7 @@ class SelfImprover:
                     "value": action.get("value", ""),
                     "timestamp": datetime.now().isoformat(),
                 })
-                memory_file.write_text(json.dumps(notes, indent=2) + "\n")
+                atomic_write_json(memory_file, notes)
                 return {"success": True, "message": f"Note saved: {action.get('key', '')}"}
             except Exception as error:
                 return {"success": False, "error": str(error)}

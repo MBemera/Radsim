@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from ..persistence import atomic_write_json
+
 
 @dataclass
 class ErrorRecord:
@@ -60,8 +62,8 @@ class ErrorAnalyzer:
 
     def _save(self):
         """Persist error history to disk."""
-        self.errors_file.write_text(json.dumps(self._errors, indent=2))
-        self.patterns_file.write_text(json.dumps(self._patterns, indent=2))
+        atomic_write_json(self.errors_file, self._errors)
+        atomic_write_json(self.patterns_file, self._patterns)
 
     def _hash_error(self, error_type: str, error_message: str) -> str:
         """Generate a unique hash for an error."""

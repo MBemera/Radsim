@@ -7,12 +7,12 @@ static catalogue in config.PROVIDER_MODELS on failure.
 
 import json
 import logging
-import os
-import tempfile
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+from .persistence import atomic_write_json
 
 logger = logging.getLogger(__name__)
 
@@ -137,26 +137,10 @@ def _save_cache(models: list[dict]) -> None:
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     payload = {"fetched_at": time.time(), "models": models}
-    cache_path = _cache_path()
-    temp_path = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=cache_path.parent,
-            prefix=f".{cache_path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temp_file:
-            temp_path = Path(temp_file.name)
-            json.dump(payload, temp_file, indent=2)
-            temp_file.flush()
-            os.fsync(temp_file.fileno())
-        os.replace(temp_path, cache_path)
+        atomic_write_json(_cache_path(), payload)
     except OSError as error:
         logger.debug("models_cache write failed: %s", error)
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
 
 
 def _is_cache_fresh(cache: dict, ttl_seconds: int = CACHE_TTL_SECONDS) -> bool:
