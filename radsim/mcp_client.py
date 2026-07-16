@@ -14,7 +14,10 @@ Install the MCP SDK to enable: pip install radsimcli[mcp]
 import asyncio
 import json
 import logging
+import os
 import re
+import stat
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,6 +26,65 @@ logger = logging.getLogger(__name__)
 
 # Config file location
 MCP_CONFIG_PATH = Path.home() / ".radsim" / "mcp.json"
+
+
+def _ensure_secure_perms(path: Path) -> None:
+    """Tighten an MCP secrets file to 0600 and its directory to 0700 (POSIX).
+
+    mcp.json can hold plaintext ``env`` secrets, so it must never be
+    world- or group-readable. Called on load to repair any file left at a
+    permissive mode by an older RadSim version (R-05).
+    """
+    if os.name != "posix":
+        return
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:
+        pass
+    try:
+        mode = stat.S_IMODE(path.stat().st_mode)
+        if mode & 0o077:
+            os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _secure_write_json(path: Path, text: str) -> None:
+    """Write text to ``path`` at mode 0600 via an atomic temp-file replace.
+
+    The parent directory is created 0700, the content is written to a
+    0600 temp file in the same directory, fsync'd, then atomically renamed
+    over the destination so a reader never sees a partial or world-readable
+    secrets file (R-05).
+    """
+    directory = path.parent
+    directory.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix":
+        try:
+            os.chmod(directory, 0o700)
+        except OSError:
+            pass
+
+    # mkstemp creates the file mode 0600 by default.
+    fd, tmp_name = tempfile.mkstemp(dir=str(directory), prefix=".mcp-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+    if os.name == "posix":
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
 
 
 def is_mcp_sdk_installed() -> bool:
@@ -124,6 +186,9 @@ class MCPClientManager:
         if not MCP_CONFIG_PATH.exists():
             return
 
+        # Repair permissions on any file a previous version left readable.
+        _ensure_secure_perms(MCP_CONFIG_PATH)
+
         try:
             data = json.loads(MCP_CONFIG_PATH.read_text())
             servers = data.get("mcpServers", {})
@@ -134,12 +199,11 @@ class MCPClientManager:
             logger.warning("Failed to parse MCP config: %s", exc)
 
     def save_config(self):
-        """Save current server configs to ~/.radsim/mcp.json."""
-        MCP_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        """Save current server configs to ~/.radsim/mcp.json (mode 0600)."""
         data = {"mcpServers": {}}
         for name, config in self._servers.items():
             data["mcpServers"][name] = config.to_dict()
-        MCP_CONFIG_PATH.write_text(json.dumps(data, indent=2) + "\n")
+        _secure_write_json(MCP_CONFIG_PATH, json.dumps(data, indent=2) + "\n")
 
     def add_server_config(self, config: MCPServerConfig):
         """Add or update a server configuration and save."""

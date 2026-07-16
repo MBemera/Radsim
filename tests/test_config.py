@@ -104,41 +104,8 @@ def test_load_env_file_prefers_memory_preferred_env_path(tmp_path, monkeypatch):
     assert env_config["keys"]["OPENAI_API_KEY"] == "preferred-key"
 
 
-def test_load_env_file_prefers_project_env_over_global(tmp_path, monkeypatch):
-    import radsim.config
-
-    fake_home = tmp_path / "home"
-    fake_home.mkdir()
-
-    config_dir = fake_home / ".radsim"
-    config_dir.mkdir()
-    settings_file = config_dir / "settings.json"
-    settings_file.write_text("{}")
-
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    cwd_dir = tmp_path / "cwd"
-    cwd_dir.mkdir()
-    project_env_file = project_root / ".env"
-    project_env_file.write_text('OPENAI_API_KEY="project-key"\n')
-    global_env_file = config_dir / ".env"
-    global_env_file.write_text('OPENAI_API_KEY="global-key"\n')
-
-    monkeypatch.chdir(cwd_dir)
-    monkeypatch.setattr(radsim.config, "CONFIG_DIR", config_dir)
-    monkeypatch.setattr(radsim.config, "SETTINGS_FILE", settings_file)
-    monkeypatch.setattr(radsim.config, "ENV_FILE", global_env_file)
-    monkeypatch.setattr(radsim.config, "PROJECT_ENV_FILE", project_env_file)
-    monkeypatch.setattr(radsim.config, "PACKAGE_DIR", project_root / "radsim")
-    monkeypatch.setattr(radsim.config, "get_runtime_context", lambda: _FakeRuntimeContext(None))
-    monkeypatch.delenv("RADSIM_ENV_FILE", raising=False)
-
-    env_config = radsim.config.load_env_file()
-
-    assert env_config["keys"]["OPENAI_API_KEY"] == "project-key"
-
-
-def test_load_env_file_uses_cwd_env_when_present(tmp_path, monkeypatch):
+def test_project_env_ignored_for_credentials_by_default(tmp_path, monkeypatch):
+    """R-08: an untrusted project/cwd .env must not override global config."""
     import radsim.config
 
     fake_home = tmp_path / "home"
@@ -168,9 +135,50 @@ def test_load_env_file_uses_cwd_env_when_present(tmp_path, monkeypatch):
     monkeypatch.setattr(radsim.config, "PACKAGE_DIR", project_root / "radsim")
     monkeypatch.setattr(radsim.config, "get_runtime_context", lambda: _FakeRuntimeContext(None))
     monkeypatch.delenv("RADSIM_ENV_FILE", raising=False)
+    monkeypatch.delenv("RADSIM_TRUST_PROJECT_ENV", raising=False)
 
     env_config = radsim.config.load_env_file()
 
+    # Neither the cwd nor the source-checkout .env is trusted: global wins.
+    assert env_config["keys"]["OPENAI_API_KEY"] == "global-key"
+
+
+def test_project_env_used_when_explicitly_trusted(tmp_path, monkeypatch):
+    """R-08: opting in with RADSIM_TRUST_PROJECT_ENV restores project override."""
+    import radsim.config
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+
+    config_dir = fake_home / ".radsim"
+    config_dir.mkdir()
+    settings_file = config_dir / "settings.json"
+    settings_file.write_text("{}")
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    cwd_dir = tmp_path / "cwd"
+    cwd_dir.mkdir()
+    cwd_env_file = cwd_dir / ".env"
+    cwd_env_file.write_text('OPENAI_API_KEY="cwd-key"\n')
+    project_env_file = project_root / ".env"
+    project_env_file.write_text('OPENAI_API_KEY="project-key"\n')
+    global_env_file = config_dir / ".env"
+    global_env_file.write_text('OPENAI_API_KEY="global-key"\n')
+
+    monkeypatch.chdir(cwd_dir)
+    monkeypatch.setattr(radsim.config, "CONFIG_DIR", config_dir)
+    monkeypatch.setattr(radsim.config, "SETTINGS_FILE", settings_file)
+    monkeypatch.setattr(radsim.config, "ENV_FILE", global_env_file)
+    monkeypatch.setattr(radsim.config, "PROJECT_ENV_FILE", project_env_file)
+    monkeypatch.setattr(radsim.config, "PACKAGE_DIR", project_root / "radsim")
+    monkeypatch.setattr(radsim.config, "get_runtime_context", lambda: _FakeRuntimeContext(None))
+    monkeypatch.delenv("RADSIM_ENV_FILE", raising=False)
+    monkeypatch.setenv("RADSIM_TRUST_PROJECT_ENV", "1")
+
+    env_config = radsim.config.load_env_file()
+
+    # cwd .env is highest-priority project source when trust is enabled.
     assert env_config["keys"]["OPENAI_API_KEY"] == "cwd-key"
 
 

@@ -262,6 +262,18 @@ class TestEmptyAndMalformed:
 class TestSchedulerInjection:
     """Test injection attacks through the scheduler's add_job method."""
 
+    @pytest.fixture(autouse=True)
+    def _hermetic_crontab(self, monkeypatch):
+        """Never read or write the host crontab.
+
+        _read_current_crontab() calls read_crontab() (imported into the
+        scheduler namespace); left unmocked it runs the real `crontab -l`,
+        which fails on hosts without a crontab and makes add_job fail-closed.
+        Treat the crontab as present-but-empty so these injection tests
+        exercise the storage path deterministically (R-10 hermeticity).
+        """
+        monkeypatch.setattr("radsim.scheduler.read_crontab", lambda: "")
+
     def _make_scheduler(self, tmp_path):
         """Create a Scheduler with a temp schedules file."""
         from radsim.scheduler import Scheduler

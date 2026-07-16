@@ -178,7 +178,8 @@ class RadSimAgent(
         elif tool_name == "browser_type":
             desc = f"Type into {tool_input.get('selector')}"
         elif tool_name == "browser_screenshot":
-            desc = "Take screenshot"
+            requested = tool_input.get("filename")
+            desc = f"Take screenshot -> {requested}" if requested else "Take screenshot"
 
         if self.config.auto_confirm:
             print_info(f"Browser: {desc}")

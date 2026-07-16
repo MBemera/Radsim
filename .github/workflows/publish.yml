@@ -8,24 +8,64 @@ permissions:
   contents: read
 
 jobs:
-  publish:
+  # A release must not publish from a tree whose tests, lint, or dependency
+  # audit fail (R-10). This gate runs before the build/publish job.
+  guard:
+    name: Test, lint and audit
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
 
-      - name: Install build tools
-        run: pip install build
+      - name: Install (with all feature extras + dev tools)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
 
-      - name: Build package
-        run: python -m build
+      - name: Lint (ruff)
+        run: python -m ruff check radsim/ tests/
 
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Test (random order)
+        run: python -m pytest -q
+
+      - name: Dependency CVE audit
+        run: python -m pip_audit -r requirements.txt
+
+  publish:
+    name: Build, verify and publish
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Trusted Publishing (OIDC) — no long-lived PyPI API token needed (R-09).
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
+          python-version: "3.12"
+
+      - name: Build the exact artifact to be published
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+
+      - name: Verify package metadata
+        run: python -m twine check dist/*
+
+      - name: Smoke-test the built wheel in a clean venv
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install dist/*.whl
+          /tmp/smoke/bin/radsim --version
+
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@7f25271a4aa483500f742f9492b2ab5648d61011  # v1.12.4

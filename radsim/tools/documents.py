@@ -22,6 +22,62 @@ MAX_EXTRACTED_CHARS = 20000
 # Raw image bytes cap: providers reject oversized payloads long before this.
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
 
+# Parsing safety limits (R-07). read_document is read-only and runs without
+# confirmation, so a malicious document in an untrusted repo must not be able
+# to exhaust memory or CPU before the text cap applies. DOCX/XLSX are ZIP
+# archives; a zip bomb declares tiny compressed members that expand hugely,
+# and an XML bomb uses DTD entity expansion.
+MAX_DOCUMENT_BYTES = 25 * 1024 * 1024          # on-disk cap for any document
+MAX_ZIP_MEMBERS = 4096                          # entries in a DOCX/XLSX archive
+MAX_ZIP_MEMBER_BYTES = 50 * 1024 * 1024         # uncompressed size per member
+MAX_ZIP_TOTAL_BYTES = 200 * 1024 * 1024         # uncompressed size across members
+MAX_COMPRESSION_RATIO = 200                     # uncompressed / compressed
+MAX_PDF_PAGES = 1000                            # pages scanned before stopping
+
+
+class UnsafeDocument(Exception):
+    """Raised when a document exceeds the archive/XML parsing safety limits."""
+
+
+def _check_zip_limits(archive):
+    """Reject an archive whose declared metadata indicates a zip bomb."""
+    infos = archive.infolist()
+    if len(infos) > MAX_ZIP_MEMBERS:
+        raise UnsafeDocument(f"archive has too many members ({len(infos)})")
+
+    total = 0
+    for info in infos:
+        size = info.file_size
+        if size > MAX_ZIP_MEMBER_BYTES:
+            raise UnsafeDocument(f"member {info.filename!r} is too large ({size} bytes)")
+        if info.compress_size > 0 and size / info.compress_size > MAX_COMPRESSION_RATIO:
+            raise UnsafeDocument(f"member {info.filename!r} has a suspicious compression ratio")
+        total += size
+        if total > MAX_ZIP_TOTAL_BYTES:
+            raise UnsafeDocument("archive uncompressed size exceeds the limit")
+
+
+def _read_zip_member(archive, name):
+    """Read a member with a hard byte cap, defending against a lying member."""
+    with archive.open(name) as member:
+        data = member.read(MAX_ZIP_MEMBER_BYTES + 1)
+    if len(data) > MAX_ZIP_MEMBER_BYTES:
+        raise UnsafeDocument(f"member {name!r} exceeds {MAX_ZIP_MEMBER_BYTES} bytes")
+    return data
+
+
+def _reject_dtd(xml_bytes):
+    """Reject XML that declares a DTD or entities (billion-laughs / XXE guard).
+
+    OOXML parts never legitimately contain a DTD, so any DOCTYPE or ENTITY
+    declaration is hostile. Refusing them blocks entity-expansion bombs and
+    external-entity injection while keeping parsing stdlib-only.
+    """
+    lowered = xml_bytes.lower()
+    if b"<!doctype" in lowered or b"<!entity" in lowered:
+        raise UnsafeDocument("XML with a DTD/entity declaration is not allowed")
+    return xml_bytes
+
 IMAGE_MEDIA_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -48,6 +104,13 @@ def read_document(file_path):
         return {"success": False, "error": error}
     if not path.exists() or not path.is_file():
         return {"success": False, "error": f"File not found: {file_path}"}
+
+    file_size = path.stat().st_size
+    if file_size > MAX_DOCUMENT_BYTES:
+        return {
+            "success": False,
+            "error": f"Document too large ({file_size} bytes). Max: {MAX_DOCUMENT_BYTES} bytes",
+        }
 
     readers = {
         ".pdf": _read_pdf_text,
@@ -85,6 +148,8 @@ def _read_pdf_text(path):
     reader = PdfReader(str(path))
     pages = []
     for number, page in enumerate(reader.pages, 1):
+        if number > MAX_PDF_PAGES:
+            break
         page_text = page.extract_text() or ""
         pages.append(f"--- page {number} ---\n{page_text}")
         if sum(len(part) for part in pages) > MAX_EXTRACTED_CHARS:
@@ -98,9 +163,10 @@ def _read_docx_text(path):
     A .docx is a ZIP archive whose main text lives in word/document.xml.
     """
     with zipfile.ZipFile(path) as archive:
-        document_xml = archive.read("word/document.xml")
+        _check_zip_limits(archive)
+        document_xml = _read_zip_member(archive, "word/document.xml")
 
-    root = ElementTree.fromstring(document_xml)
+    root = ElementTree.fromstring(_reject_dtd(document_xml))
     paragraphs = []
     for paragraph in root.iter(f"{_DOCX_NAMESPACE}p"):
         runs = [node.text or "" for node in paragraph.iter(f"{_DOCX_NAMESPACE}t")]
@@ -117,6 +183,7 @@ def _read_xlsx_text(path):
     lines so tables stay readable.
     """
     with zipfile.ZipFile(path) as archive:
+        _check_zip_limits(archive)
         shared_strings = _load_shared_strings(archive)
         sheet_names = sorted(
             name
@@ -125,7 +192,7 @@ def _read_xlsx_text(path):
         )
         sections = []
         for sheet_name in sheet_names:
-            rows = _read_sheet_rows(archive.read(sheet_name), shared_strings)
+            rows = _read_sheet_rows(_read_zip_member(archive, sheet_name), shared_strings)
             label = sheet_name.removeprefix("xl/worksheets/").removesuffix(".xml")
             sections.append(f"--- {label} ---\n" + "\n".join(rows))
     return "\n".join(sections)
@@ -135,7 +202,7 @@ def _load_shared_strings(archive):
     """Return the shared-string table an XLSX uses for text cells."""
     if "xl/sharedStrings.xml" not in archive.namelist():
         return []
-    root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
+    root = ElementTree.fromstring(_reject_dtd(_read_zip_member(archive, "xl/sharedStrings.xml")))
     strings = []
     for item in root.iter(f"{_XLSX_NAMESPACE}si"):
         strings.append("".join(node.text or "" for node in item.iter(f"{_XLSX_NAMESPACE}t")))
@@ -144,7 +211,7 @@ def _load_shared_strings(archive):
 
 def _read_sheet_rows(sheet_xml, shared_strings):
     """Render one worksheet's rows as tab-separated lines."""
-    root = ElementTree.fromstring(sheet_xml)
+    root = ElementTree.fromstring(_reject_dtd(sheet_xml))
     rows = []
     for row in root.iter(f"{_XLSX_NAMESPACE}row"):
         cells = []

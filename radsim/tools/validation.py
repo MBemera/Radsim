@@ -4,6 +4,7 @@ RadSim Principle: Explicit Safety Checks
 """
 
 import fnmatch
+import os
 from pathlib import Path
 from threading import RLock
 
@@ -69,20 +70,150 @@ def validate_path(file_path, allow_outside=False):
         return False, None, str(error)
 
 
-def is_protected_path(file_path):
-    """Check if a file path matches protected patterns.
+def is_protected_path(file_path, resolved_path=None):
+    """Check if a file path matches protected write patterns.
+
+    Checks the caller-supplied string and, when given, the canonical
+    resolved path. Passing the resolved path is what closes the symlink
+    bypass (R-03): a benign-looking name that resolves to a protected
+    target (``safe.txt`` → ``.env``) is still caught.
 
     Args:
-        file_path: Path to check
+        file_path: Path to check (as supplied by the caller)
+        resolved_path: Optional canonical/resolved path to also check
 
     Returns:
         Tuple of (is_protected, reason)
     """
-    path_lower = file_path.lower()
-    for pattern in PROTECTED_PATTERNS:
-        if fnmatch.fnmatch(path_lower, f"*{pattern}*"):
-            return True, f"Protected file pattern: {pattern}"
+    candidates = [str(file_path)]
+    if resolved_path is not None:
+        candidates.append(str(resolved_path))
+
+    for candidate in candidates:
+        path_lower = candidate.lower()
+        for pattern in PROTECTED_PATTERNS:
+            if fnmatch.fnmatch(path_lower, f"*{pattern}*"):
+                return True, f"Protected file pattern: {pattern}"
     return False, None
+
+
+# Files whose contents are secrets. Reading any of these hands credentials to
+# the model provider, so a read must be confirmed against the *canonical* path
+# (R-02). Matching is on the basename so it is precise and low-noise — a source
+# file such as tokenizer.py is not a secret, but .env / id_rsa / *.pem are.
+SECRET_READ_FILE_GLOBS = (
+    ".env",
+    ".env.*",
+    "*.env",
+    "id_rsa*",
+    "id_dsa*",
+    "id_ecdsa*",
+    "id_ed25519*",
+    "*.pem",
+    "*.key",
+    "*.pfx",
+    "*.p12",
+    "*.keystore",
+    "*.jks",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    ".git-credentials",
+    "credentials",
+    "credentials.json",
+    "secrets.json",
+    "service-account*.json",
+)
+
+# Directory names that only ever hold credentials or private key material.
+SECRET_READ_DIR_NAMES = (
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".kube",
+    ".docker",
+    ".gcloud",
+)
+
+
+def _extra_secret_read_globs():
+    """Return any user-configured secret-read globs, or an empty tuple.
+
+    Users can widen the protected-read set through the agent config key
+    ``security.protected_read_patterns`` without editing source.
+    """
+    try:
+        from ..agent_config import get_agent_config_manager
+
+        extra = get_agent_config_manager().get("security.protected_read_patterns", [])
+        if isinstance(extra, list):
+            return tuple(str(item) for item in extra if item)
+    except Exception:
+        pass
+    return ()
+
+
+def is_secret_read_path(file_path, resolved_path=None):
+    """Return (is_secret, reason) when a path targets secret material.
+
+    Checks both the supplied path and the canonical resolved path so a
+    symlink or case-variant pointing at a secret is still caught. Content
+    read from these paths is provider-visible, so the agent must confirm
+    the exact canonical path before reading.
+    """
+    candidates = []
+    if resolved_path is not None:
+        candidates.append(Path(str(resolved_path)))
+    candidates.append(Path(str(file_path)))
+
+    file_globs = SECRET_READ_FILE_GLOBS + _extra_secret_read_globs()
+
+    for path in candidates:
+        name = path.name.lower()
+        for glob in file_globs:
+            if fnmatch.fnmatch(name, glob.lower()):
+                return True, f"secret file ({path.name})"
+        parts_lower = {part.lower() for part in path.parts}
+        for secret_dir in SECRET_READ_DIR_NAMES:
+            if secret_dir in parts_lower:
+                return True, f"secret directory ({secret_dir}/)"
+    return False, None
+
+
+def contains_symlink(file_path):
+    """Return (has_symlink, offending_path) when a write target is a symlink.
+
+    ``validate_path`` resolves the path and confirms containment, but a
+    write must not follow a symlink: a benign-looking name (``safe.txt``)
+    can be a repository-controlled link onto a protected or out-of-tree
+    file (``.env``). This checks the target itself and every ancestor that
+    lies strictly inside the project directory; the project root and
+    anything above it are not checked, so a project cloned under a
+    symlinked path still works.
+
+    Returns:
+        Tuple of (has_symlink, offending_path). has_symlink is False on
+        any error so callers keep their existing validate_path guarantees.
+    """
+    try:
+        cwd = str(_get_resolved_cwd())
+        if os.path.isabs(file_path):
+            target = os.path.normpath(str(file_path))
+        else:
+            target = os.path.normpath(os.path.join(cwd, str(file_path)))
+
+        prefix = cwd + os.sep
+        current = target
+        while current != cwd and current.startswith(prefix):
+            if os.path.islink(current):
+                return True, current
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+        return False, None
+    except Exception:
+        return False, None
 
 
 def validate_shell_command(command):

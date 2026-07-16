@@ -4,6 +4,7 @@ Manages user-controllable agent settings stored in ~/.radsim/agent_config.json.
 Provides dotted-path access, tool enablement checks, and security level presets.
 """
 
+import copy
 import json
 import logging
 from pathlib import Path
@@ -23,6 +24,10 @@ DEFAULT_CONFIG = {
         "docker": True,
         "database": True,
         "deploy": False,
+        # Self-extension writes model-generated Python into the installed
+        # package and hot-reloads it in-process. Off by default: it must be a
+        # deliberate opt-in, never reachable from prompt injection alone.
+        "self_extension": False,
     },
     "learning": {
         "enabled": True,
@@ -71,6 +76,8 @@ TOOL_CONFIG_MAP = {
     "run_docker": "docker",
     "database_query": "database",
     "deploy": "deploy",
+    "add_tool": "self_extension",
+    "remove_tool": "self_extension",
 }
 
 # Security level presets
@@ -85,6 +92,7 @@ SECURITY_PRESETS = {
             "docker": False,
             "database": False,
             "deploy": False,
+            "self_extension": False,
         },
         "shell_commands": {
             "mode": "whitelist",
@@ -113,6 +121,7 @@ SECURITY_PRESETS = {
             "docker": True,
             "database": True,
             "deploy": False,
+            "self_extension": False,
         },
         "shell_commands": {
             "mode": "blocklist",
@@ -139,6 +148,7 @@ SECURITY_PRESETS = {
             "docker": True,
             "database": True,
             "deploy": True,
+            "self_extension": False,
         },
         "shell_commands": {
             "mode": "blocklist",
@@ -168,6 +178,7 @@ SECURITY_PRESETS = {
             "docker": True,
             "database": True,
             "deploy": True,
+            "self_extension": False,
         },
         "shell_commands": {
             "mode": "blocklist",
@@ -201,6 +212,7 @@ SECURITY_SWITCHES = (
     ("tools.docker", "Docker tool"),
     ("tools.database", "Database queries"),
     ("tools.deploy", "Deploy tool"),
+    ("tools.self_extension", "Self-extension (add_tool)"),
     ("confirmations.shell_commands", "Confirm shell commands"),
     ("confirmations.file_deletion", "Confirm file deletion"),
 )
@@ -241,13 +253,20 @@ class AgentConfigManager:
         self._save()
 
     def _merge_defaults(self, defaults, current):
-        """Recursively merge defaults into current config (keeps existing values)."""
-        merged = dict(defaults)
+        """Recursively merge defaults into current config (keeps existing values).
+
+        The defaults are deep-copied: a shallow copy would share the nested
+        dicts of the module-global DEFAULT_CONFIG, so a later set()/security
+        preset would mutate DEFAULT_CONFIG in place and make every future
+        manager inherit that (e.g. a restrictive whitelist) — an
+        order-dependent state leak across the process.
+        """
+        merged = copy.deepcopy(defaults)
         for key, value in current.items():
             if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
                 merged[key] = self._merge_defaults(merged[key], value)
             else:
-                merged[key] = value
+                merged[key] = copy.deepcopy(value)
         return merged
 
     def _save(self):

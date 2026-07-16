@@ -7,7 +7,24 @@ import difflib
 
 from ..runtime_context import get_runtime_context
 from .constants import MAX_FILE_SIZE, MAX_FILES_TO_READ, MAX_TRUNCATED_SIZE
-from .validation import is_protected_path, validate_path
+from .validation import contains_symlink, is_protected_path, validate_path
+
+
+def _guard_write_target(file_path, resolved_path):
+    """Return an error string when a write target is protected or a symlink.
+
+    Both checks run against the canonical resolved path, closing the
+    symlink bypass where the protected-pattern check saw only the benign
+    display name (R-03).
+    """
+    is_protected, reason = is_protected_path(file_path, resolved_path=resolved_path)
+    if is_protected:
+        return reason
+
+    has_symlink, offending = contains_symlink(file_path)
+    if has_symlink:
+        return f"refusing to write through symlink: {offending}"
+    return None
 
 
 def _track_recent_file(path, intent="accessed"):
@@ -187,10 +204,10 @@ def write_file(file_path, content, show_diff=True):
     if binary_error:
         return {"success": False, "error": binary_error}
 
-    # Check protected patterns
-    is_protected, reason = is_protected_path(file_path)
-    if is_protected:
-        return {"success": False, "error": f"Cannot write: {reason}"}
+    # Check protected patterns and symlinks against the canonical target.
+    guard_error = _guard_write_target(file_path, path)
+    if guard_error:
+        return {"success": False, "error": f"Cannot write: {guard_error}"}
 
     try:
         # Read existing content for diff display
@@ -257,9 +274,9 @@ def replace_in_file(file_path, old_string, new_string, replace_all=False, show_d
     if not is_safe:
         return {"success": False, "error": error}
 
-    is_protected, reason = is_protected_path(file_path)
-    if is_protected:
-        return {"success": False, "error": f"Cannot modify: {reason}"}
+    guard_error = _guard_write_target(file_path, path)
+    if guard_error:
+        return {"success": False, "error": f"Cannot modify: {guard_error}"}
 
     try:
         if not path.exists():
@@ -391,9 +408,9 @@ def multi_edit(file_path, edits):
     if not is_safe:
         return {"success": False, "error": error}
 
-    is_protected, reason = is_protected_path(file_path)
-    if is_protected:
-        return {"success": False, "error": f"Cannot modify: {reason}"}
+    guard_error = _guard_write_target(file_path, path)
+    if guard_error:
+        return {"success": False, "error": f"Cannot modify: {guard_error}"}
 
     try:
         if not path.exists():
