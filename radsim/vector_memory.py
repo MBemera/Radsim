@@ -18,6 +18,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from .persistence import atomic_write_json
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,7 @@ class JsonMemoryFallback:
         self.persist_directory = persist_directory
         self.persist_directory.mkdir(parents=True, exist_ok=True)
         self.collections: dict[str, list[dict]] = {}
+        self.document_frequencies: dict[str, dict[str, int]] = {}
         self._load_all_collections()
 
     def _get_collection_path(self, collection: str) -> Path:
@@ -82,29 +85,65 @@ class JsonMemoryFallback:
                 self.collections[collection] = []
         else:
             self.collections[collection] = []
+        self._rebuild_document_frequencies(collection)
 
     def _save_collection(self, collection: str) -> None:
         """Save a collection to disk."""
         path = self._get_collection_path(collection)
         try:
-            with open(path, "w") as f:
-                json.dump(self.collections[collection], f, indent=2)
-        except OSError as e:
-            logger.error(f"Failed to save {collection}: {e}")
+            atomic_write_json(path, self.collections[collection])
+        except OSError as error:
+            logger.error(f"Failed to save {collection}: {error}")
 
     def add(self, collection: str, memory_id: str, content: str, metadata: dict) -> None:
         """Add a memory entry."""
+        self.add_many(
+            collection,
+            [{"memory_id": memory_id, "content": content, "metadata": metadata}],
+        )
+
+    def add_many(self, collection: str, items: list[dict]) -> None:
+        """Append multiple entries and persist the collection once."""
+        if not items:
+            return
         if collection not in self.collections:
             self.collections[collection] = []
+            self.document_frequencies[collection] = {}
 
-        entry = {
-            "id": memory_id,
-            "content": content,
-            "metadata": metadata,
-            "keywords": list(self._extract_keywords(content)),  # Convert set to list for JSON
-        }
-        self.collections[collection].append(entry)
+        entries = [self._build_entry(item) for item in items]
+        self.collections[collection].extend(entries)
+        self._update_document_frequencies(collection, entries, change=1)
         self._save_collection(collection)
+
+    def _build_entry(self, item: dict) -> dict:
+        """Build one JSON-safe fallback memory entry."""
+        content = item["content"]
+        return {
+            "id": item["memory_id"],
+            "content": content,
+            "metadata": item["metadata"],
+            "keywords": list(self._extract_keywords(content)),
+        }
+
+    def _rebuild_document_frequencies(self, collection: str) -> None:
+        """Rebuild keyword counts after loading one collection."""
+        self.document_frequencies[collection] = {}
+        self._update_document_frequencies(
+            collection, self.collections[collection], change=1
+        )
+
+    def _update_document_frequencies(
+        self, collection: str, entries: list[dict], change: int
+    ) -> None:
+        """Apply entry keyword counts to the in-memory search index."""
+        frequencies = self.document_frequencies.setdefault(collection, {})
+        for entry in entries:
+            for keyword in set(entry.get("keywords", [])):
+                updated_count = frequencies.get(keyword, 0) + change
+                if updated_count > 0:
+                    frequencies[keyword] = updated_count
+                else:
+                    frequencies.pop(keyword, None)
 
     def search(self, collection: str, query: str, top_k: int) -> list[dict]:
         """Search using TF-IDF cosine similarity and return scored results."""
@@ -129,15 +168,12 @@ class JsonMemoryFallback:
                 for e in reversed(recent)
             ]
 
-        # Build document frequency (DF) for IDF calculation
         num_docs = len(entries)
-        doc_freq: dict[str, int] = {}
+        doc_freq = self.document_frequencies.get(collection, {})
         entry_keyword_sets = []
         for entry in entries:
             kw_set = set(entry.get("keywords", []))
             entry_keyword_sets.append(kw_set)
-            for kw in kw_set:
-                doc_freq[kw] = doc_freq.get(kw, 0) + 1
 
         scored_results = []
         for idx, entry in enumerate(entries):
@@ -183,12 +219,15 @@ class JsonMemoryFallback:
         if collection not in self.collections:
             return False
 
-        original_len = len(self.collections[collection])
+        removed_entries = [
+            entry for entry in self.collections[collection] if entry["id"] == memory_id
+        ]
         self.collections[collection] = [
             e for e in self.collections[collection] if e["id"] != memory_id
         ]
 
-        if len(self.collections[collection]) < original_len:
+        if removed_entries:
+            self._update_document_frequencies(collection, removed_entries, change=-1)
             self._save_collection(collection)
             return True
         return False
@@ -200,6 +239,7 @@ class JsonMemoryFallback:
     def clear(self, collection: str) -> None:
         """Clear all memories in a collection."""
         self.collections[collection] = []
+        self.document_frequencies[collection] = {}
         self._save_collection(collection)
 
     def _extract_keywords(self, text: str) -> set[str]:
@@ -317,31 +357,57 @@ class VectorMemory:
             return ""
 
         try:
-            # Generate unique ID
-            timestamp = datetime.now().isoformat()
-            memory_id = generate_memory_id(content, timestamp)
-
-            # Build metadata
-            full_metadata = {
-                "created_at": timestamp,
-                "content_length": len(content),
-            }
-            if metadata:
-                # Filter out None values and convert non-string values
-                for key, value in metadata.items():
-                    if value is not None:
-                        if isinstance(value, (list, dict)):
-                            full_metadata[key] = str(value)
-                        else:
-                            full_metadata[key] = value
-
-            self.fallback.add(collection, memory_id, content, full_metadata)
-            logger.debug(f"Added memory {memory_id} to {collection}")
-            return memory_id
+            item = self._prepare_memory_item(content, metadata)
+            self.fallback.add(
+                collection,
+                item["memory_id"],
+                item["content"],
+                item["metadata"],
+            )
+            logger.debug(f"Added memory {item['memory_id']} to {collection}")
+            return item["memory_id"]
 
         except Exception as error:
             logger.error(f"Failed to add memory to {collection}: {error}")
             return ""
+
+    def add_memories(self, collection: str, items: list[dict]) -> list[str]:
+        """Add a validated batch of memories with one durable write."""
+        if not self._validate_collection(collection):
+            return []
+        if not items:
+            return []
+        if any(not isinstance(item.get("content"), str) for item in items):
+            logger.warning("Cannot add a memory batch with non-string content")
+            return []
+        if any(not item["content"].strip() for item in items):
+            logger.warning("Cannot add a memory batch with empty content")
+            return []
+
+        try:
+            prepared_items = [
+                self._prepare_memory_item(item["content"], item.get("metadata"))
+                for item in items
+            ]
+            self.fallback.add_many(collection, prepared_items)
+            return [item["memory_id"] for item in prepared_items]
+        except Exception as error:
+            logger.error(f"Failed to add memory batch to {collection}: {error}")
+            return []
+
+    def _prepare_memory_item(self, content: str, metadata: dict | None) -> dict:
+        """Build one validated memory item for single or batch storage."""
+        timestamp = datetime.now().isoformat()
+        full_metadata = {"created_at": timestamp, "content_length": len(content)}
+        for key, value in (metadata or {}).items():
+            if value is None:
+                continue
+            full_metadata[key] = str(value) if isinstance(value, (list, dict)) else value
+        return {
+            "memory_id": generate_memory_id(content, timestamp),
+            "content": content,
+            "metadata": full_metadata,
+        }
 
     def search_memories(
         self,

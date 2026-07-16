@@ -672,20 +672,19 @@ class TestMemoryStress:
     """Stress tests for the vector memory system."""
 
     def test_add_many_entries(self, tmp_path):
-        """Add 1,000 entries without crashing.
-
-        Uses 1,000 instead of 10,000 because the JSON fallback writes
-        to disk on every add, making 10K entries very slow in CI.
-        """
+        """Add 1,000 entries through the durable batch path."""
         memory = VectorMemory(persist_directory=str(tmp_path / "vectors"))
 
-        for i in range(1_000):
-            memory_id = memory.add_memory(
-                COLLECTION_CONVERSATIONS,
-                f"Memory entry number {i} with some content about topic {i % 100}",
-                {"index": i},
-            )
-            assert memory_id != "", f"Failed to add memory at index {i}"
+        items = [
+            {
+                "content": f"Memory entry number {i} with some content about topic {i % 100}",
+                "metadata": {"index": i},
+            }
+            for i in range(1_000)
+        ]
+        memory_ids = memory.add_memories(COLLECTION_CONVERSATIONS, items)
+
+        assert len(memory_ids) == 1_000
 
         stats = memory.get_collection_stats(COLLECTION_CONVERSATIONS)
         assert stats["count"] == 1_000
@@ -694,13 +693,14 @@ class TestMemoryStress:
         """Search should work correctly after bulk additions."""
         memory = VectorMemory(persist_directory=str(tmp_path / "vectors"))
 
-        # Add entries with distinct content
-        for i in range(100):
-            memory.add_memory(
-                COLLECTION_CODE_PATTERNS,
-                f"Python function for sorting algorithm variant {i}",
-                {"language": "python"},
-            )
+        items = [
+            {
+                "content": f"Python function for sorting algorithm variant {i}",
+                "metadata": {"language": "python"},
+            }
+            for i in range(100)
+        ]
+        memory.add_memories(COLLECTION_CODE_PATTERNS, items)
 
         results = memory.search_memories(
             COLLECTION_CODE_PATTERNS, "sorting algorithm", top_k=10
@@ -720,12 +720,14 @@ class TestMemoryStress:
         ]
 
         for collection in collections:
-            for i in range(50):
-                memory.add_memory(
-                    collection,
-                    f"Entry {i} in {collection} about data processing",
-                    {"collection": collection, "index": i},
-                )
+            items = [
+                {
+                    "content": f"Entry {i} in {collection} about data processing",
+                    "metadata": {"collection": collection, "index": i},
+                }
+                for i in range(50)
+            ]
+            memory.add_memories(collection, items)
 
         # Get context across all collections
         context = memory.get_relevant_context("data processing")
@@ -799,13 +801,15 @@ class TestJsonMemoryFallbackStress:
         """Add 1000 entries and search."""
         fallback = JsonMemoryFallback(tmp_path / "json_memory")
 
-        for i in range(1000):
-            fallback.add(
-                COLLECTION_CONVERSATIONS,
-                f"entry_{i}",
-                f"This is about topic {i % 10} with keyword alpha",
-                {"index": i},
-            )
+        items = [
+            {
+                "memory_id": f"entry_{i}",
+                "content": f"This is about topic {i % 10} with keyword alpha",
+                "metadata": {"index": i},
+            }
+            for i in range(1000)
+        ]
+        fallback.add_many(COLLECTION_CONVERSATIONS, items)
 
         assert fallback.count(COLLECTION_CONVERSATIONS) == 1000
 

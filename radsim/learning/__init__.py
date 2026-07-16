@@ -63,6 +63,7 @@ from .self_improver import (
 )
 from .tool_optimizer import (
     ToolOptimizer,
+    flush_tool_optimizer,
     get_tool_optimizer,
     get_tool_rankings,
     suggest_tool_chain,
@@ -95,6 +96,7 @@ __all__ = [
     # Tool Optimizer
     "ToolOptimizer",
     "get_tool_optimizer",
+    "flush_tool_optimizer",
     "track_tool_execution",
     "suggest_tool_chain",
     "get_tool_rankings",
