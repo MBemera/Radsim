@@ -333,13 +333,56 @@ CUSTOM_PROMPT_FILE = CONFIG_DIR / "custom_prompt.txt"
 PROJECT_ENV_FILE = PACKAGE_DIR.parent / ".env"
 
 
-def load_env_file():
-    """Load config from .env files.
+def _project_env_trusted():
+    """Return True only when the user explicitly trusts project-local .env.
 
-    Reads a preferred env file first when configured, then the project-root
-    .env next to the current source checkout, then the global ~/.radsim/.env.
-    Preferred env files can come from `RADSIM_ENV_FILE`, `settings.json`,
-    or the remembered `preferred_env_file` memory preference.
+    Off by default so repository content cannot redirect the provider/model
+    or inject credentials through a checked-in .env (R-08). Opt in with the
+    env var ``RADSIM_TRUST_PROJECT_ENV=1``, the settings.json key
+    ``trust_project_env``, or the ``trust_project_env`` memory preference.
+    """
+    flag = os.getenv("RADSIM_TRUST_PROJECT_ENV", "").strip().lower()
+    if flag in ("1", "true", "yes"):
+        return True
+    try:
+        if load_settings_file().get("trust_project_env"):
+            return True
+    except Exception:
+        logger.debug("trust_project_env settings lookup failed", exc_info=True)
+    try:
+        memory = get_runtime_context().get_memory()
+        if memory.global_mem.get_preference("trust_project_env"):
+            return True
+    except Exception:
+        logger.debug("trust_project_env preference lookup failed", exc_info=True)
+    return False
+
+
+def _log_skipped_project_env():
+    """Note (at debug level) when an untrusted project .env is ignored."""
+    try:
+        if (Path.cwd() / ".env").exists() or PROJECT_ENV_FILE.exists():
+            logger.debug(
+                "Ignoring project-local .env for provider config (untrusted). "
+                "Set RADSIM_TRUST_PROJECT_ENV=1 to opt in."
+            )
+    except OSError:
+        pass
+
+
+def load_env_file():
+    """Load provider config from .env files with deterministic precedence.
+
+    Sources are consulted in this fixed order, and the first value seen for a
+    given key wins:
+
+    1. An explicitly configured preferred env file (``RADSIM_ENV_FILE``,
+       ``settings.json``, or the ``preferred_env_file`` memory preference).
+    2. Project-local ``.env`` (current directory, then the source checkout)
+       — **only** when the project is explicitly trusted
+       (:func:`_project_env_trusted`). Ignored by default so untrusted
+       repository content cannot select a provider or inject credentials.
+    3. The global ``~/.radsim/.env``, which is always trusted.
 
     Supports both RADSIM_API_KEY and provider-specific keys.
     """
@@ -351,19 +394,19 @@ def load_env_file():
     if preferred_env_file is not None and preferred_env_file.exists():
         env_files_to_check.append(preferred_env_file)
 
-    try:
-        cwd_env_file = Path.cwd() / ".env"
-    except (FileNotFoundError, OSError):
-        cwd_env_file = None
+    if _project_env_trusted():
+        try:
+            cwd_env_file = Path.cwd() / ".env"
+        except (FileNotFoundError, OSError):
+            cwd_env_file = None
+        for candidate in (cwd_env_file, PROJECT_ENV_FILE):
+            if candidate is not None and candidate.exists() and candidate not in env_files_to_check:
+                env_files_to_check.append(candidate)
+    else:
+        _log_skipped_project_env()
 
-    candidate_files = []
-    if cwd_env_file is not None:
-        candidate_files.append(cwd_env_file)
-    candidate_files.extend([PROJECT_ENV_FILE, ENV_FILE])
-
-    for env_file in candidate_files:
-        if env_file.exists() and env_file not in env_files_to_check:
-            env_files_to_check.append(env_file)
+    if ENV_FILE.exists() and ENV_FILE not in env_files_to_check:
+        env_files_to_check.append(ENV_FILE)
 
     if not env_files_to_check:
         return result

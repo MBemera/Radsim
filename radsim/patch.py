@@ -25,7 +25,7 @@ RadSim Principle: One Function, One Purpose
 
 import logging
 
-from .tools.validation import is_protected_path, validate_path
+from .tools.validation import contains_symlink, is_protected_path, validate_path
 
 logger = logging.getLogger(__name__)
 
@@ -156,15 +156,23 @@ def _validate_operations(operations):
     for op in operations:
         file_path = op["path"]
 
-        # Check protected paths
-        is_protected, reason = is_protected_path(file_path)
+        # Resolve first, then check protected patterns and symlinks against
+        # the canonical target so a symlinked path cannot slip past (R-03).
+        is_safe, path, error = validate_path(file_path)
+        if not is_safe:
+            errors.append(f"{op['type'].title()} {file_path}: {error}")
+            continue
+
+        is_protected, reason = is_protected_path(file_path, resolved_path=path)
         if is_protected:
             errors.append(f"{op['type'].title()} {file_path}: {reason}")
             continue
 
-        is_safe, path, error = validate_path(file_path)
-        if not is_safe:
-            errors.append(f"{op['type'].title()} {file_path}: {error}")
+        has_symlink, offending = contains_symlink(file_path)
+        if has_symlink:
+            errors.append(
+                f"{op['type'].title()} {file_path}: refusing to follow symlink {offending}"
+            )
             continue
 
         if op["type"] == "create":

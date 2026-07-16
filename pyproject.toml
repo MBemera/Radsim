@@ -23,27 +23,45 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
+# Core runtime dependencies — always required. Feature-specific and unused
+# packages were moved to extras (R-09): google-genai had no import or provider
+# implementation and was dropped; browser/documents/code-intelligence are
+# optional. rich, openai and anthropic stay because the CLI and default
+# providers need them.
 dependencies = [
     "anthropic>=0.40.0,<1.0",
-    "pypdf>=4.0.0,<7.0",
-    "rich>=13.0.0",
     "openai>=1.50.0,<2.0",
-    "google-genai>=0.8.0,<2.0",
-    "playwright>=1.40.0,<2.0",
-    "tree-sitter>=0.21.0,<1.0",
-    "tree-sitter-python>=0.21.0",
-    "tree-sitter-javascript>=0.21.0",
-    "tree-sitter-typescript>=0.21.0",
+    "rich>=13.0.0",
     "prompt_toolkit>=3.0.36",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=8.0.0",
-    "ruff>=0.4.0",
+browser = [
+    "playwright>=1.40.0,<2.0",
+]
+documents = [
+    "pypdf>=4.0.0,<7.0",
+]
+code-intel = [
+    "tree-sitter>=0.21.0,<1.0",
+    "tree-sitter-python>=0.21.0",
+    "tree-sitter-javascript>=0.21.0",
+    "tree-sitter-typescript>=0.21.0",
 ]
 mcp = [
     "mcp>=1.0.0",
+]
+# Everything a full-featured install needs.
+all = [
+    "radsimcli[browser,documents,code-intel,mcp]",
+]
+# pytest >=9.0.3 avoids CVE-2025-71176 (predictable /tmp pytest directory).
+dev = [
+    "radsimcli[all]",
+    "pytest>=9.0.3",
+    "pytest-randomly>=3.15.0",
+    "ruff>=0.4.0",
+    "pip-audit>=2.7.0",
 ]
 
 [project.scripts]

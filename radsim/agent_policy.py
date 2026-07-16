@@ -8,8 +8,19 @@ from .agent_constants import CONFIRMATION_TOOLS, LIGHT_CONFIRM_TOOLS, READ_ONLY_
 from .output import Spinner, print_error, print_info, print_success, print_warning
 from .safety import confirm_action
 from .tools import execute_tool
+from .tools.validation import is_secret_read_path, validate_path
 
 logger = logging.getLogger(__name__)
+
+# Read tools that take a filesystem path (or list of paths) whose contents are
+# returned to the model provider. A read of secret material must be confirmed
+# against the canonical path before it is sent (R-02).
+READ_TOOL_PATH_KEYS = {
+    "read_file": "file_path",
+    "read_document": "file_path",
+    "read_image": "file_path",
+    "read_many_files": "file_paths",
+}
 
 # Tools with a dedicated confirmation handler on the agent.
 # Every entry routes through a handler that asks the user (or honors
@@ -192,6 +203,56 @@ class AgentPolicyMixin:
         fire_tool_hooks("post_tool", tool_name, tool_input, result=result)
         return result
 
+    def _protected_read_targets(self, tool_name, tool_input):
+        """Return canonical paths this read would expose that are secrets.
+
+        Resolves each requested path and flags any that target secret
+        material. The resolved path is what is checked, so a symlink or
+        case-variant pointing at a secret cannot slip through.
+        """
+        key = READ_TOOL_PATH_KEYS.get(tool_name)
+        if not key:
+            return []
+
+        raw = tool_input.get(key)
+        paths = raw if isinstance(raw, list) else [raw]
+
+        flagged = []
+        for candidate in paths:
+            if not candidate:
+                continue
+            _is_safe, resolved, _error = validate_path(candidate)
+            resolved_str = str(resolved) if resolved is not None else None
+            is_secret, reason = is_secret_read_path(candidate, resolved_str)
+            if is_secret:
+                flagged.append((resolved_str or str(candidate), reason))
+        return flagged
+
+    def _confirm_protected_read(self, tool_name, tool_input, targets):
+        """Require an explicit, non-bypassable OK before reading secrets.
+
+        The prompt names the exact canonical path and states that the
+        content leaves the machine for the model provider. ``config=None``
+        keeps auto-confirm and learned trust from silently approving it —
+        prompt guidance is behaviour shaping, not an authorisation control.
+        """
+        names = ", ".join(sorted({path for path, _reason in targets}))
+        print_warning(
+            "Protected read: this file holds secrets and its contents would "
+            "be sent to the model provider."
+        )
+        confirmed = confirm_action(
+            f"Read protected file(s) and disclose contents to the provider?\n  {names}",
+            config=None,
+        )
+        if not confirmed:
+            print_warning("Protected read cancelled")
+            return {
+                "success": False,
+                "error": "STOPPED: User rejected reading protected/secret file. Do NOT retry.",
+            }
+        return execute_tool(tool_name, tool_input)
+
     def _dispatch_tool(self, tool_name, tool_input):
         """Route one allowed tool call to its permission-checked handler."""
         self._warn_if_known_error(tool_name, tool_input)
@@ -213,6 +274,9 @@ class AgentPolicyMixin:
             return result
 
         if tool_name in READ_ONLY_TOOLS:
+            protected = self._protected_read_targets(tool_name, tool_input)
+            if protected:
+                return self._confirm_protected_read(tool_name, tool_input, protected)
             return execute_tool(tool_name, tool_input)
 
         if self._mcp_manager and self._mcp_manager.is_mcp_tool(tool_name):

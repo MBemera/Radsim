@@ -166,7 +166,7 @@ that typing them as a prompt would be wasteful. They all work mid-session.
 
 ## Tools, explained simply
 
-The model gets 68 tools by default, grouped by what they let it do:
+The model gets 72 tools by default, grouped by what they let it do:
 
 - **Look at your code.** `read_file`, `list_directory`, `glob_files`,
   `grep_search`, `repo_map`, plus symbol-level helpers like `find_definition`

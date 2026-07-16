@@ -1,7 +1,44 @@
 "Browser automation tools using Playwright."
 
+import os
 import time
 from pathlib import Path
+
+
+def _safe_screenshot_path(screenshots_dir, filename):
+    """Resolve a screenshot destination confined to the screenshots dir.
+
+    The model supplies only a basename. Any directory component, parent
+    reference, absolute path, or embedded separator is rejected so a
+    screenshot can never be written outside ~/.radsim/screenshots (R-04).
+    A .png suffix is enforced, and the final resolved path is verified to
+    sit directly inside the screenshots directory.
+
+    Returns:
+        Tuple of (resolved_path, error). Exactly one is non-None.
+    """
+    if not filename:
+        return screenshots_dir / f"screenshot_{int(time.time())}.png", None
+
+    name = str(filename)
+    if "\x00" in name:
+        return None, f"Invalid screenshot filename: {filename!r}"
+    # A safe filename is exactly its own basename (no directories, no '..').
+    if name in ("", ".", "..") or name != os.path.basename(name) or name != Path(name).name:
+        return None, (
+            f"Invalid screenshot filename: {filename!r}. "
+            "Provide a bare filename with no path components."
+        )
+
+    if not name.lower().endswith(".png"):
+        name = f"{name}.png"
+
+    screenshots_root = screenshots_dir.resolve()
+    candidate = (screenshots_root / name).resolve()
+    if candidate.parent != screenshots_root:
+        return None, "Screenshot path escapes the screenshots directory"
+
+    return candidate, None
 
 # Global browser state
 _BROWSER_INSTANCE = None
@@ -144,10 +181,10 @@ def browser_screenshot(filename=None):
         screenshots_dir = Path.home() / ".radsim" / "screenshots"
         screenshots_dir.mkdir(parents=True, exist_ok=True)
 
-        if not filename:
-            filename = f"screenshot_{int(time.time())}.png"
+        path, error = _safe_screenshot_path(screenshots_dir, filename)
+        if error:
+            return {"success": False, "error": error}
 
-        path = screenshots_dir / filename
         page.screenshot(path=path)
         return {"success": True, "path": str(path)}
     except Exception as e:

@@ -1,5 +1,12 @@
 # RadSim v1.1.0 — Package & Dependency Audit
 
+> **SUPERSEDED — historical only.** This report covers RadSim **1.1.0** and must
+> not be treated as current evidence for later releases. Its `python-dotenv`
+> "missing dependency" item is a false positive (the import it flags is inside a
+> triple-quoted prompt example, not executable source). Dependency findings for
+> the current tree are tracked in the 1.6.0 assessment and remediated in
+> `pyproject.toml` / `requirements.txt`.
+
 **Date:** 28 February 2026  
 **Repo:** github.com/Mbemera/radsim  
 **Build system:** Hatchling  

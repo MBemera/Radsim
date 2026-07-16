@@ -7,6 +7,27 @@ import urllib.error
 import urllib.request
 
 from .constants import MAX_OUTPUT_SIZE
+from .net_guard import validate_egress_url
+
+
+class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-validate every redirect target so a public URL cannot bounce inward.
+
+    urllib follows 3xx redirects automatically; without this a permitted
+    public host could redirect to http://169.254.169.254/ or a loopback
+    service (DNS-rebinding / open-redirect SSRF).
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        allowed, reason = validate_egress_url(newurl)
+        if not allowed:
+            raise urllib.error.HTTPError(newurl, code, f"Blocked redirect: {reason}", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _guarded_opener():
+    """Build a urllib opener that validates redirect hops."""
+    return urllib.request.build_opener(_ValidatingRedirectHandler())
 
 
 def web_fetch(url, prompt=None):
@@ -24,11 +45,15 @@ def web_fetch(url, prompt=None):
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
 
+        allowed, reason = validate_egress_url(url)
+        if not allowed:
+            return {"success": False, "error": f"Request blocked: {reason}"}
+
         headers = {"User-Agent": "RadSim/1.0 (CLI Coding Agent)"}
 
         request = urllib.request.Request(url, headers=headers)
 
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with _guarded_opener().open(request, timeout=30) as response:
             content = response.read().decode("utf-8", errors="ignore")
 
             # Truncate large responses
@@ -98,6 +123,10 @@ def http_request(url, method="GET", headers=None, body="", timeout=30):
             return {"success": False, "error": header_error}
         request_headers.update({str(k): str(v) for k, v in headers.items()})
 
+    allowed, reason = validate_egress_url(url)
+    if not allowed:
+        return {"success": False, "error": f"Request blocked: {reason}"}
+
     data = str(body).encode("utf-8") if body else None
     if data and "Content-Type" not in {k.title() for k in request_headers}:
         request_headers["Content-Type"] = "application/json"
@@ -105,7 +134,7 @@ def http_request(url, method="GET", headers=None, body="", timeout=30):
     try:
         request = urllib.request.Request(url, data=data, headers=request_headers, method=method)
         timeout = min(max(int(timeout), 1), 120)
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _guarded_opener().open(request, timeout=timeout) as response:
             response_body = response.read(MAX_OUTPUT_SIZE + 1).decode("utf-8", errors="ignore")
             truncated = len(response_body) > MAX_OUTPUT_SIZE
             if truncated:

@@ -1,15 +1,35 @@
-# Core dependencies - PINNED for production stability
-anthropic==0.84.0
-prompt_toolkit==3.0.48
+# RadSim pinned dependencies.
+#
+# pyproject.toml is the canonical manifest (see [project].dependencies and the
+# optional extras). This file is a convenience full-feature pin set for a
+# reproducible `pip install -r requirements.txt`; it lists every runtime
+# package RadSim actually imports, unlike the previous file which omitted
+# rich, pypdf, and tree-sitter and so could not run a real prompt.
 
-# Optional providers - PINNED versions
-openai==1.58.0
-google-genai==0.8.0
-playwright==1.58.0
+# --- Core runtime (always required) ---
+anthropic==0.116.0
+openai==1.109.1
+rich==15.0.0
+prompt_toolkit==3.0.52
 
-# Development - PINNED versions
-pytest==9.0.2
-ruff==0.15.4
+# --- Documents feature (read_document PDF support) ---
+pypdf==6.14.2
 
-# Note: Run `pip freeze > requirements.txt` before deployment
-# to capture exact versions from your environment
+# --- Browser feature (Playwright automation) ---
+playwright==1.61.0
+
+# --- Code-intelligence feature (tree-sitter parsers) ---
+tree-sitter==0.26.0
+tree-sitter-python==0.25.0
+tree-sitter-javascript==0.25.0
+tree-sitter-typescript==0.23.2
+
+# --- MCP integration ---
+mcp==1.28.1
+
+# --- Development / CI tooling ---
+# pytest 9.0.2 was affected by CVE-2025-71176 (predictable /tmp pytest
+# directory under an insecure parent); pinned to a fixed release.
+pytest==9.1.1
+ruff==0.15.21
+pip-audit==2.10.1
