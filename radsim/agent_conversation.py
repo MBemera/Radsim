@@ -86,30 +86,91 @@ class AgentConversationMixin:
 
     def prune_session(self, target_percentage=70):
         """Prune old messages to reduce context size."""
-        current, max_tokens, percentage = self.get_context_usage()
+        from .config import get_context_limit
 
-        if percentage <= target_percentage:
-            return 0
-
-        pruned = 0
+        max_tokens = get_context_limit(self.config.model)
+        message_weights = [
+            self.estimate_tokens(str(message.get("content", "")))
+            for message in self.messages
+        ]
+        current_tokens = sum(message_weights)
         target_tokens = int(max_tokens * (target_percentage / 100))
 
-        while current > target_tokens and len(self.messages) > 4:
-            self.messages.pop(2)
-            if len(self.messages) > 2:
-                self.messages.pop(2)
-            pruned += 2
-            current, _, _ = self.get_context_usage()
+        if current_tokens <= target_tokens:
+            return 0
 
-        # Pruning can strand a tool_result whose matching tool_use was
-        # removed — the API rejects those conversations. Drop orphaned
-        # tool messages left at the pruned boundary.
-        pruned += self._drop_orphaned_tool_messages(start_index=2)
+        cut_index = self._find_prune_cut(message_weights, current_tokens, target_tokens)
+        cut_index = self._skip_orphaned_results(cut_index)
+        pruned = cut_index - 2
 
         if pruned > 0:
+            del self.messages[2:cut_index]
+            self.get_context_usage()
             print_info(f"Session pruned: removed {pruned} old messages")
 
         return pruned
+
+    def _find_prune_cut(self, message_weights, current_tokens, target_tokens):
+        """Find the end of the contiguous prunable prefix."""
+        cut_index = 2
+        removed_tokens = 0
+
+        while current_tokens - removed_tokens > target_tokens:
+            remaining_messages = 2 + len(self.messages) - cut_index
+            if remaining_messages <= 4:
+                break
+            unit_end = self._pruning_unit_end(cut_index)
+            removed_tokens += sum(message_weights[cut_index:unit_end])
+            cut_index = unit_end
+
+        return cut_index
+
+    def _pruning_unit_end(self, start_index):
+        """Return the boundary after one legacy pair or tool exchange."""
+        next_index = start_index + 1
+        if next_index >= len(self.messages):
+            return next_index
+
+        message = self.messages[start_index]
+        next_message = self.messages[next_index]
+        if self._is_tool_exchange(message, next_message):
+            return next_index + 1
+
+        following_index = next_index + 1
+        if following_index < len(self.messages):
+            following_message = self.messages[following_index]
+            if self._is_tool_exchange(next_message, following_message):
+                return next_index
+
+        return next_index + 1
+
+    def _skip_orphaned_results(self, cut_index):
+        """Move a prune boundary beyond malformed orphan tool results."""
+        while cut_index < len(self.messages):
+            message = self.messages[cut_index]
+            if not self._contains_block_type(message, "tool_result"):
+                break
+            cut_index += 1
+        return cut_index
+
+    def _is_tool_exchange(self, message, next_message):
+        """Return whether two messages are an indivisible tool exchange."""
+        return (
+            message.get("role") == "assistant"
+            and next_message.get("role") == "user"
+            and self._contains_block_type(message, "tool_use")
+            and self._contains_block_type(next_message, "tool_result")
+        )
+
+    def _contains_block_type(self, message, block_type):
+        """Return whether a message contains a structured block type."""
+        content = message.get("content")
+        if not isinstance(content, list):
+            return False
+        return any(
+            isinstance(block, dict) and block.get("type") == block_type
+            for block in content
+        )
 
     def _drop_orphaned_tool_messages(self, start_index=2):
         """Remove tool_result messages orphaned by pruning.
@@ -121,21 +182,12 @@ class AgentConversationMixin:
             int: Number of messages removed.
         """
 
-        def contains_block_type(message, block_type):
-            content = message.get("content")
-            if not isinstance(content, list):
-                return False
-            return any(
-                isinstance(block, dict) and block.get("type") == block_type
-                for block in content
-            )
-
         removed = 0
         while len(self.messages) > start_index:
             boundary_message = self.messages[start_index]
             is_orphan_result = boundary_message.get(
                 "role"
-            ) == "user" and contains_block_type(boundary_message, "tool_result")
+            ) == "user" and self._contains_block_type(boundary_message, "tool_result")
             if not is_orphan_result:
                 break
             self.messages.pop(start_index)
