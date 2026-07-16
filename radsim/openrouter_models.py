@@ -7,6 +7,8 @@ static catalogue in config.PROVIDER_MODELS on failure.
 
 import json
 import logging
+import os
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -17,32 +19,144 @@ logger = logging.getLogger(__name__)
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 CACHE_TTL_SECONDS = 24 * 60 * 60
 FETCH_TIMEOUT_SECONDS = 10
+MAX_CATALOGUE_MODELS = 5_000
+MAX_CACHE_BYTES = 5_000_000
+MAX_STRING_LENGTH = 512
+
+_catalogue = None
+_catalogue_key = None
+_catalogue_fetched_at = 0.0
 
 
 def _cache_path() -> Path:
     from .config import CONFIG_DIR
+
     return CONFIG_DIR / "models_cache.json"
 
 
 def _load_cache() -> dict | None:
+    """Load and validate the disk cache, reusing unchanged in-memory data."""
+    global _catalogue, _catalogue_key, _catalogue_fetched_at
     path = _cache_path()
-    if not path.exists():
-        return None
     try:
-        return json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError) as exc:
-        logger.debug(f"models_cache read failed: {exc}")
+        stat = path.stat()
+    except OSError:
         return None
+
+    cache_key = (stat.st_mtime_ns, stat.st_size)
+    if _catalogue is not None and cache_key == _catalogue_key:
+        return {"fetched_at": _catalogue_fetched_at, "models": _catalogue}
+    if stat.st_size > MAX_CACHE_BYTES:
+        logger.debug("models_cache exceeds the size limit")
+        return None
+
+    try:
+        payload = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError) as error:
+        logger.debug("models_cache read failed: %s", error)
+        return None
+
+    if not _is_valid_cache(payload):
+        logger.debug("models_cache failed validation")
+        return None
+
+    _catalogue = payload["models"]
+    _catalogue_key = cache_key
+    _catalogue_fetched_at = payload["fetched_at"]
+    return payload
+
+
+def _is_valid_cache(payload) -> bool:
+    """Validate semi-trusted on-disk catalogue state."""
+    if not isinstance(payload, dict):
+        return False
+    fetched_at = payload.get("fetched_at")
+    if not _is_number_in_range(fetched_at, 0, time.time() + 300):
+        return False
+    return _is_valid_models(payload.get("models"))
+
+
+def _is_valid_models(models) -> bool:
+    """Validate normalized model records with explicit resource bounds."""
+    if not isinstance(models, list) or len(models) > MAX_CATALOGUE_MODELS:
+        return False
+    return all(_is_valid_model(model) for model in models)
+
+
+def _is_valid_model(model) -> bool:
+    """Validate one normalized model record."""
+    if not isinstance(model, dict):
+        return False
+    if not _is_bounded_string(model.get("id"), required=True):
+        return False
+    if not _is_bounded_string(model.get("name"), required=False):
+        return False
+    if not _is_optional_number(model.get("context_length"), 0, 10_000_000):
+        return False
+    if not _is_optional_number(model.get("input_price"), 0, 1):
+        return False
+    if not _is_optional_number(model.get("output_price"), 0, 1):
+        return False
+    return all(
+        field not in model or isinstance(model[field], bool)
+        for field in ("supports_reasoning", "supports_tools")
+    )
+
+
+def _is_bounded_string(value, required: bool) -> bool:
+    """Validate an optional or required bounded string."""
+    if value is None:
+        return not required
+    if not isinstance(value, str) or len(value) > MAX_STRING_LENGTH:
+        return False
+    return bool(value) if required else True
+
+
+def _is_optional_number(value, minimum, maximum) -> bool:
+    """Validate an optional finite numeric field within bounds."""
+    if value is None:
+        return True
+    return _is_number_in_range(value, minimum, maximum)
+
+
+def _is_number_in_range(value, minimum, maximum) -> bool:
+    """Validate a non-boolean number within inclusive bounds."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and minimum <= value <= maximum
+    )
 
 
 def _save_cache(models: list[dict]) -> None:
     from .config import CONFIG_DIR
+
+    if not _is_valid_models(models):
+        logger.debug("refusing to cache an invalid model catalogue")
+        return
+
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     payload = {"fetched_at": time.time(), "models": models}
+    cache_path = _cache_path()
+    temp_path = None
     try:
-        _cache_path().write_text(json.dumps(payload, indent=2))
-    except OSError as exc:
-        logger.debug(f"models_cache write failed: {exc}")
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=cache_path.parent,
+            prefix=f".{cache_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            json.dump(payload, temp_file, indent=2)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, cache_path)
+    except OSError as error:
+        logger.debug("models_cache write failed: %s", error)
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def _is_cache_fresh(cache: dict, ttl_seconds: int = CACHE_TTL_SECONDS) -> bool:
@@ -60,8 +174,19 @@ def _fetch_from_api() -> list[dict]:
         },
     )
     with urllib.request.urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    return [_normalize_model(entry) for entry in payload.get("data", [])]
+        response_bytes = response.read(MAX_CACHE_BYTES + 1)
+    if len(response_bytes) > MAX_CACHE_BYTES:
+        raise ValueError("OpenRouter model response exceeds the size limit")
+
+    payload = json.loads(response_bytes.decode("utf-8"))
+    entries = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(entries, list) or len(entries) > MAX_CATALOGUE_MODELS:
+        raise ValueError("OpenRouter model response has an invalid model list")
+
+    models = [_normalize_model(entry) for entry in entries if isinstance(entry, dict)]
+    if not _is_valid_models(models):
+        raise ValueError("OpenRouter model response failed validation")
+    return models
 
 
 def _normalize_model(entry: dict) -> dict:
@@ -90,7 +215,9 @@ def _safe_float(value) -> float:
         return 0.0
 
 
-def get_openrouter_models(force_refresh: bool = False) -> list[dict]:
+def get_openrouter_models(
+    force_refresh: bool = False, allow_network: bool = True
+) -> list[dict]:
     """Return the OpenRouter model catalogue.
 
     Order of preference:
@@ -100,16 +227,25 @@ def get_openrouter_models(force_refresh: bool = False) -> list[dict]:
     """
     cache = _load_cache()
 
-    if not force_refresh and cache and _is_cache_fresh(cache):
+    if not force_refresh and cache and (_is_cache_fresh(cache) or not allow_network):
         return cache["models"]
+
+    if not allow_network:
+        return _static_fallback()
 
     try:
         models = _fetch_from_api()
         if models:
             _save_cache(models)
             return models
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        logger.debug(f"openrouter fetch failed: {exc}")
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as error:
+        logger.debug("openrouter fetch failed: %s", error)
 
     if cache and cache.get("models"):
         return cache["models"]
@@ -136,9 +272,9 @@ def _static_fallback() -> list[dict]:
     return fallback
 
 
-def find_model(model_id: str) -> dict | None:
-    """Look up a model by id from the cached/dynamic catalogue."""
-    for model in get_openrouter_models():
+def find_model(model_id: str, allow_network: bool = False) -> dict | None:
+    """Look up a model without network I/O unless explicitly allowed."""
+    for model in get_openrouter_models(allow_network=allow_network):
         if model["id"] == model_id:
             return model
     return None

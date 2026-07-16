@@ -165,7 +165,7 @@ def get_model_pricing(model):
     try:
         from .openrouter_models import find_model
 
-        entry = find_model(model)
+        entry = find_model(model, allow_network=False)
     except Exception:
         return None
     if not entry:
@@ -216,7 +216,7 @@ def get_context_limit(model, default=100000):
     try:
         from .openrouter_models import find_model
 
-        entry = find_model(model)
+        entry = find_model(model, allow_network=False)
     except Exception:
         return default
     if entry and entry.get("context_length"):
