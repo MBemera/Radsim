@@ -17,6 +17,9 @@ def fake_home(tmp_path, monkeypatch):
     config_dir = home / ".radsim"
     monkeypatch.setattr(Path, "home", lambda: home)
     monkeypatch.setattr(radsim.config, "CONFIG_DIR", config_dir)
+    monkeypatch.setattr(openrouter_models, "_catalogue", None)
+    monkeypatch.setattr(openrouter_models, "_catalogue_key", None)
+    monkeypatch.setattr(openrouter_models, "_catalogue_fetched_at", 0.0)
     return config_dir
 
 
