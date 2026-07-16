@@ -1,0 +1,23 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /exit  (/quit, /q)                         │
+  │  Exit RadSim                                │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Quit RadSim gracefully.
+
+  Usage:
+    /exit
+    /quit
+    /q
+
+  Details:
+    Exits RadSim cleanly. You can also type 'exit' or 'quit' without the slash.
+
+  Examples:
+    $ /exit
+    $ /quit
+
+  Related: /kill
+

@@ -1,0 +1,26 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /animations  (/anim)                       │
+  │  Animation Level                            │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Set the animation level (full, subtle, off).
+
+  Usage:
+    /animations
+    /animations <level>
+
+  Details:
+    Controls spinners and boot animations:
+    
+      • full   — Animated spinners and boot sequence
+      • subtle — Static indicators, no motion
+      • off    — Plain text only
+
+  Examples:
+    $ /animations
+    $ /anim off
+
+  Related: /theme  /font
+

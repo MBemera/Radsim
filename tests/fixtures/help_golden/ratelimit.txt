@@ -1,0 +1,31 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /ratelimit  (/rl, /limit)                  │
+  │  Rate Limit Settings                        │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Set API call limit per turn to control agent throughput.
+
+  Usage:
+    /ratelimit
+
+  Details:
+    Choose how many API calls the agent can make per turn:
+      Light (15)     - Conservative, good for simple tasks
+      Standard (30)  - Balanced, recommended for most work
+      Heavy (75)     - For complex multi-step tasks
+      Intensive (100)- For large refactors and deep analysis
+      Maximum (200)  - Maximum throughput, use with caution
+    
+    Setting is saved and persists across sessions.
+
+  Examples:
+    $ /ratelimit
+    $ /rl
+
+  Tips:
+    Tip: Start with Standard and increase if you hit limits on complex tasks.
+
+  Related: /switch  /config  /settings
+

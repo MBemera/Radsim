@@ -1,0 +1,23 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /logout                                    │
+  │  Provider Logout                            │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Remove a provider's saved API key and cached tokens.
+
+  Usage:
+    /logout
+    /logout <provider>
+
+  Details:
+    Removes the stored API key (and any cached OAuth tokens) for a
+    provider. Pick from a menu or name the provider directly.
+
+  Examples:
+    $ /logout
+    $ /logout openai
+
+  Related: /login  /config
+

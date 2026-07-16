@@ -1,0 +1,1603 @@
+[
+  {
+    "description": "Visit a URL and capture content/screenshot (requires Playwright).",
+    "input_schema": {
+      "properties": {
+        "url": {
+          "description": "URL to visit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "name": "browser_open"
+  },
+  {
+    "description": "Click an element on the current page.",
+    "input_schema": {
+      "properties": {
+        "selector": {
+          "description": "CSS selector or text to click",
+          "type": "string"
+        }
+      },
+      "required": [
+        "selector"
+      ],
+      "type": "object"
+    },
+    "name": "browser_click"
+  },
+  {
+    "description": "Type text into an input field.",
+    "input_schema": {
+      "properties": {
+        "selector": {
+          "description": "CSS selector for input",
+          "type": "string"
+        },
+        "text": {
+          "description": "Text to type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "selector",
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "browser_type"
+  },
+  {
+    "description": "Take a screenshot of the current page.",
+    "input_schema": {
+      "properties": {
+        "filename": {
+          "description": "Optional filename",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "browser_screenshot"
+  },
+  {
+    "description": "Install a system CLI tool (claude-code, gemini-cli, etc).",
+    "input_schema": {
+      "properties": {
+        "tool_name": {
+          "description": "Tool name (e.g. 'claude-code', 'npm:pkg', 'brew:pkg')",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_name"
+      ],
+      "type": "object"
+    },
+    "name": "install_system_tool"
+  },
+  {
+    "description": "Read the contents of a file. Supports offset and limit for large files.",
+    "input_schema": {
+      "properties": {
+        "file_path": {
+          "description": "Path to the file to read",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Maximum number of lines to read",
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "description": "Line number to start reading from (0-indexed)",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "type": "object"
+    },
+    "name": "read_file"
+  },
+  {
+    "description": "Read multiple files at once. More efficient than reading one at a time.",
+    "input_schema": {
+      "properties": {
+        "file_paths": {
+          "description": "List of file paths to read (max 20)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "file_paths"
+      ],
+      "type": "object"
+    },
+    "name": "read_many_files"
+  },
+  {
+    "description": "Extract text from a document file: PDF, DOCX, XLSX, CSV, or plain text. Use this instead of read_file for binary document formats.",
+    "input_schema": {
+      "properties": {
+        "file_path": {
+          "description": "Path to the document file",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "type": "object"
+    },
+    "name": "read_document"
+  },
+  {
+    "description": "Load an image (png/jpg/gif/webp) and attach it to the conversation so it can be visually interpreted. Requires a vision-capable model. Use to read screenshots, diagrams, charts, or photos the user provides.",
+    "input_schema": {
+      "properties": {
+        "file_path": {
+          "description": "Path to the image file",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "type": "object"
+    },
+    "name": "read_image"
+  },
+  {
+    "description": "Write content to a file. Creates parent directories if needed.",
+    "input_schema": {
+      "properties": {
+        "_intent": {
+          "description": "Brief explanation of why this action is needed and what it achieves",
+          "type": "string"
+        },
+        "content": {
+          "description": "Content to write to the file",
+          "type": "string"
+        },
+        "file_path": {
+          "description": "Path to the file to write",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path",
+        "content"
+      ],
+      "type": "object"
+    },
+    "name": "write_file"
+  },
+  {
+    "description": "Replace text in a file. For single match only unless replace_all is true.",
+    "input_schema": {
+      "properties": {
+        "_intent": {
+          "description": "Brief explanation of why this action is needed and what it achieves",
+          "type": "string"
+        },
+        "file_path": {
+          "description": "Path to the file",
+          "type": "string"
+        },
+        "new_string": {
+          "description": "New text to insert",
+          "type": "string"
+        },
+        "old_string": {
+          "description": "Exact text to replace (must be unique unless replace_all)",
+          "type": "string"
+        },
+        "replace_all": {
+          "default": false,
+          "description": "Replace all occurrences (default: false)",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "file_path",
+        "old_string",
+        "new_string"
+      ],
+      "type": "object"
+    },
+    "name": "replace_in_file"
+  },
+  {
+    "description": "Rename or move a file.",
+    "input_schema": {
+      "properties": {
+        "_intent": {
+          "description": "Brief explanation of why this action is needed and what it achieves",
+          "type": "string"
+        },
+        "new_path": {
+          "description": "New file path",
+          "type": "string"
+        },
+        "old_path": {
+          "description": "Current file path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "old_path",
+        "new_path"
+      ],
+      "type": "object"
+    },
+    "name": "rename_file"
+  },
+  {
+    "description": "Delete a file. DESTRUCTIVE - requires confirmation.",
+    "input_schema": {
+      "properties": {
+        "_intent": {
+          "description": "Brief explanation of why this action is needed and what it achieves",
+          "type": "string"
+        },
+        "file_path": {
+          "description": "Path to the file to delete",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "type": "object"
+    },
+    "name": "delete_file"
+  },
+  {
+    "description": "List contents of a directory with file types and sizes.",
+    "input_schema": {
+      "properties": {
+        "directory_path": {
+          "default": ".",
+          "description": "Path to list (default: current directory)",
+          "type": "string"
+        },
+        "max_depth": {
+          "default": 3,
+          "description": "Maximum recursion depth (default: 3)",
+          "type": "integer"
+        },
+        "recursive": {
+          "default": false,
+          "description": "List recursively (default: false)",
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "list_directory"
+  },
+  {
+    "description": "Create a directory and any parent directories.",
+    "input_schema": {
+      "properties": {
+        "directory_path": {
+          "description": "Path of directory to create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "directory_path"
+      ],
+      "type": "object"
+    },
+    "name": "create_directory"
+  },
+  {
+    "description": "Find files matching a glob pattern (like **/*.py, src/**/*.ts).",
+    "input_schema": {
+      "properties": {
+        "directory_path": {
+          "default": ".",
+          "description": "Base directory (default: current)",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Glob pattern (e.g., '**/*.py', 'src/**/*.ts')",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    },
+    "name": "glob_files"
+  },
+  {
+    "description": "Search file contents with regex. Returns file, line number, and content.",
+    "input_schema": {
+      "properties": {
+        "context_lines": {
+          "default": 0,
+          "description": "Lines of context before/after match (default: 0)",
+          "type": "integer"
+        },
+        "directory_path": {
+          "default": ".",
+          "description": "Directory to search (default: current)",
+          "type": "string"
+        },
+        "file_pattern": {
+          "description": "Glob to filter files (e.g., '*.py', '*.js')",
+          "type": "string"
+        },
+        "ignore_case": {
+          "default": false,
+          "description": "Case-insensitive search (default: false)",
+          "type": "boolean"
+        },
+        "output_mode": {
+          "default": "content",
+          "description": "Output format: 'content' (matching lines with context), 'files_only' (just file paths), 'count' (match counts per file)",
+          "enum": [
+            "content",
+            "files_only",
+            "count"
+          ],
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Regex pattern to search for",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    },
+    "name": "grep_search"
+  },
+  {
+    "description": "Simple text search. Returns list of files containing the pattern.",
+    "input_schema": {
+      "properties": {
+        "directory_path": {
+          "default": ".",
+          "description": "Directory to search (default: current)",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Text to search for",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    },
+    "name": "search_files"
+  },
+  {
+    "description": "Execute a shell command (bash on Unix, PowerShell on Windows).",
+    "input_schema": {
+      "properties": {
+        "_intent": {
+          "description": "Brief explanation of why this action is needed and what it achieves",
+          "type": "string"
+        },
+        "command": {
+          "description": "The command to execute",
+          "type": "string"
+        },
+        "timeout": {
+          "default": 120,
+          "description": "Timeout in seconds (default: 120)",
+          "type": "integer"
+        },
+        "working_dir": {
+          "description": "Working directory (default: current)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    "name": "run_shell_command"
+  },
+  {
+    "description": "Fetch content from a URL.",
+    "input_schema": {
+      "properties": {
+        "url": {
+          "description": "URL to fetch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "name": "web_fetch"
+  },
+  {
+    "description": "Make an HTTP request to an API endpoint (GET/POST/PUT/PATCH/DELETE/HEAD) with optional headers and body. Use for JSON/REST APIs; use web_fetch for reading web pages.",
+    "input_schema": {
+      "properties": {
+        "body": {
+          "description": "Optional request body (JSON should be a serialized string)",
+          "type": "string"
+        },
+        "headers": {
+          "description": "Optional request headers as name: value pairs",
+          "type": "object"
+        },
+        "method": {
+          "description": "HTTP method (default GET)",
+          "type": "string"
+        },
+        "timeout": {
+          "description": "Timeout in seconds (default 30)",
+          "type": "integer"
+        },
+        "url": {
+          "description": "Full http(s) URL",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "name": "http_request"
+  },
+  {
+    "description": "Capture the user's screen (macOS only) and attach the screenshot to the conversation for visual interpretation. Requires a vision-capable model. Use when the user says 'look at my screen' or asks about something they can see.",
+    "input_schema": {
+      "properties": {
+        "save_path": {
+          "description": "Optional filename for the screenshot (defaults to a timestamped name)",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "screen_capture"
+  },
+  {
+    "description": "Get git repository status (current branch, changed files).",
+    "input_schema": {
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "git_status"
+  },
+  {
+    "description": "Get git diff (unstaged or staged changes).",
+    "input_schema": {
+      "properties": {
+        "file_path": {
+          "description": "Specific file to diff (optional)",
+          "type": "string"
+        },
+        "staged": {
+          "default": false,
+          "description": "Show staged changes only (default: false)",
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "git_diff"
+  },
+  {
+    "description": "Get git commit history.",
+    "input_schema": {
+      "properties": {
+        "count": {
+          "default": 10,
+          "description": "Number of commits (default: 10)",
+          "type": "integer"
+        },
+        "oneline": {
+          "default": true,
+          "description": "One line per commit (default: true)",
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "git_log"
+  },
+  {
+    "description": "List all git branches.",
+    "input_schema": {
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "git_branch"
+  },
+  {
+    "description": "Find where a symbol (function, class, variable) is defined.",
+    "input_schema": {
+      "properties": {
+        "directory_path": {
+          "default": ".",
+          "description": "Directory to search (default: current)",
+          "type": "string"
+        },
+        "symbol": {
+          "description": "Symbol name to find definition of",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "name": "find_definition"
+  },
+  {
+    "description": "Find all references to a symbol in the codebase.",
+    "input_schema": {
+      "properties": {
+        "directory_path": {
+          "default": ".",
+          "description": "Directory to search (default: current)",
+          "type": "string"
+        },
+        "symbol": {
+          "description": "Symbol name to find references of",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "name": "find_references"
+  },
+  {
+    "description": "Run project tests with auto-detection (pytest, jest, go test, cargo test).",
+    "input_schema": {
+      "properties": {
+        "test_command": {
+          "description": "Override auto-detected test command",
+          "type": "string"
+        },
+        "test_path": {
+          "description": "Specific test file or directory to run",
+          "type": "string"
+        },
+        "verbose": {
+          "default": false,
+          "description": "Show verbose output",
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "run_tests"
+  },
+  {
+    "description": "Run linter on project (ruff, eslint, golangci-lint, clippy).",
+    "input_schema": {
+      "properties": {
+        "file_path": {
+          "description": "Specific file to lint (optional)",
+          "type": "string"
+        },
+        "fix": {
+          "default": false,
+          "description": "Auto-fix issues if possible",
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "lint_code"
+  },
+  {
+    "description": "Format code using project formatter (black, prettier, gofmt, rustfmt).",
+    "input_schema": {
+      "properties": {
+        "check_only": {
+          "default": false,
+          "description": "Only check formatting without modifying",
+          "type": "boolean"
+        },
+        "file_path": {
+          "description": "Specific file to format (optional)",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "format_code"
+  },
+  {
+    "description": "Run type checker (mypy, tsc, go vet).",
+    "input_schema": {
+      "properties": {
+        "file_path": {
+          "description": "Specific file to check (optional)",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "type_check"
+  },
+  {
+    "description": "Stage files for commit.",
+    "input_schema": {
+      "properties": {
+        "all_files": {
+          "default": false,
+          "description": "Stage all changes (git add -A)",
+          "type": "boolean"
+        },
+        "file_paths": {
+          "description": "List of files to stage",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "git_add"
+  },
+  {
+    "description": "Create a git commit with a message.",
+    "input_schema": {
+      "properties": {
+        "amend": {
+          "default": false,
+          "description": "Amend the previous commit",
+          "type": "boolean"
+        },
+        "message": {
+          "description": "Commit message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    },
+    "name": "git_commit"
+  },
+  {
+    "description": "Switch branches or restore files.",
+    "input_schema": {
+      "properties": {
+        "branch": {
+          "description": "Branch name to checkout",
+          "type": "string"
+        },
+        "create": {
+          "default": false,
+          "description": "Create new branch",
+          "type": "boolean"
+        },
+        "file_path": {
+          "description": "Restore specific file from HEAD",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "git_checkout"
+  },
+  {
+    "description": "Stash or restore uncommitted changes.",
+    "input_schema": {
+      "properties": {
+        "action": {
+          "default": "push",
+          "description": "Stash action to perform",
+          "enum": [
+            "push",
+            "pop",
+            "list",
+            "drop"
+          ],
+          "type": "string"
+        },
+        "message": {
+          "description": "Message for stash (only with push)",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "git_stash"
+  },
+  {
+    "description": "List project dependencies (pip, npm, go, cargo).",
+    "input_schema": {
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "list_dependencies"
+  },
+  {
+    "description": "Add a package dependency to the project.",
+    "input_schema": {
+      "properties": {
+        "dev": {
+          "default": false,
+          "description": "Install as dev dependency",
+          "type": "boolean"
+        },
+        "package": {
+          "description": "Package name (with optional version like 'requests>=2.0')",
+          "type": "string"
+        }
+      },
+      "required": [
+        "package"
+      ],
+      "type": "object"
+    },
+    "name": "add_dependency"
+  },
+  {
+    "description": "Remove a package dependency from the project.",
+    "input_schema": {
+      "properties": {
+        "package": {
+          "description": "Package name to remove",
+          "type": "string"
+        }
+      },
+      "required": [
+        "package"
+      ],
+      "type": "object"
+    },
+    "name": "remove_dependency"
+  },
+  {
+    "description": "Install an npm package directly. Works without needing package.json to exist first.",
+    "input_schema": {
+      "properties": {
+        "dev": {
+          "default": false,
+          "description": "Install as dev dependency (--save-dev)",
+          "type": "boolean"
+        },
+        "global_install": {
+          "default": false,
+          "description": "Install globally (-g)",
+          "type": "boolean"
+        },
+        "package": {
+          "description": "Package name (e.g., 'vite', 'react', '@types/node')",
+          "type": "string"
+        }
+      },
+      "required": [
+        "package"
+      ],
+      "type": "object"
+    },
+    "name": "npm_install"
+  },
+  {
+    "description": "Install a Python pip package directly.",
+    "input_schema": {
+      "properties": {
+        "package": {
+          "description": "Package name (e.g., 'flask', 'requests>=2.0')",
+          "type": "string"
+        },
+        "upgrade": {
+          "default": false,
+          "description": "Upgrade if already installed (--upgrade)",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "package"
+      ],
+      "type": "object"
+    },
+    "name": "pip_install"
+  },
+  {
+    "description": "Initialize a new project using scaffolding tools like create-vite, create-react-app, etc.",
+    "input_schema": {
+      "properties": {
+        "name": {
+          "description": "Project name (used for directory and package name)",
+          "type": "string"
+        },
+        "project_type": {
+          "description": "Project type: 'npm', 'vite', 'react', 'next', 'astro', 'python'",
+          "type": "string"
+        },
+        "template": {
+          "description": "Template variant (e.g., 'react-ts', 'vue' for Vite)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_type"
+      ],
+      "type": "object"
+    },
+    "name": "init_project"
+  },
+  {
+    "description": "Get information about the current project (type, tools, files).",
+    "input_schema": {
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "get_project_info"
+  },
+  {
+    "description": "Replace text across multiple files in the project.",
+    "input_schema": {
+      "properties": {
+        "_intent": {
+          "description": "Brief explanation of why this action is needed and what it achieves",
+          "type": "string"
+        },
+        "directory_path": {
+          "default": ".",
+          "description": "Directory to search in",
+          "type": "string"
+        },
+        "file_pattern": {
+          "default": "*",
+          "description": "Glob pattern to filter files (e.g., '*.py')",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Text or regex pattern to find",
+          "type": "string"
+        },
+        "replacement": {
+          "description": "Text to replace with",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern",
+        "replacement"
+      ],
+      "type": "object"
+    },
+    "name": "batch_replace"
+  },
+  {
+    "description": "Create a structured task plan with subtasks.",
+    "input_schema": {
+      "properties": {
+        "subtasks": {
+          "description": "List of subtask descriptions",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "task_description": {
+          "description": "High-level task description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_description"
+      ],
+      "type": "object"
+    },
+    "name": "plan_task"
+  },
+  {
+    "description": "Save conversation/task context to file for later resumption.",
+    "input_schema": {
+      "properties": {
+        "context_data": {
+          "description": "Context data to save",
+          "type": "object"
+        },
+        "filename": {
+          "default": "radsim_context.json",
+          "description": "Name of context file",
+          "type": "string"
+        }
+      },
+      "required": [
+        "context_data"
+      ],
+      "type": "object"
+    },
+    "name": "save_context"
+  },
+  {
+    "description": "Load previously saved context from file.",
+    "input_schema": {
+      "properties": {
+        "filename": {
+          "default": "radsim_context.json",
+          "description": "Name of context file to load",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "load_context"
+  },
+  {
+    "description": "Delegate a task to a sub-agent with tool access. Runs in background by default so the user can keep working. Default tier='fast' (Haiku, read-only tools, cheap). Use tier='capable' for code generation/refactoring (full tools). Set background=false only when the main agent needs the result immediately to continue.",
+    "input_schema": {
+      "properties": {
+        "background": {
+          "default": true,
+          "description": "Run in background (default: true). Set to false only when the main agent needs the result immediately to continue its current response.",
+          "type": "boolean"
+        },
+        "context": {
+          "description": "Additional context or file contents to provide",
+          "type": "string"
+        },
+        "model": {
+          "default": "current",
+          "description": "Override: specific model alias or full model ID. Overrides tier default.",
+          "type": "string"
+        },
+        "parallel_tasks": {
+          "description": "Run multiple tasks in parallel with different models. If provided, task_description is ignored.",
+          "items": {
+            "properties": {
+              "model": {
+                "description": "Model for this task (defaults to 'current')",
+                "type": "string"
+              },
+              "system_prompt": {
+                "description": "Optional system prompt",
+                "type": "string"
+              },
+              "task": {
+                "description": "Task description",
+                "type": "string"
+              }
+            },
+            "required": [
+              "task"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "system_prompt": {
+          "description": "Optional system prompt for the sub-agent",
+          "type": "string"
+        },
+        "task_description": {
+          "description": "Detailed description of the task for the sub-agent",
+          "type": "string"
+        },
+        "tier": {
+          "default": "fast",
+          "description": "Model tier: 'fast' (default, Haiku, read-only tools), 'capable' (code gen, full tools), 'review' (audits, read-only tools)",
+          "enum": [
+            "fast",
+            "capable",
+            "review"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_description"
+      ],
+      "type": "object"
+    },
+    "name": "delegate_task"
+  },
+  {
+    "description": "Submit the final result of a delegated task (used by sub-agents).",
+    "input_schema": {
+      "properties": {
+        "artifacts": {
+          "description": "List of files created or modified",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "summary": {
+          "description": "Summary of work completed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "type": "object"
+    },
+    "name": "submit_completion"
+  },
+  {
+    "description": "Add a permanent custom skill/instruction that applies to all future conversations.",
+    "input_schema": {
+      "properties": {
+        "category": {
+          "description": "Optional category: code_style, language, framework, testing, naming, general",
+          "type": "string"
+        },
+        "instruction": {
+          "description": "The skill instruction text (e.g., 'Always use type hints in Python')",
+          "type": "string"
+        }
+      },
+      "required": [
+        "instruction"
+      ],
+      "type": "object"
+    },
+    "name": "add_skill"
+  },
+  {
+    "description": "Remove a skill by its index (1-based).",
+    "input_schema": {
+      "properties": {
+        "index": {
+          "description": "1-based index of the skill to remove (use list_skills to see indices)",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index"
+      ],
+      "type": "object"
+    },
+    "name": "remove_skill"
+  },
+  {
+    "description": "List all active user skills/instructions.",
+    "input_schema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "list_skills"
+  },
+  {
+    "description": "Send a message via Telegram bot. Requires prior /telegram setup.",
+    "input_schema": {
+      "properties": {
+        "message": {
+          "description": "Message text to send via Telegram",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    },
+    "name": "send_telegram"
+  },
+  {
+    "description": "Analyze Python code structure using AST. Returns functions, classes, imports, and complexity metrics.",
+    "input_schema": {
+      "properties": {
+        "analysis_type": {
+          "default": "full",
+          "description": "Type of analysis: 'full', 'functions', 'classes', 'imports', 'complexity'",
+          "type": "string"
+        },
+        "file_path": {
+          "description": "Path to the Python file to analyze",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "type": "object"
+    },
+    "name": "analyze_code"
+  },
+  {
+    "description": "Run Docker commands for container management. Actions: ps, images, run, stop, start, logs, exec, build, pull, rm, rmi.",
+    "input_schema": {
+      "properties": {
+        "action": {
+          "description": "Docker action: ps, images, run, stop, start, logs, exec, build, pull, rm, rmi",
+          "type": "string"
+        },
+        "command": {
+          "description": "Command argv to run in the container (for run or exec)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "container": {
+          "description": "Container name or ID (for stop, start, logs, exec, rm)",
+          "type": "string"
+        },
+        "image": {
+          "description": "Image name (for run, pull, build, rmi)",
+          "type": "string"
+        },
+        "options": {
+          "description": "Additional Docker options as explicit argv items",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "name": "run_docker"
+  },
+  {
+    "description": "Execute SQL queries on a SQLite database. Read-only by default for safety.",
+    "input_schema": {
+      "properties": {
+        "database_path": {
+          "default": "database.db",
+          "description": "Path to SQLite database file",
+          "type": "string"
+        },
+        "query": {
+          "description": "SQL query to execute",
+          "type": "string"
+        },
+        "read_only": {
+          "default": true,
+          "description": "If true, only SELECT queries allowed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "database_query"
+  },
+  {
+    "description": "Generate test stubs for a Python source file. Creates pytest or unittest style test templates.",
+    "input_schema": {
+      "properties": {
+        "framework": {
+          "default": "pytest",
+          "description": "Test framework: 'pytest' or 'unittest'",
+          "type": "string"
+        },
+        "output_file": {
+          "description": "Path for the test file (default: test_<source_file>)",
+          "type": "string"
+        },
+        "source_file": {
+          "description": "Path to the source file to generate tests for",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_file"
+      ],
+      "type": "object"
+    },
+    "name": "generate_tests"
+  },
+  {
+    "description": "Perform code refactoring operations: rename symbols, extract functions, inline variables.",
+    "input_schema": {
+      "properties": {
+        "_intent": {
+          "description": "Brief explanation of why this action is needed and what it achieves",
+          "type": "string"
+        },
+        "action": {
+          "description": "Refactoring action: 'rename', 'extract_function', 'inline_variable'",
+          "type": "string"
+        },
+        "file_path": {
+          "description": "Path to the file to refactor",
+          "type": "string"
+        },
+        "new_function_name": {
+          "description": "Name for extracted function",
+          "type": "string"
+        },
+        "new_name": {
+          "description": "New name (for rename)",
+          "type": "string"
+        },
+        "old_name": {
+          "description": "Current name (for rename, inline_variable)",
+          "type": "string"
+        },
+        "target_line": {
+          "description": "Line number to extract (for extract_function)",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "file_path"
+      ],
+      "type": "object"
+    },
+    "name": "refactor_code"
+  },
+  {
+    "description": "Deploy application or check deployment readiness. Supports Vercel, Netlify, Heroku, Railway, Fly.io.",
+    "input_schema": {
+      "properties": {
+        "_intent": {
+          "description": "Brief explanation of why this action is needed and what it achieves",
+          "type": "string"
+        },
+        "check_only": {
+          "default": false,
+          "description": "If true, only check readiness without deploying",
+          "type": "boolean"
+        },
+        "command": {
+          "description": "Custom deploy command to run",
+          "type": "string"
+        },
+        "platform": {
+          "description": "Target platform: 'vercel', 'netlify', 'heroku', 'railway', 'flyio', 'auto'",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "deploy"
+  },
+  {
+    "description": "Save a value to persistent memory. Use for storing user preferences, project context, or learned patterns that should persist across sessions.",
+    "input_schema": {
+      "properties": {
+        "key": {
+          "description": "The key to store under",
+          "type": "string"
+        },
+        "memory_type": {
+          "default": "preference",
+          "description": "Type: 'preference' (user settings), 'context' (project-specific), 'pattern' (learned behaviors)",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value to store",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "name": "save_memory"
+  },
+  {
+    "description": "Load values from persistent memory. Retrieve stored preferences, project context, or patterns.",
+    "input_schema": {
+      "properties": {
+        "key": {
+          "description": "The key to load (omit for all)",
+          "type": "string"
+        },
+        "memory_type": {
+          "default": "preference",
+          "description": "Type: 'preference', 'context', 'pattern'",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "load_memory"
+  },
+  {
+    "description": "Remove stale persistent memory. Use when a preference, project context key, or learned pattern is no longer true.",
+    "input_schema": {
+      "properties": {
+        "key": {
+          "description": "The key or exact pattern text to remove",
+          "type": "string"
+        },
+        "memory_type": {
+          "default": "preference",
+          "description": "Type: 'preference', 'context', 'pattern'",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    },
+    "name": "forget_memory"
+  },
+  {
+    "description": "Schedule a recurring task using cron syntax. Common examples: '*/5 * * * *' (every 5 min), '0 9 * * *' (daily 9am), '0 9 * * 1' (Monday 9am).",
+    "input_schema": {
+      "properties": {
+        "command": {
+          "description": "Shell command to execute",
+          "type": "string"
+        },
+        "description": {
+          "description": "Optional description of the task",
+          "type": "string"
+        },
+        "name": {
+          "description": "Unique name for the scheduled task",
+          "type": "string"
+        },
+        "schedule": {
+          "description": "Cron expression: 'minute hour day-of-month month day-of-week'",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "schedule",
+        "command"
+      ],
+      "type": "object"
+    },
+    "name": "schedule_task"
+  },
+  {
+    "description": "List all scheduled tasks and their status.",
+    "input_schema": {
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "list_schedules"
+  },
+  {
+    "description": "Read the current task tracking list. Shows pending, in-progress, and completed items. Use frequently during multi-step tasks to check progress.",
+    "input_schema": {
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "todo_read"
+  },
+  {
+    "description": "Update the task tracking list. Pass the full list of tasks with statuses. Exactly one task can be 'in_progress' at a time.",
+    "input_schema": {
+      "properties": {
+        "todos": {
+          "description": "Full task list with statuses",
+          "items": {
+            "properties": {
+              "description": {
+                "description": "Task description",
+                "type": "string"
+              },
+              "id": {
+                "description": "Task ID (omit for new tasks)",
+                "type": "integer"
+              },
+              "status": {
+                "default": "pending",
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "completed"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "description"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "todos"
+      ],
+      "type": "object"
+    },
+    "name": "todo_write"
+  },
+  {
+    "description": "Generate a ranked structural overview of the codebase showing all classes, functions, and methods with signatures. Use BEFORE reading individual files to understand the architecture. Much cheaper than reading every file.",
+    "input_schema": {
+      "properties": {
+        "directory_path": {
+          "default": ".",
+          "description": "Root directory to map (default: current)",
+          "type": "string"
+        },
+        "focus_files": {
+          "description": "Files to rank higher (currently relevant to the task)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "language_filter": {
+          "description": "Limit to a language: 'python', 'javascript', 'typescript'",
+          "type": "string"
+        },
+        "max_tokens": {
+          "default": 4000,
+          "description": "Token budget for the map (default: 4000)",
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "repo_map"
+  },
+  {
+    "description": "Apply a multi-file unified diff patch atomically. Supports create, modify, and delete operations. If any hunk fails validation, no changes are applied.",
+    "input_schema": {
+      "properties": {
+        "_intent": {
+          "description": "Brief explanation of why this action is needed and what it achieves",
+          "type": "string"
+        },
+        "patch": {
+          "description": "Simplified unified diff text. Use '--- /dev/null' for create, '+++ /dev/null' for delete.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "patch"
+      ],
+      "type": "object"
+    },
+    "name": "apply_patch"
+  },
+  {
+    "description": "Apply multiple search-and-replace edits to a single file atomically. If any edit fails, none are applied. More efficient than sequential replace_in_file calls.",
+    "input_schema": {
+      "properties": {
+        "_intent": {
+          "description": "Brief explanation of why this action is needed and what it achieves",
+          "type": "string"
+        },
+        "edits": {
+          "description": "List of edits to apply in order",
+          "items": {
+            "properties": {
+              "new_string": {
+                "description": "Replacement text",
+                "type": "string"
+              },
+              "old_string": {
+                "description": "Exact text to find (must be unique in file)",
+                "type": "string"
+              }
+            },
+            "required": [
+              "old_string",
+              "new_string"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "file_path": {
+          "description": "Path to the file to edit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path",
+        "edits"
+      ],
+      "type": "object"
+    },
+    "name": "multi_edit"
+  },
+  {
+    "description": "Register a new tool the agent can call. The new tool is appended to radsim/tools/custom_tools.py and hot-loaded so it is callable on the very next turn (no restart). Use when the user asks you to add or extend your tool capabilities.",
+    "input_schema": {
+      "properties": {
+        "body": {
+          "description": "Python function body (no 'def' line). Receives each parameter as a named arg. Must return a dict, conventionally {'success': bool, ...}. os/subprocess/shutil imports are forbidden for safety.",
+          "type": "string"
+        },
+        "description": {
+          "description": "One-line description shown to future invocations of the model",
+          "type": "string"
+        },
+        "name": {
+          "description": "snake_case tool name, e.g. 'count_words'",
+          "type": "string"
+        },
+        "parameters": {
+          "description": "JSON Schema with 'properties' (and optional 'required'). Each property becomes a named argument passed to the body.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "parameters",
+        "body"
+      ],
+      "type": "object"
+    },
+    "name": "add_tool"
+  },
+  {
+    "description": "List all tools added via add_tool.",
+    "input_schema": {
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "list_custom_tools"
+  },
+  {
+    "description": "Remove a custom tool that was added via add_tool.",
+    "input_schema": {
+      "properties": {
+        "name": {
+          "description": "Tool name to remove",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "name": "remove_tool"
+  }
+]

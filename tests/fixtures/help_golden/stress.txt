@@ -1,0 +1,24 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /stress  (/adversarial)                    │
+  │  Adversarial Code Review                    │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Run adversarial stress testing on your code.
+
+  Usage:
+    /stress
+    /stress <file>
+
+  Details:
+    Stress testing tries to break your code by finding edge cases,
+    security vulnerabilities, performance issues, and logic errors.
+    Can target a specific file or run on the whole project.
+
+  Examples:
+    $ /stress
+    $ /stress src/api/routes.py
+
+  Related: /complexity  /archaeology
+

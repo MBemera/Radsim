@@ -1,0 +1,28 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /help  (/h, /?)                            │
+  │  Help Menu                                  │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Show the help menu or detailed help for a specific command.
+
+  Usage:
+    /help
+    /help <command>
+
+  Details:
+    Displays the main help menu with categorized commands.
+    Pass a command name to get detailed help, usage examples, and tips.
+
+  Examples:
+    $ /help
+    $ /help skill
+    $ /help plan
+    $ /h complexity
+
+  Tips:
+    Tip: You can also ask naturally, e.g. 'how do I use skills?'
+
+  Related: /tools  /modes
+

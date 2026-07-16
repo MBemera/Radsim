@@ -1,0 +1,25 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /export                                    │
+  │  Export Conversation                        │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Save the conversation as a markdown file.
+
+  Usage:
+    /export
+    /export <filename>
+
+  Details:
+    Writes the conversation to a markdown file in the project
+    directory (default: a timestamped name). Tool calls are noted;
+    tool results and images are omitted to keep the export readable.
+    Existing files are never overwritten.
+
+  Examples:
+    $ /export
+    $ /export review-session.md
+
+  Related: /copy  /clear
+

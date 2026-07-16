@@ -1,0 +1,33 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /telegram  (/tg)                           │
+  │  Telegram Notifications                     │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Configure Telegram bot for notifications and remote control.
+
+  Usage:
+    /telegram
+    /telegram setup
+    /telegram listen
+    /telegram test
+    /telegram send <msg>
+    /telegram status
+
+  Details:
+    Connect RadSim to a Telegram bot for:
+    
+      • setup   — Configure bot token and chat ID
+      • listen  — Toggle receiving messages from Telegram
+      • test    — Send a test message
+      • send    — Send a custom message
+      • status  — Check current configuration
+
+  Examples:
+    $ /telegram setup
+    $ /tg test
+    $ /telegram send Task done!
+
+  Related: /settings
+

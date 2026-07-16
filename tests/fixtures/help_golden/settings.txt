@@ -1,0 +1,29 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /settings  (/set)                          │
+  │  Agent Settings                             │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    View or change agent configuration parameters.
+
+  Usage:
+    /settings
+    /settings <key> <value>
+    /settings security_level <level>
+
+  Details:
+    Manage RadSim's internal settings:
+    
+      • (no args)          — Interactive menu
+      • <key>              — View a single setting
+      • <key> <value>      — Change a setting
+      • security_level     — Set preset (strict/balanced/permissive)
+
+  Examples:
+    $ /settings
+    $ /settings security_level strict
+    $ /set self_improvement.enabled true
+
+  Related: /evolve  /config
+

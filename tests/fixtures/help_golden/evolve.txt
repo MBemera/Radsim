@@ -1,0 +1,33 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /evolve  (/self-improve)                   │
+  │  Self-Improvement Proposals                 │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Review, generate, and manage self-improvement proposals.
+
+  Usage:
+    /evolve
+    /evolve analyze
+    /evolve history
+    /evolve stats
+
+  Details:
+    RadSim can propose improvements to itself based on usage patterns:
+    
+      • (no args) — Review pending proposals
+      • analyze   — Generate new proposals from learning data
+      • history   — View past approved/rejected proposals
+      • stats     — Improvement statistics
+
+  Examples:
+    $ /evolve
+    $ /evolve analyze
+    $ /evolve stats
+
+  Tips:
+    Tip: Enable with: /settings self_improvement.enabled true
+
+  Related: /settings  /selfmod
+

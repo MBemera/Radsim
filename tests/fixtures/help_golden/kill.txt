@@ -1,0 +1,27 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /kill  (/stop, /abort)                     │
+  │  Emergency Stop                             │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    EMERGENCY: Immediately terminate the agent.
+
+  Usage:
+    /kill
+    /stop
+    /abort
+
+  Details:
+    Force-kills RadSim immediately. Use when the agent is stuck or
+    doing something unexpected. Prefer /exit for normal shutdown.
+
+  Examples:
+    $ /kill
+    $ /stop
+
+  Tips:
+    Tip: Only use in emergencies — /exit is safer for normal use.
+
+  Related: /exit
+

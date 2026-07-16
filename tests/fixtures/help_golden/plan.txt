@@ -1,0 +1,33 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /plan  (/p)                                │
+  │  Plan Mode                                  │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Structured plan → confirm → execute workflow.
+
+  Usage:
+    /plan
+    /plan <task description>
+
+  Details:
+    Plan mode breaks complex tasks into steps:
+    
+      1. You describe the task
+      2. RadSim generates a structured plan
+      3. You review and approve (or edit)
+      4. RadSim executes the approved plan step by step
+    
+    This gives you full control over multi-step operations.
+
+  Examples:
+    $ /plan refactor the auth module to use JWT tokens
+    $ /plan add dark mode to the settings page
+    $ /p
+
+  Tips:
+    Tip: Use /plan for tasks with multiple files or risky changes.
+
+  Related: /panning  /complexity
+

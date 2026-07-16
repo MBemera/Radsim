@@ -1,0 +1,22 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /config  (/provider, /swap)                │
+  │  Provider Configuration                     │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Full configuration setup for provider and API key.
+
+  Usage:
+    /config
+
+  Details:
+    Re-runs the configuration wizard where you can change your AI
+    provider and enter a new API key. This is the full setup flow —
+    use /switch for a quicker model change.
+
+  Examples:
+    $ /config
+
+  Related: /switch  /setup  /free
+

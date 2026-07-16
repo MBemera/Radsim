@@ -1,0 +1,23 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /font  (/glyphs)                           │
+  │  Font / Glyph Profile                       │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Pick the glyph profile (Nerd Font, Unicode, ASCII).
+
+  Usage:
+    /font
+    /font <profile>
+
+  Details:
+    Selects which glyph set RadSim uses for icons and symbols.
+    Pick ASCII if your terminal font shows broken characters.
+
+  Examples:
+    $ /font
+    $ /glyphs
+
+  Related: /theme  /animations
+

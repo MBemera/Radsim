@@ -1,0 +1,23 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /usage  (/cost)                            │
+  │  Session Usage & Cost                       │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Show this session's token usage and estimated cost.
+
+  Usage:
+    /usage
+
+  Details:
+    Displays input/output token totals for the current session and
+    an estimated cost based on the active model's pricing. Models
+    without pricing data show cost as n/a.
+
+  Examples:
+    $ /usage
+    $ /cost
+
+  Related: /stats  /ratelimit
+
