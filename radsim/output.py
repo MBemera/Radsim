@@ -4,6 +4,7 @@ import re
 import shutil
 import sys
 import time
+from collections.abc import Iterable, Sequence
 
 from .commands_metadata import DEFAULT_COMMAND_SPECS, build_help_details
 from .terminal import colorize_ansi, supports_color
@@ -90,6 +91,45 @@ RADSIM_ROBOT_FRAMES = [
 ROBOT_HEIGHT = len(RADSIM_ROBOT_FRAMES[0])
 
 RADSIM_TAGLINE = "── radically simple coding agent ──"
+
+
+def print_block(lines: Iterable[str], *, blank_before: bool = True, blank_after: bool = True) -> None:
+    """Print a group of already-formatted lines with optional surrounding space."""
+    if blank_before:
+        print()
+    for line in lines:
+        print(line)
+    if blank_after:
+        print()
+
+
+def print_titled_block(title: str, lines: Iterable[str], *, footer: Iterable[str] = ()) -> None:
+    """Print a standard command section without changing its line content."""
+    footer_lines = tuple(footer)
+    footer_block = ("", *footer_lines) if footer_lines else ()
+    print_block((f"  ═══ {title} ═══", "", *lines, *footer_block))
+
+
+def print_labeled_values(rows: Iterable[tuple[str, object]], *, label_width: int) -> None:
+    """Print aligned label/value rows used by command summaries."""
+    lines = (f"  {label:<{label_width}}{value}" for label, value in rows)
+    print_block(lines)
+
+
+def print_numbered_options(
+    title: str, options: Iterable[str | Sequence[str]], *, introduction: Iterable[str] = (),
+    blank_between: bool = False,
+) -> None:
+    """Print numbered options while leaving input and validation to the caller."""
+    lines = [f"  {title}", *introduction, ""]
+    for index, option in enumerate(options, 1):
+        option_lines = (option,) if isinstance(option, str) else option
+        if not option_lines:
+            continue
+        lines.extend((f"    {index}. {option_lines[0]}", *(f"       {line}" for line in option_lines[1:])))
+        if blank_between:
+            lines.append("")
+    print_block(lines, blank_after=not blank_between)
 
 
 def colorize(text, color):
