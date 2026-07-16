@@ -4,7 +4,10 @@
 
 """Tests for repo_map structural overview tool."""
 
+import ast
+
 from radsim.repo_map import (
+    _SYMBOL_CACHE,
     _discover_files,
     _extract_js_symbols_regex,
     _extract_python_symbols,
@@ -74,6 +77,21 @@ class TestGenerateRepoMap:
         # Should be truncated
         assert "more files" in result["map"] or result["file_count"] > 0
 
+    def test_parse_failure_is_visible_in_map(self, tmp_path):
+        (tmp_path / "broken.py").write_text("def broken(:\n", encoding="utf-8")
+
+        result = generate_repo_map(str(tmp_path), language_filter="python")
+
+        assert result["error_count"] == 1
+        assert result["errors"][0]["file"] == "broken.py"
+        assert "repo-map error" in result["map"]
+
+    def test_real_python_tree_has_no_file_errors(self):
+        result = generate_repo_map("radsim", language_filter="python")
+
+        assert result["success"] is True
+        assert result["error_count"] == 0
+
 
 class TestDiscoverFiles:
     def test_skips_pycache(self, tmp_path):
@@ -128,17 +146,73 @@ class TestExtractPythonSymbols:
         symbols = _extract_python_symbols(f)
         assert symbols[0]["signature"].startswith("async def")
 
-    def test_syntax_error_returns_empty(self, tmp_path):
+    def test_syntax_error_returns_diagnostic(self, tmp_path):
         f = tmp_path / "bad.py"
         f.write_text("def broken(:\n", encoding="utf-8")
         symbols = _extract_python_symbols(f)
-        assert symbols == []
+        assert symbols[0]["type"] == "error"
+        assert "syntax error" in symbols[0]["name"]
 
     def test_class_with_bases(self, tmp_path):
         f = tmp_path / "inherit.py"
         f.write_text("class Child(Parent):\n    pass\n", encoding="utf-8")
         symbols = _extract_python_symbols(f)
         assert "(Parent)" in symbols[0]["signature"]
+
+    def test_bare_call_above_class_does_not_crash(self, tmp_path):
+        f = tmp_path / "call_then_class.py"
+        f.write_text(
+            "configure()\n\nclass Service:\n    def run(self):\n        pass\n",
+            encoding="utf-8",
+        )
+
+        symbols = _extract_python_symbols(f)
+
+        assert {symbol["name"] for symbol in symbols} == {"Service", "Service.run"}
+
+    def test_nested_function_inside_method_is_not_a_method(self, tmp_path):
+        f = tmp_path / "nested.py"
+        f.write_text(
+            "class Service:\n"
+            "    def run(self):\n"
+            "        def inner():\n"
+            "            pass\n"
+            "        return inner()\n"
+            "\n"
+            "def module_function():\n"
+            "    pass\n",
+            encoding="utf-8",
+        )
+
+        symbols = _extract_python_symbols(f)
+        symbol_types = {symbol["name"]: symbol["type"] for symbol in symbols}
+
+        assert symbol_types["Service.run"] == "method"
+        assert symbol_types["inner"] == "function"
+        assert symbol_types["module_function"] == "function"
+
+    def test_content_cache_avoids_reparse_and_invalidates(self, tmp_path, monkeypatch):
+        f = tmp_path / "cached.py"
+        f.write_text("def first():\n    pass\n", encoding="utf-8")
+        _SYMBOL_CACHE.clear()
+        parse_calls = 0
+        original_parse = ast.parse
+
+        def counting_parse(*args, **kwargs):
+            nonlocal parse_calls
+            parse_calls += 1
+            return original_parse(*args, **kwargs)
+
+        monkeypatch.setattr(ast, "parse", counting_parse)
+
+        first_symbols = _extract_python_symbols(f)
+        second_symbols = _extract_python_symbols(f)
+        f.write_text("def second():\n    pass\n", encoding="utf-8")
+        changed_symbols = _extract_python_symbols(f)
+
+        assert first_symbols == second_symbols
+        assert changed_symbols != first_symbols
+        assert parse_calls == 2
 
 
 class TestExtractJsSymbols:
@@ -167,7 +241,8 @@ class TestExtractJsSymbols:
         f = tmp_path / "missing.js"
         # File doesn't exist
         symbols = _extract_js_symbols_regex(f)
-        assert symbols == []
+        assert symbols[0]["type"] == "error"
+        assert "read failed" in symbols[0]["name"]
 
 
 class TestRankFiles:

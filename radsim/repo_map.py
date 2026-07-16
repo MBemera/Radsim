@@ -11,6 +11,7 @@ RadSim Principle: One Function, One Purpose
 """
 
 import ast
+import hashlib
 import logging
 import re
 from pathlib import Path
@@ -39,6 +40,10 @@ LANGUAGE_EXTENSIONS = {
     "javascript": [".js", ".jsx", ".mjs"],
     "typescript": [".ts", ".tsx"],
 }
+
+PARSER_VERSION = 2
+MAX_SYMBOL_CACHE_ENTRIES = 512
+_SYMBOL_CACHE = {}
 
 
 def generate_repo_map(
@@ -71,15 +76,21 @@ def generate_repo_map(
             "map": "No source files found.",
             "file_count": 0,
             "symbol_count": 0,
+            "error_count": 0,
+            "errors": [],
         }
 
     # Extract symbols from each file
     all_symbols = {}
+    errors = []
     for filepath in source_files:
         relative = str(filepath.relative_to(root))
         symbols = _extract_symbols(filepath)
         if symbols:
             all_symbols[relative] = symbols
+        for symbol in symbols:
+            if symbol["type"] == "error":
+                errors.append({"file": relative, "error": symbol["name"]})
 
     # Rank files (boost focus files)
     ranked_files = _rank_files(all_symbols, focus_files or [])
@@ -94,6 +105,8 @@ def generate_repo_map(
         "map": map_text,
         "file_count": len(all_symbols),
         "symbol_count": total_symbols,
+        "error_count": len(errors),
+        "errors": errors,
     }
 
 
@@ -137,12 +150,36 @@ def _extract_symbols(filepath):
 def _extract_python_symbols(filepath):
     """Extract symbols from Python using the ast module."""
     try:
-        source = filepath.read_text(encoding="utf-8", errors="replace")
+        file_bytes = filepath.read_bytes()
+    except OSError as error:
+        return [_error_symbol(f"read failed: {error}")]
+
+    cache_key = _build_cache_key(file_bytes, "python")
+    cached_symbols = _SYMBOL_CACHE.get(cache_key)
+    if cached_symbols is not None:
+        return _copy_symbols(cached_symbols)
+
+    source = file_bytes.decode("utf-8", errors="replace")
+    try:
         tree = ast.parse(source, filename=str(filepath))
-    except (SyntaxError, ValueError):
-        return []
+    except SyntaxError as error:
+        symbols = [_syntax_error_symbol(error)]
+        _cache_symbols(cache_key, symbols)
+        return symbols
+    except ValueError as error:
+        symbols = [_error_symbol(f"parse failed: {error}")]
+        _cache_symbols(cache_key, symbols)
+        return symbols
 
     symbols = []
+    method_owners = {}
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for child in node.body:
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                method_owners[id(child)] = node.name
 
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
@@ -155,35 +192,66 @@ def _extract_python_symbols(filepath):
                 "line": node.lineno,
             })
 
-            # Get methods within the class
-            for item in node.body:
-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    sig = _get_function_signature(item)
-                    prefix = "async def" if isinstance(item, ast.AsyncFunctionDef) else "def"
-                    symbols.append({
-                        "type": "method",
-                        "name": f"{node.name}.{item.name}",
-                        "signature": f"  {prefix} {item.name}{sig}",
-                        "line": item.lineno,
-                    })
-
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # Only top-level functions (not methods inside classes)
-            if not any(
-                isinstance(parent, ast.ClassDef)
-                for parent in ast.walk(tree)
-                if hasattr(parent, "body") and node in getattr(parent, "body", [])
-            ):
-                sig = _get_function_signature(node)
-                prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
-                symbols.append({
-                    "type": "function",
-                    "name": node.name,
-                    "signature": f"{prefix} {node.name}{sig}",
-                    "line": node.lineno,
-                })
+            class_name = method_owners.get(id(node))
+            symbols.append(_function_symbol(node, class_name))
 
+    _cache_symbols(cache_key, symbols)
     return symbols
+
+
+def _function_symbol(node, class_name=None):
+    """Build one function or direct-class-method symbol."""
+    signature = _get_function_signature(node)
+    prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
+    if class_name:
+        return {
+            "type": "method",
+            "name": f"{class_name}.{node.name}",
+            "signature": f"  {prefix} {node.name}{signature}",
+            "line": node.lineno,
+        }
+    return {
+        "type": "function",
+        "name": node.name,
+        "signature": f"{prefix} {node.name}{signature}",
+        "line": node.lineno,
+    }
+
+
+def _build_cache_key(file_bytes, parser_options):
+    """Build a content-based cache key for one parser configuration."""
+    content_hash = hashlib.sha256(file_bytes).hexdigest()
+    return content_hash, PARSER_VERSION, parser_options
+
+
+def _cache_symbols(cache_key, symbols):
+    """Cache symbols and evict the oldest entry when the bound is reached."""
+    if cache_key not in _SYMBOL_CACHE and len(_SYMBOL_CACHE) >= MAX_SYMBOL_CACHE_ENTRIES:
+        oldest_key = next(iter(_SYMBOL_CACHE))
+        del _SYMBOL_CACHE[oldest_key]
+    _SYMBOL_CACHE[cache_key] = _copy_symbols(symbols)
+
+
+def _copy_symbols(symbols):
+    """Return symbols that callers can mutate without changing the cache."""
+    return [symbol.copy() for symbol in symbols]
+
+
+def _error_symbol(message, line=0):
+    """Build a visible per-file parser diagnostic."""
+    return {
+        "type": "error",
+        "name": message,
+        "signature": f"[repo-map error: {message}]",
+        "line": line,
+    }
+
+
+def _syntax_error_symbol(error):
+    """Build a stable diagnostic without embedding an absolute file path."""
+    line = error.lineno or 0
+    return _error_symbol(f"syntax error at line {line}: {error.msg}", line)
 
 
 def _get_function_signature(node):
@@ -209,10 +277,16 @@ def _get_base_name(node):
 def _extract_js_symbols_regex(filepath):
     """Extract symbols from JS/TS files using regex (fallback)."""
     try:
-        source = filepath.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
+        file_bytes = filepath.read_bytes()
+    except OSError as error:
+        return [_error_symbol(f"read failed: {error}")]
 
+    cache_key = _build_cache_key(file_bytes, f"regex:{filepath.suffix}")
+    cached_symbols = _SYMBOL_CACHE.get(cache_key)
+    if cached_symbols is not None:
+        return _copy_symbols(cached_symbols)
+
+    source = file_bytes.decode("utf-8", errors="replace")
     symbols = []
     patterns = [
         (r"(?:export\s+)?class\s+(\w+)", "class"),
@@ -230,6 +304,7 @@ def _extract_js_symbols_regex(filepath):
                 "line": source[: match.start()].count("\n") + 1,
             })
 
+    _cache_symbols(cache_key, symbols)
     return symbols
 
 
