@@ -216,7 +216,7 @@ class TestAllToolsSmoke:
 
         assert not failures, "Tool failures:\n" + "\n".join(failures)
 
-    def test_core_file_tools_actually_work(self, smoke_workspace):
+    def test_core_file_operations_actually_work(self, smoke_workspace):
         """Core tools must not just return dicts — they must succeed."""
         assert execute_tool(
             "write_file", {"file_path": "core.txt", "content": "one\n"}
@@ -234,7 +234,7 @@ class TestAllToolsSmoke:
             "run_shell_command", {"command": "echo functional"}
         )["success"]
 
-    def test_git_tools_work_in_real_repo(self, smoke_workspace):
+    def test_git_operations_work_in_real_repo(self, smoke_workspace):
         import shutil
 
         if not shutil.which("git"):

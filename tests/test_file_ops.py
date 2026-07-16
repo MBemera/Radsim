@@ -1,23 +1,21 @@
-"""Tests for file_tools module."""
+"""Tests for canonical file operation modules."""
 
 import pytest
 
-from radsim.file_tools import (
-    clear_cwd_cache,
+from radsim.tools.file_ops import read_file, replace_in_file, write_file
+from radsim.tools.validation import (
+    clear_path_validation_cache,
     is_protected_path,
-    read_file,
-    replace_in_file,
     validate_path,
-    write_file,
 )
 
 
 @pytest.fixture(autouse=True)
-def reset_cwd_cache():
-    """Reset CWD cache before each test to handle chdir."""
-    clear_cwd_cache()
+def reset_path_validation_cache():
+    """Reset path validation state before each test that changes directories."""
+    clear_path_validation_cache()
     yield
-    clear_cwd_cache()
+    clear_path_validation_cache()
 
 
 class TestValidatePath:

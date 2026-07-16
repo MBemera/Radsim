@@ -8,7 +8,6 @@ Pure Python — no native dependencies required. Works on all Python 3.10+ versi
 Status:
 - Experimental: available for direct use and tests
 - Not wired into the main CLI memory flow
-- Also exposed via ``radsim.experimental.vector_memory``
 """
 
 import hashlib
