@@ -129,7 +129,8 @@ class TestSchedulerFailClosed:
         scheduler.schedules_file = tmp_path / "schedules.json"
         scheduler.schedules = {"jobs": []}
 
-        result = scheduler.add_job("safe", "0 9 * * *", "echo hello")
+        with patch("radsim.scheduler.is_windows", return_value=False):
+            result = scheduler.add_job("safe", "0 9 * * *", "echo hello")
 
         assert result["success"] is False
         assert mock_run.call_count == 1

@@ -94,7 +94,9 @@ class TestCrontabPreservation:
     def test_read_failure_does_not_write_crontab(self, mock_run):
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="permission denied")
 
-        with patch("radsim.jobs._load_jobs", return_value=[]):
+        with patch("radsim.jobs.is_windows", return_value=False), patch(
+            "radsim.jobs._load_jobs", return_value=[]
+        ):
             with pytest.raises(RuntimeError, match="Unable to read"):
                 jobs.sync_crontab()
 
