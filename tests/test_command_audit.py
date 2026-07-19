@@ -74,6 +74,10 @@ def audit_env(tmp_path, monkeypatch):
         return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
 
     class FakePopen:
+        @classmethod
+        def __class_getitem__(cls, _item):
+            return cls
+
         def __init__(self, *args, **kwargs):
             self.pid = 0
             self.returncode = 0
