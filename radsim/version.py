@@ -14,7 +14,7 @@ from importlib.metadata import version as installed_version
 # The PyPI distribution is named "radsimcli"; the import package is "radsim".
 DIST_NAME = "radsimcli"
 
-__version__ = "1.6.0"
+__version__ = "1.6.1"
 
 
 def get_radsim_version() -> str:
