@@ -67,17 +67,19 @@ Two design choices fall out of this:
 RadSim supports `openrouter`, `openai`, and `claude` directly. OpenRouter is the
 recommended starting point because:
 
-- **One key, many models.** You can switch between Kimi K2.5, Claude Sonnet,
-  GPT-5 variants, and others by changing a single string. No second signup, no
-  second billing relationship.
-- **Cheap models are practical for daily use.** Kimi K2.5 is currently the
-  configured default at `$0.14` input / `$0.28` output per million tokens. A
-  full coding session usually costs less than a coffee, which makes "let it
-  rerun" a reasonable choice instead of a budget event.
+- **One key, many models.** The curated selector includes Kimi K3, Claude
+  Fable 5, all six GPT-5.6 variants, GLM 5.2, and other current models.
+- **Your model choice persists.** RadSim reuses the provider and model you most
+  recently selected instead of resetting each new instance. GLM 5.2 is the
+  OpenRouter first-run fallback when no preference exists.
 - **Live model catalogue.** OpenRouter publishes the full list of available
   models with their context windows and capabilities. RadSim caches that under
   `~/.radsim/models_cache.json` and falls back to a static list if the fetch
   fails.
+- **Reasoning controls match the model.** RadSim reads each OpenRouter model's
+  supported effort levels and sends the selected value as
+  `reasoning.effort`. Models with one fixed level, such as Kimi K3, use that
+  required level automatically.
 
 If you already pay for Anthropic or OpenAI directly, those providers are first-
 class — there's no degraded path. The provider layer is the same code shape;
@@ -104,6 +106,29 @@ Verify:
 ```bash
 radsim --version
 ```
+
+### Windows
+
+RadSim is installed with Python's package manager, pip. In PowerShell:
+
+```powershell
+py -3 -m pip install --upgrade radsimcli
+py -3 -m radsim --version
+py -3 -m radsim
+```
+
+`py -3 -m radsim` works even before Python's Scripts directory is available on
+`PATH`. The included installer adds the active Scripts directory when needed;
+restart PowerShell afterward to use the short command:
+
+```powershell
+.\install.ps1
+radsim
+```
+
+RadSim runs native PowerShell commands on Windows and uses Windows Task
+Scheduler for scheduled jobs. `winget`, Chocolatey, and Scoop are detected for
+optional system-tool installation; none is required to install RadSim itself.
 
 ## First run
 

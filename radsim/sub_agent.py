@@ -319,6 +319,23 @@ def _get_tool_use_blocks(response):
     return [b for b in response.get("content", []) if b.get("type") == "tool_use"]
 
 
+def _create_subagent_client(provider, api_key, model_id):
+    """Create a sub-agent client with the saved reasoning effort."""
+    from .config import load_reasoning_effort, resolve_reasoning_effort
+
+    reasoning_effort = resolve_reasoning_effort(
+        provider,
+        model_id,
+        load_reasoning_effort(),
+    )
+    return create_client(
+        provider,
+        api_key,
+        model_id,
+        reasoning_effort=reasoning_effort,
+    )
+
+
 def execute_subagent_task(task: SubAgentTask) -> SubAgentResult:
     """Execute a task using a sub-agent with specified model.
 
@@ -346,7 +363,7 @@ def execute_subagent_task(task: SubAgentTask) -> SubAgentResult:
         )
 
     try:
-        client = create_client(provider, api_key, model_id)
+        client = _create_subagent_client(provider, api_key, model_id)
         messages = [{"role": "user", "content": task.task_description}]
         system_prompt = task.system_prompt or "You are a helpful assistant. Complete the task directly and concisely."
         tools = task.tools if task.tools else None
@@ -438,7 +455,7 @@ def stream_subagent_task(task: SubAgentTask) -> Generator[dict, None, SubAgentRe
         )
 
     try:
-        client = create_client(provider, api_key, model_id)
+        client = _create_subagent_client(provider, api_key, model_id)
         messages = [{"role": "user", "content": task.task_description}]
         system_prompt = task.system_prompt or "You are a helpful assistant. Complete the task directly and concisely."
         tools = task.tools if task.tools else None

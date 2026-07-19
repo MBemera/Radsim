@@ -218,6 +218,16 @@ def _run_interactive_mode(config, context_file):
     run_interactive(config, context_file)
 
 
+def _persist_explicit_model_selection(args, config):
+    """Persist an explicit CLI provider/model choice for future instances."""
+    if not args.provider and not args.model:
+        return
+
+    from .config import save_last_model_selection
+
+    save_last_model_selection(config.provider, config.model)
+
+
 def _handle_login_subcommand() -> int | None:
     """Intercept `radsim login <provider>` / `radsim logout <provider>`.
 
@@ -302,6 +312,11 @@ def main():
     except ValueError as error:
         print_error(str(error))
         sys.exit(1)
+
+    try:
+        _persist_explicit_model_selection(args, config)
+    except (OSError, ValueError) as error:
+        print_error(f"Could not save model preference: {error}")
 
     # Production Readiness: Run startup health checks
     health_status = check_health(config)

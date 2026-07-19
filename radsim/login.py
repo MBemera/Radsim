@@ -3,14 +3,14 @@
 import getpass
 import webbrowser
 
-from .config import CONFIG_DIR, ENV_FILE, load_env_file
+from .config import ENV_FILE, load_env_file, save_config
 
 PROVIDERS = {
     "openrouter": {
         "label": "OpenRouter (recommended — free models available)",
         "env_var": "OPENROUTER_API_KEY",
         "url": "https://openrouter.ai/keys",
-        "default_model": "moonshotai/kimi-k2.5",
+        "default_model": "z-ai/glm-5.2",
     },
     "openai": {
         "label": "OpenAI",
@@ -74,26 +74,10 @@ def _validate_key(provider: str, key: str) -> tuple[bool, str]:
 
 def _write_key(env_var: str, key: str, provider: str) -> None:
     """Merge the new key into ~/.radsim/.env preserving other entries."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    env_config = load_env_file()
-    keys = env_config.get("keys", {})
-    keys[env_var] = key
-
-    lines = [
-        "# RadSim Configuration",
-        "# This file is chmod 600 (secure) — managed by `radsim login`.",
-        "",
-        f'RADSIM_PROVIDER="{provider}"',
-        "",
-        "# API Keys",
-    ]
-    for name, value in keys.items():
-        if value and not value.lower().startswith("paste_your"):
-            lines.append(f'{name}="{value}"')
-    lines.append("")
-
-    ENV_FILE.write_text("\n".join(lines))
-    ENV_FILE.chmod(0o600)
+    expected_env_var = PROVIDERS[provider]["env_var"]
+    if env_var != expected_env_var:
+        raise ValueError(f"Unexpected credential variable for provider '{provider}'")
+    save_config(key, provider, None)
 
 
 def run_login(provider: str) -> int:
@@ -154,6 +138,7 @@ def run_logout(provider: str) -> int:
     del keys[info["env_var"]]
 
     current_provider = env_config.get("provider", "")
+    current_model = env_config.get("model", "")
     lines = [
         "# RadSim Configuration",
         "# This file is chmod 600 (secure) — managed by `radsim login`.",
@@ -161,6 +146,8 @@ def run_logout(provider: str) -> int:
     ]
     if current_provider and current_provider != provider:
         lines.append(f'RADSIM_PROVIDER="{current_provider}"')
+        if current_model:
+            lines.append(f'RADSIM_MODEL="{current_model}"')
         lines.append("")
     lines.append("# API Keys")
     for name, value in keys.items():

@@ -2,6 +2,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from radsim.config import load_config
 
 
@@ -25,6 +27,20 @@ def test_config_defaults(tmp_path, monkeypatch):
     assert config.provider == "openai"
     assert config.api_key == "test-key"
     assert config.stream is True  # Default
+
+
+def test_openrouter_first_run_default_is_glm_5_2(tmp_path, monkeypatch):
+    import radsim.config
+
+    _isolate_config(tmp_path, monkeypatch)
+    monkeypatch.setenv("RADSIM_API_KEY", "test-key")
+    monkeypatch.delenv("RADSIM_MODEL", raising=False)
+    monkeypatch.delenv("RADSIM_PROVIDER", raising=False)
+
+    config = load_config()
+
+    assert radsim.config.DEFAULT_MODELS["openrouter"] == "z-ai/glm-5.2"
+    assert config.model == "z-ai/glm-5.2"
 
 
 def test_config_from_settings_json(tmp_path, monkeypatch):
@@ -293,3 +309,42 @@ def test_save_config_falls_back_to_default_when_no_prior_model(tmp_path, monkeyp
     save_config("test-key", "openrouter", None)
 
     assert load_env_file()["model"] == DEFAULT_MODELS["openrouter"]
+
+
+def test_last_model_selection_wins_over_legacy_global_model(tmp_path, monkeypatch):
+    from radsim.config import load_config, save_last_model_selection
+
+    env_file = _isolate_config(tmp_path, monkeypatch)
+    env_file.parent.mkdir(parents=True, exist_ok=True)
+    env_file.write_text(
+        'RADSIM_PROVIDER="openrouter"\n'
+        'RADSIM_MODEL="deepseek/deepseek-v4-flash"\n'
+        'OPENROUTER_API_KEY="test-key"\n'
+    )
+
+    save_last_model_selection("openrouter", "z-ai/glm-5.2")
+    config = load_config()
+
+    assert config.model == "z-ai/glm-5.2"
+
+
+def test_process_model_override_wins_over_last_selection(tmp_path, monkeypatch):
+    from radsim.config import load_config, save_last_model_selection
+
+    _isolate_config(tmp_path, monkeypatch)
+    save_last_model_selection("openrouter", "z-ai/glm-5.2")
+    monkeypatch.setenv("RADSIM_API_KEY", "test-key")
+    monkeypatch.setenv("RADSIM_MODEL", "moonshotai/kimi-k3")
+
+    config = load_config()
+
+    assert config.model == "moonshotai/kimi-k3"
+
+
+def test_model_preference_rejects_terminal_controls(tmp_path, monkeypatch):
+    from radsim.config import save_last_model_selection
+
+    _isolate_config(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError, match="invalid"):
+        save_last_model_selection("openrouter", "z-ai/glm-5.2\u202ehidden")

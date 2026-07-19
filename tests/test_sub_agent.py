@@ -176,6 +176,38 @@ class TestSubAgentTaskExecution(unittest.TestCase):
         assert result.success is False
         assert "API error" in result.error
 
+    @patch("radsim.config.resolve_reasoning_effort", return_value="high")
+    @patch("radsim.config.load_reasoning_effort", return_value="high")
+    @patch("radsim.sub_agent.get_openrouter_api_key", return_value="test-api-key")
+    @patch("radsim.sub_agent.create_client")
+    def test_execution_threads_reasoning_into_client(
+        self,
+        mock_create_client,
+        _mock_get_key,
+        _mock_load_effort,
+        _mock_resolve_effort,
+    ):
+        mock_client = MagicMock()
+        mock_client.chat.return_value = {
+            "content": [{"type": "text", "text": "done"}],
+            "usage": {},
+        }
+        mock_create_client.return_value = mock_client
+
+        execute_subagent_task(
+            SubAgentTask(
+                task_description="Test task",
+                model="openai/gpt-5.6-sol",
+            )
+        )
+
+        mock_create_client.assert_called_once_with(
+            "openrouter",
+            "test-api-key",
+            "openai/gpt-5.6-sol",
+            reasoning_effort="high",
+        )
+
 
 class TestDelegateTaskConvenience(unittest.TestCase):
     """Test the delegate_task convenience function."""

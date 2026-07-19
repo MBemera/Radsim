@@ -2,16 +2,21 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import radsim.config as config_module
+from radsim.agent_conversation import AgentConversationMixin
 from radsim.api_client import OpenRouterClient
 from radsim.config import (
     DEFAULT_REASONING_EFFORT,
     REASONING_EFFORT_LEVELS,
+    _maybe_prompt_reasoning_effort,
+    get_reasoning_effort_options,
     load_config,
     load_reasoning_effort,
+    resolve_reasoning_effort,
     save_reasoning_effort,
 )
 
@@ -107,5 +112,149 @@ def test_openrouter_client_attaches_reasoning_for_supported_model(monkeypatch):
     assert kwargs["extra_body"]["reasoning"] == {"effort": "low"}
 
 
+@pytest.mark.parametrize("effort", ["low", "medium", "high"])
+def test_openrouter_chat_sends_selected_reasoning_to_sdk(monkeypatch, effort):
+    captured = {}
+
+    def create_completion(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content="ok", tool_calls=None),
+                    finish_reason="stop",
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+        )
+
+    sdk_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create_completion),
+        )
+    )
+    monkeypatch.setattr("openai.OpenAI", lambda **_: sdk_client)
+    monkeypatch.setattr(
+        "radsim.openrouter_models.model_supports_reasoning",
+        lambda model_id: True,
+    )
+    client = OpenRouterClient(
+        api_key="test-key",
+        model="openai/gpt-5.6-sol",
+        reasoning_effort=effort,
+    )
+
+    client.chat([{"role": "user", "content": "test"}])
+
+    assert captured["extra_body"] == {"reasoning": {"effort": effort}}
+
+
+def test_openrouter_stream_sends_selected_reasoning_to_sdk(monkeypatch):
+    captured = {}
+
+    def create_stream(**kwargs):
+        captured.update(kwargs)
+        return iter(())
+
+    sdk_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create_stream),
+        )
+    )
+    monkeypatch.setattr("openai.OpenAI", lambda **_: sdk_client)
+    monkeypatch.setattr(
+        "radsim.openrouter_models.model_supports_reasoning",
+        lambda model_id: True,
+    )
+    client = OpenRouterClient(
+        api_key="test-key",
+        model="anthropic/claude-fable-5",
+        reasoning_effort="xhigh",
+    )
+
+    list(client.stream_chat([{"role": "user", "content": "test"}]))
+
+    assert captured["stream"] is True
+    assert captured["extra_body"] == {"reasoning": {"effort": "xhigh"}}
+
+
+def test_switch_rebuilds_client_with_saved_reasoning(monkeypatch):
+    captured = {}
+    agent = SimpleNamespace(
+        config=SimpleNamespace(
+            provider="openrouter",
+            api_key="old-key",
+            model="z-ai/glm-5.2",
+            reasoning_effort="medium",
+        )
+    )
+
+    def create_client(provider, api_key, model, reasoning_effort=None):
+        captured.update(
+            provider=provider,
+            api_key=api_key,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+        return "new-client"
+
+    monkeypatch.setattr("radsim.agent_conversation.create_client", create_client)
+    monkeypatch.setattr(config_module, "load_reasoning_effort", lambda: "xhigh")
+    monkeypatch.setattr(
+        config_module,
+        "resolve_reasoning_effort",
+        lambda provider, model, effort: effort,
+    )
+    monkeypatch.setattr(config_module, "save_config", lambda *args: None)
+    monkeypatch.setattr("radsim.agent_conversation.print_success", lambda *args: None)
+
+    AgentConversationMixin.update_config(
+        agent,
+        "openrouter",
+        "new-key",
+        "anthropic/claude-fable-5",
+    )
+
+    assert captured["reasoning_effort"] == "xhigh"
+    assert agent.config.reasoning_effort == "xhigh"
+    assert agent.client == "new-client"
+
+
+def test_requested_models_expose_live_reasoning_levels():
+    assert get_reasoning_effort_options(
+        "openrouter",
+        "moonshotai/kimi-k3",
+    ) == ("max",)
+    assert get_reasoning_effort_options(
+        "openrouter",
+        "anthropic/claude-fable-5",
+    ) == ("low", "medium", "high", "xhigh", "max")
+    assert get_reasoning_effort_options(
+        "openrouter",
+        "openai/gpt-5.6-sol",
+    ) == ("none", "low", "medium", "high", "xhigh", "max")
+
+
+def test_kimi_k3_maps_saved_effort_to_required_max():
+    assert resolve_reasoning_effort(
+        "openrouter",
+        "moonshotai/kimi-k3",
+        "low",
+    ) == "max"
+
+
+def test_kimi_k3_selector_persists_required_max(fake_settings):
+    _maybe_prompt_reasoning_effort("openrouter", "moonshotai/kimi-k3")
+    assert load_reasoning_effort() == "max"
+
+
 def test_levels_constant_matches_documented_set():
-    assert REASONING_EFFORT_LEVELS == ("low", "medium", "high")
+    assert REASONING_EFFORT_LEVELS == (
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    )

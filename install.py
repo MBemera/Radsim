@@ -10,10 +10,12 @@ Usage:
 """
 
 import argparse
+import ntpath
 import os
 import platform
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 # Minimum Python version required
@@ -101,7 +103,7 @@ def install_radsim():
     print_info("Installing RadSim from PyPI...")
 
     result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "radsimcli", "--quiet"],
+        [sys.executable, "-m", "pip", "install", "--upgrade", "radsimcli", "--quiet"],
         capture_output=True,
         text=True,
     )
@@ -163,40 +165,59 @@ def update_path_unix():
     return True
 
 
-def update_path_windows():
-    """Add pip scripts directory to PATH if needed (Windows only)."""
-    bin_dir = str(Path.home() / ".local" / "bin")
+def find_windows_scripts_directory():
+    """Return the Scripts directory containing radsim.exe when available."""
+    candidates = [
+        Path(sysconfig.get_path("scripts", "nt_user")),
+        Path(sysconfig.get_path("scripts")),
+    ]
+    for scripts_directory in candidates:
+        if (scripts_directory / "radsim.exe").is_file():
+            return scripts_directory
+    return candidates[-1]
 
-    # Also check Python Scripts directory
-    scripts_dir = str(Path(sys.executable).parent / "Scripts")
 
+def _path_contains_directory(path_value, directory):
+    """Return whether a semicolon-delimited Windows PATH contains a directory."""
+    expected = ntpath.normcase(ntpath.normpath(str(directory)))
+    entries = [entry.strip().strip('"') for entry in path_value.split(";") if entry.strip()]
+    return any(ntpath.normcase(ntpath.normpath(entry)) == expected for entry in entries)
+
+
+def update_path_windows(scripts_directory=None):
+    """Add the active pip Scripts directory to the user PATH."""
+    scripts_directory = scripts_directory or find_windows_scripts_directory()
+    scripts_directory = str(scripts_directory)
     user_path = os.environ.get("PATH", "")
 
-    if bin_dir in user_path and scripts_dir in user_path:
+    if _path_contains_directory(user_path, scripts_directory):
         print_success("PATH already configured")
         return False
 
-    # Add Scripts dir to user PATH via registry
     try:
         import winreg
 
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_ALL_ACCESS)
-        current_path, _ = winreg.QueryValueEx(key, "Path")
+        try:
+            try:
+                current_path, _ = winreg.QueryValueEx(key, "Path")
+            except FileNotFoundError:
+                current_path = ""
 
-        if scripts_dir not in current_path:
-            new_path = f"{scripts_dir};{current_path}"
+            if _path_contains_directory(current_path, scripts_directory):
+                print_success("PATH already configured")
+                return False
+
+            separator = ";" if current_path else ""
+            new_path = f"{scripts_directory}{separator}{current_path}"
             winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
-            print_success(f"Added {scripts_dir} to user PATH")
-            winreg.CloseKey(key)
+            print_success(f"Added {scripts_directory} to user PATH")
             return True
-
-        winreg.CloseKey(key)
+        finally:
+            winreg.CloseKey(key)
     except Exception:
-        print_info(f"Please add {scripts_dir} to your PATH manually")
+        print_info(f"Please add {scripts_directory} to your PATH manually")
         return True
-
-    return False
-
 
 def print_next_steps(os_type, path_updated):
     """Print post-installation instructions."""

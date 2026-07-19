@@ -103,7 +103,7 @@ Write-Success "pip available"
 Write-Info "Installing RadSim from PyPI..."
 
 $ErrorActionPreference = "Continue"
-$installOutput = & $pythonCmd -m pip install radsimcli --quiet 2>&1
+$installOutput = & $pythonCmd -m pip install --upgrade radsimcli --quiet 2>&1
 $installExitCode = $LASTEXITCODE
 $ErrorActionPreference = "Stop"
 
