@@ -13,7 +13,7 @@ sits on your machine, calls a model over the network, and sends back tool
 results until the task is done.
 
 It works on Python 3.10+, macOS, Linux, and Windows. The current version on
-`main` is `1.6.0`.
+this branch is `1.6.1`.
 
 ## Why RadSim exists
 
@@ -109,7 +109,15 @@ radsim --version
 
 ### Windows
 
-RadSim is installed with Python's package manager, pip. In PowerShell:
+RadSim supports Windows 10 and 11 with Python 3.10 or newer. Check Python and
+pip from PowerShell:
+
+```powershell
+py -3 --version
+py -3 -m pip --version
+```
+
+Install the published package:
 
 ```powershell
 py -3 -m pip install --upgrade radsimcli
@@ -118,17 +126,54 @@ py -3 -m radsim
 ```
 
 `py -3 -m radsim` works even before Python's Scripts directory is available on
-`PATH`. The included installer adds the active Scripts directory when needed;
-restart PowerShell afterward to use the short command:
+`PATH`.
+
+The included PowerShell installer performs the same PyPI installation, checks
+Python and pip, and adds the directory containing `radsim.exe` to the current
+user's `PATH` when needed:
 
 ```powershell
 .\install.ps1
+```
+
+Restart PowerShell if the installer changes `PATH`, then verify both Windows
+entry points:
+
+```powershell
 radsim
+where.exe radsim
+radsim --version
+py -3 -m radsim --version
+```
+
+For development against the checked-out source instead of the published PyPI
+release:
+
+```powershell
+git clone https://github.com/MBemera/Radsim.git
+Set-Location .\Radsim
+py -3 -m pip install -e ".[dev]"
+py -3 -m pytest -q
+```
+
+Pip creates `radsim.exe` in the active Python Scripts directory. Depending on
+how Python was installed, this is commonly the interpreter's `Scripts`
+directory or the per-user directory under
+`%APPDATA%\Python\PythonXY\Scripts`. Print both candidate locations with:
+
+```powershell
+py -3 -c "import os, sysconfig; print(sysconfig.get_path('scripts')); print(sysconfig.get_path('scripts', os.name + '_user'))"
 ```
 
 RadSim runs native PowerShell commands on Windows and uses Windows Task
 Scheduler for scheduled jobs. `winget`, Chocolatey, and Scoop are detected for
 optional system-tool installation; none is required to install RadSim itself.
+User configuration and provider credentials are stored under
+`%USERPROFILE%\.radsim`; secrets are not written into the repository.
+
+The Windows CI job builds the wheel on `windows-latest`, installs it into a
+fresh virtual environment, verifies both `python -m radsim` and `radsim.exe`,
+validates `install.ps1`, and runs the Windows-specific test suite.
 
 ## First run
 
