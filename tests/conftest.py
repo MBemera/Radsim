@@ -54,19 +54,53 @@ def _reset_singletons():
 
 @pytest.fixture(autouse=True)
 def _hermetic_state(tmp_path_factory, monkeypatch):
-    """Give every test a unique HOME and reset process-wide singletons (R-10).
+    """Isolate user configuration and reset process-wide singletons (R-10)."""
+    import radsim.config
 
-    Import-time constants keep the original HOME, so tests that monkeypatch
-    CONFIG_DIR/ENV_FILE directly are unaffected; this only isolates runtime
-    ``Path.home()`` lookups (e.g. the lazily-built agent config manager) so
-    one test cannot make a later one more or less restrictive.
-    """
     home = tmp_path_factory.mktemp("home")
+    config_directory = home / ".radsim"
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(radsim.config, "CONFIG_DIR", config_directory)
+    monkeypatch.setattr(radsim.config, "ENV_FILE", config_directory / ".env")
+    monkeypatch.setattr(
+        radsim.config,
+        "SETTINGS_FILE",
+        config_directory / "settings.json",
+    )
+    monkeypatch.setattr(
+        radsim.config,
+        "PROJECT_ENV_FILE",
+        home / "nonexistent-project.env",
+    )
+    _redirect_imported_config_paths(monkeypatch, config_directory)
     _reset_singletons()
     yield
     _reset_singletons()
+
+
+def _redirect_imported_config_paths(monkeypatch, config_directory):
+    """Redirect modules that copied config paths during import."""
+    copied_paths = {
+        "radsim.login": {"ENV_FILE": config_directory / ".env"},
+        "radsim.onboarding": {
+            "CONFIG_DIR": config_directory,
+            "ENV_FILE": config_directory / ".env",
+            "SETTINGS_FILE": config_directory / "settings.json",
+            "ONBOARDING_FILE": config_directory / "onboarding_complete.json",
+            "TERMS_ACCEPTED_FILE": config_directory / "terms_accepted.json",
+        },
+        "radsim.theme": {
+            "CONFIG_DIR": config_directory,
+            "SETTINGS_FILE": config_directory / "settings.json",
+        },
+    }
+    for module_name, path_values in copied_paths.items():
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        for attribute, value in path_values.items():
+            monkeypatch.setattr(module, attribute, value)
 
 
 @pytest.fixture

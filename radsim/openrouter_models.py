@@ -22,6 +22,16 @@ FETCH_TIMEOUT_SECONDS = 10
 MAX_CATALOGUE_MODELS = 5_000
 MAX_CACHE_BYTES = 5_000_000
 MAX_STRING_LENGTH = 512
+REASONING_EFFORT_ORDER = (
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+)
+REASONING_EFFORT_LEVELS = set(REASONING_EFFORT_ORDER)
 
 _catalogue = None
 _catalogue_key = None
@@ -97,10 +107,26 @@ def _is_valid_model(model) -> bool:
         return False
     if not _is_optional_number(model.get("output_price"), 0, 1):
         return False
+    if not _is_valid_reasoning_metadata(model):
+        return False
     return all(
         field not in model or isinstance(model[field], bool)
-        for field in ("supports_reasoning", "supports_tools")
+        for field in ("supports_reasoning", "supports_tools", "reasoning_mandatory")
     )
+
+
+def _is_valid_reasoning_metadata(model) -> bool:
+    """Validate optional model-specific reasoning metadata."""
+    efforts = model.get("reasoning_efforts")
+    if efforts is not None:
+        if not isinstance(efforts, list) or len(efforts) > len(REASONING_EFFORT_LEVELS):
+            return False
+        if len(efforts) != len(set(efforts)):
+            return False
+        if any(effort not in REASONING_EFFORT_LEVELS for effort in efforts):
+            return False
+    default_effort = model.get("default_reasoning_effort")
+    return default_effort is None or default_effort in REASONING_EFFORT_LEVELS
 
 
 def _is_bounded_string(value, required: bool) -> bool:
@@ -178,6 +204,19 @@ def _normalize_model(entry: dict) -> dict:
     pricing = entry.get("pricing") or {}
     top_provider = entry.get("top_provider") or {}
     supported_params = entry.get("supported_parameters") or []
+    reasoning = entry.get("reasoning") or {}
+    if not isinstance(reasoning, dict):
+        reasoning = {}
+    advertised_efforts = reasoning.get("supported_efforts") or []
+    if not isinstance(advertised_efforts, list):
+        advertised_efforts = []
+    reasoning_efforts = [
+        effort for effort in REASONING_EFFORT_ORDER
+        if effort in advertised_efforts
+    ]
+    default_reasoning_effort = reasoning.get("default_effort")
+    if default_reasoning_effort not in REASONING_EFFORT_LEVELS:
+        default_reasoning_effort = None
     return {
         "id": entry.get("id", ""),
         "name": entry.get("name") or entry.get("id", ""),
@@ -189,6 +228,9 @@ def _normalize_model(entry: dict) -> dict:
         "supports_reasoning": "reasoning" in supported_params
             or "reasoning_effort" in supported_params,
         "supports_tools": "tools" in supported_params,
+        "reasoning_efforts": reasoning_efforts,
+        "default_reasoning_effort": default_reasoning_effort,
+        "reasoning_mandatory": bool(reasoning.get("mandatory", False)),
     }
 
 
@@ -252,6 +294,9 @@ def _static_fallback() -> list[dict]:
             "supports_reasoning": capabilities.get("supports_reasoning", False)
                 or capabilities.get("supports_extended_thinking", False),
             "supports_tools": capabilities.get("supports_tools", True),
+            "reasoning_efforts": list(capabilities.get("reasoning_efforts", ())),
+            "default_reasoning_effort": capabilities.get("default_reasoning_effort"),
+            "reasoning_mandatory": capabilities.get("reasoning_mandatory", False),
         })
     return fallback
 
@@ -261,9 +306,28 @@ def find_model(model_id: str, allow_network: bool = False) -> dict | None:
     for model in get_openrouter_models(allow_network=allow_network):
         if model["id"] == model_id:
             return model
+    for model in _static_fallback():
+        if model["id"] == model_id:
+            return model
     return None
 
 
 def model_supports_reasoning(model_id: str) -> bool:
     model = find_model(model_id)
     return bool(model and model.get("supports_reasoning"))
+
+
+def get_model_reasoning_efforts(model_id: str) -> tuple[str, ...]:
+    """Return the exact effort levels advertised by OpenRouter."""
+    model = find_model(model_id)
+    if not model or not model.get("supports_reasoning"):
+        return ()
+    return tuple(model.get("reasoning_efforts") or ())
+
+
+def get_model_default_reasoning_effort(model_id: str) -> str | None:
+    """Return OpenRouter's default reasoning effort for one model."""
+    model = find_model(model_id)
+    if not model:
+        return None
+    return model.get("default_reasoning_effort")

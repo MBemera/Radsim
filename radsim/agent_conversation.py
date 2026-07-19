@@ -46,10 +46,23 @@ class AgentConversationMixin:
 
             model = self.config.model or DEFAULT_MODELS.get(provider)
 
+        from .config import load_reasoning_effort, resolve_reasoning_effort
+
+        reasoning_effort = resolve_reasoning_effort(
+            provider,
+            model,
+            load_reasoning_effort(),
+        )
         self.config.provider = provider
         self.config.api_key = api_key
         self.config.model = model
-        self.client = create_client(provider, api_key, model)
+        self.config.reasoning_effort = reasoning_effort
+        self.client = create_client(
+            provider,
+            api_key,
+            model,
+            reasoning_effort=reasoning_effort,
+        )
 
         try:
             from .config import save_config

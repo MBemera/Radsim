@@ -3,6 +3,7 @@
 import importlib
 import subprocess
 import sys
+from types import SimpleNamespace
 
 
 class TestMainModule:
@@ -125,3 +126,35 @@ class TestCLIImportSideEffects:
         assert len(signal_calls) == 1
         assert len(atexit_calls) == 1
         assert len(warning_calls) == 1
+
+
+def test_explicit_cli_model_is_persisted(monkeypatch):
+    import radsim.cli
+
+    saved = []
+    monkeypatch.setattr(
+        "radsim.config.save_last_model_selection",
+        lambda provider, model: saved.append((provider, model)),
+    )
+    args = SimpleNamespace(provider=None, model="moonshotai/kimi-k3")
+    config = SimpleNamespace(provider="openrouter", model="moonshotai/kimi-k3")
+
+    radsim.cli._persist_explicit_model_selection(args, config)
+
+    assert saved == [("openrouter", "moonshotai/kimi-k3")]
+
+
+def test_implicit_startup_model_is_not_rewritten(monkeypatch):
+    import radsim.cli
+
+    saved = []
+    monkeypatch.setattr(
+        "radsim.config.save_last_model_selection",
+        lambda provider, model: saved.append((provider, model)),
+    )
+    args = SimpleNamespace(provider=None, model=None)
+    config = SimpleNamespace(provider="openrouter", model="z-ai/glm-5.2")
+
+    radsim.cli._persist_explicit_model_selection(args, config)
+
+    assert saved == []

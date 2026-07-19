@@ -6,13 +6,25 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .persistence import atomic_write_json
 from .runtime_context import get_runtime_context
+from .terminal import is_unsafe_terminal_character
 
 logger = logging.getLogger(__name__)
 
 
-REASONING_EFFORT_LEVELS = ("low", "medium", "high")
+REASONING_EFFORT_LEVELS = (
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+)
+DEFAULT_REASONING_EFFORT_OPTIONS = ("low", "medium", "high")
 DEFAULT_REASONING_EFFORT = "medium"
+DEFAULT_OPENROUTER_MODEL = "z-ai/glm-5.2"
 
 
 @dataclass
@@ -63,6 +75,15 @@ PROVIDER_MODELS = {
         ("gpt-5-mini", "GPT-5 Mini (Fast & cheap)"),
     ],
     "openrouter": [
+        ("z-ai/glm-5.2", "GLM 5.2 (Recommended fallback, 1M context)"),
+        ("moonshotai/kimi-k3", "Kimi K3 (Coding and long-horizon agents)"),
+        ("anthropic/claude-fable-5", "Claude Fable 5 (Autonomous coding)"),
+        ("openai/gpt-5.6-sol-pro", "GPT-5.6 Sol Pro (Deepest reasoning)"),
+        ("openai/gpt-5.6-sol", "GPT-5.6 Sol (Flagship)"),
+        ("openai/gpt-5.6-terra-pro", "GPT-5.6 Terra Pro (Balanced pro)"),
+        ("openai/gpt-5.6-terra", "GPT-5.6 Terra (Balanced)"),
+        ("openai/gpt-5.6-luna-pro", "GPT-5.6 Luna Pro (Fast pro)"),
+        ("openai/gpt-5.6-luna", "GPT-5.6 Luna (Fast and cost-efficient)"),
         ("minimax/minimax-m3", "MiniMax M3 (Recommended — top usage)"),
         ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash (Fast & cheapest)"),
         ("anthropic/claude-opus-4.8", "Claude Opus 4.8 via OpenRouter (Most capable)"),
@@ -70,14 +91,13 @@ PROVIDER_MODELS = {
         ("moonshotai/kimi-k2.5", "Kimi K2.5 (Capable & cheap)"),
         ("openai/gpt-5.4", "GPT-5.4 via OpenRouter"),
         ("openai/gpt-5.3-codex", "GPT-5.3 Codex via OpenRouter"),
-        ("z-ai/glm-5.2", "GLM 5.2 (Capable, 1M context)"),
         ("z-ai/glm-4.7", "GLM 4.7 (Capable)"),
     ],
 }
 
 # Default model for each provider (Updated Jul 2026)
 DEFAULT_MODELS = {
-    "openrouter": "minimax/minimax-m3",
+    "openrouter": DEFAULT_OPENROUTER_MODEL,
     "openai": "gpt-5.4",
     "claude": "claude-opus-4-8",
 }
@@ -110,6 +130,9 @@ FALLBACK_MODELS = {
         "gpt-5-mini",
     ],
     "openrouter": [
+        DEFAULT_OPENROUTER_MODEL,
+        "moonshotai/kimi-k3",
+        "openai/gpt-5.6-luna",
         "minimax/minimax-m3",
         "deepseek/deepseek-v4-flash",
         "moonshotai/kimi-k2.5",
@@ -138,16 +161,24 @@ MODEL_PRICING = {
     # OpenRouter models (live pricing, verified Jul 2026)
     "minimax/minimax-m3": (0.30, 1.20),
     "deepseek/deepseek-v4-flash": (0.09, 0.18),
+    "moonshotai/kimi-k3": (3.00, 15.00),
     "moonshotai/kimi-k2.5": (0.38, 2.02),
+    "anthropic/claude-fable-5": (10.00, 50.00),
     "anthropic/claude-opus-4.8": (5.00, 25.00),
     "anthropic/claude-opus-4.6": (5.00, 25.00),
     "anthropic/claude-sonnet-4.6": (3.00, 15.00),
     "anthropic/claude-haiku-4.5": (1.00, 5.00),
     "openai/gpt-5.4": (2.50, 15.00),
+    "openai/gpt-5.6-sol-pro": (5.00, 30.00),
+    "openai/gpt-5.6-sol": (5.00, 30.00),
+    "openai/gpt-5.6-terra-pro": (2.50, 15.00),
+    "openai/gpt-5.6-terra": (2.50, 15.00),
+    "openai/gpt-5.6-luna-pro": (1.00, 6.00),
+    "openai/gpt-5.6-luna": (1.00, 6.00),
     "openai/gpt-5.3-codex": (1.75, 14.00),
     "openai/gpt-5.2-codex": (1.75, 14.00),
     "minimax/minimax-m2.1": (0.30, 1.20),
-    "z-ai/glm-5.2": (0.77, 2.42),
+    "z-ai/glm-5.2": (0.2646, 0.8316),
     "z-ai/glm-4.7": (0.40, 1.75),
 }
 
@@ -192,12 +223,20 @@ CONTEXT_LIMITS = {
     # OpenRouter models (live context windows, verified Jul 2026)
     "minimax/minimax-m3": 1048576,
     "deepseek/deepseek-v4-flash": 1048576,
+    "moonshotai/kimi-k3": 1048576,
     "moonshotai/kimi-k2.5": 262144,
+    "anthropic/claude-fable-5": 1000000,
     "anthropic/claude-opus-4.8": 1000000,
     "anthropic/claude-opus-4.6": 1000000,
     "anthropic/claude-sonnet-4.6": 1000000,
     "anthropic/claude-haiku-4.5": 200000,
     "openai/gpt-5.4": 1050000,
+    "openai/gpt-5.6-sol-pro": 1050000,
+    "openai/gpt-5.6-sol": 1050000,
+    "openai/gpt-5.6-terra-pro": 1050000,
+    "openai/gpt-5.6-terra": 1050000,
+    "openai/gpt-5.6-luna-pro": 1050000,
+    "openai/gpt-5.6-luna": 1050000,
     "openai/gpt-5.3-codex": 400000,
     "openai/gpt-5.2-codex": 400000,
     "z-ai/glm-5.2": 1048576,
@@ -320,6 +359,62 @@ MODEL_CAPABILITIES = {
         "supports_vision": False,
         "max_output_tokens": 16384,
     },
+    "z-ai/glm-5.2": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("high", "xhigh"),
+        "default_reasoning_effort": "high",
+    },
+    "moonshotai/kimi-k3": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("max",),
+        "default_reasoning_effort": "max",
+        "reasoning_mandatory": True,
+    },
+    "anthropic/claude-fable-5": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("low", "medium", "high", "xhigh", "max"),
+        "default_reasoning_effort": "medium",
+        "reasoning_mandatory": True,
+    },
+    "openai/gpt-5.6-sol-pro": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("none", "low", "medium", "high", "xhigh", "max"),
+        "default_reasoning_effort": "medium",
+    },
+    "openai/gpt-5.6-sol": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("none", "low", "medium", "high", "xhigh", "max"),
+        "default_reasoning_effort": "medium",
+    },
+    "openai/gpt-5.6-terra-pro": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("none", "low", "medium", "high", "xhigh", "max"),
+        "default_reasoning_effort": "medium",
+    },
+    "openai/gpt-5.6-terra": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("none", "low", "medium", "high", "xhigh", "max"),
+        "default_reasoning_effort": "medium",
+    },
+    "openai/gpt-5.6-luna-pro": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("none", "low", "medium", "high", "xhigh", "max"),
+        "default_reasoning_effort": "medium",
+    },
+    "openai/gpt-5.6-luna": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("none", "low", "medium", "high", "xhigh", "max"),
+        "default_reasoning_effort": "medium",
+    },
 }
 
 
@@ -386,7 +481,14 @@ def load_env_file():
 
     Supports both RADSIM_API_KEY and provider-specific keys.
     """
-    result = {"api_key": None, "provider": None, "model": None, "keys": {}}
+    result = {
+        "api_key": None,
+        "provider": None,
+        "provider_source": None,
+        "model": None,
+        "model_source": None,
+        "keys": {},
+    }
 
     env_files_to_check = []
 
@@ -438,8 +540,14 @@ def load_env_file():
                     result["api_key"] = value
                 elif key == "RADSIM_PROVIDER" and not result["provider"]:
                     result["provider"] = value
+                    result["provider_source"] = (
+                        "global" if env_file == ENV_FILE else "project"
+                    )
                 elif key == "RADSIM_MODEL" and not result["model"]:
                     result["model"] = value
+                    result["model_source"] = (
+                        "global" if env_file == ENV_FILE else "project"
+                    )
                 # Also capture provider-specific API keys and access code
                 elif key in (
                     "ANTHROPIC_API_KEY",
@@ -509,7 +617,13 @@ def save_config(api_key, provider, model):
     existing_keys = existing_config.get("keys", {})
 
     if not model:
-        model = existing_config.get("model") or DEFAULT_MODELS.get(provider, "")
+        model = load_last_model_selection(provider)
+    if not model:
+        existing_model = existing_config.get("model")
+        if existing_model and model_belongs_to_provider(existing_model, provider):
+            model = existing_model
+    if not model:
+        model = DEFAULT_MODELS.get(provider, "")
 
     # Update with the new key
     existing_keys[env_var] = api_key
@@ -534,6 +648,41 @@ def save_config(api_key, provider, model):
 
     ENV_FILE.write_text("\n".join(lines))
     ENV_FILE.chmod(0o600)  # Secure: owner read/write only
+    save_last_model_selection(provider, model)
+
+
+def save_last_model_selection(provider: str, model: str) -> None:
+    """Persist the most recently selected provider and model without secrets."""
+    if not _is_valid_model_selection(provider, model):
+        raise ValueError("Provider and model selection is invalid")
+
+    settings = load_settings_file()
+    settings["last_provider"] = provider
+    settings["last_model"] = model
+    atomic_write_json(SETTINGS_FILE, settings, secure=True)
+
+
+def load_last_model_selection(provider: str) -> str | None:
+    """Return the last model selected for the requested provider."""
+    settings = load_settings_file()
+    if settings.get("last_provider") != provider:
+        return None
+
+    model = settings.get("last_model")
+    if not _is_valid_model_selection(provider, model):
+        return None
+    return model
+
+
+def _is_valid_model_selection(provider: str, model) -> bool:
+    """Return whether a provider/model pair is safe to persist and display."""
+    if provider not in DEFAULT_MODELS or not isinstance(model, str):
+        return False
+    if not model or model != model.strip() or len(model) > 256:
+        return False
+    if any(is_unsafe_terminal_character(character) for character in model):
+        return False
+    return model_belongs_to_provider(model, provider)
 
 
 def save_reasoning_effort(effort: str) -> None:
@@ -543,10 +692,9 @@ def save_reasoning_effort(effort: str) -> None:
             f"Invalid reasoning_effort: {effort}. "
             f"Expected one of {REASONING_EFFORT_LEVELS}."
         )
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     settings = load_settings_file()
     settings["reasoning_effort"] = effort
-    SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+    atomic_write_json(SETTINGS_FILE, settings, secure=True)
 
 
 def load_reasoning_effort() -> str:
@@ -766,30 +914,63 @@ def _search_openrouter_models(full: list[tuple[str, str]]) -> str | None:
     return None
 
 
-def _maybe_prompt_reasoning_effort(provider: str, model: str) -> None:
-    """Prompt for reasoning effort when the chosen model supports it."""
-    if provider not in ("openai", "openrouter"):
-        return
+def get_reasoning_effort_options(provider: str, model: str) -> tuple[str, ...]:
+    """Return the effort levels accepted by the selected model."""
     capabilities = MODEL_CAPABILITIES.get(model, {})
-    supports_reasoning = capabilities.get("supports_reasoning", False)
     if provider == "openrouter":
-        from .openrouter_models import model_supports_reasoning
-        supports_reasoning = supports_reasoning or model_supports_reasoning(model)
-    if not supports_reasoning:
-        return
+        from .openrouter_models import (
+            get_model_reasoning_efforts,
+            model_supports_reasoning,
+        )
 
-    print()
-    print("  This model supports reasoning. Choose effort level:")
-    print("    1. low (cheapest, faster, less thinking)")
-    print("    2. medium (recommended)")
-    print("    3. high (deepest reasoning, more tokens)")
-    print()
-    try:
-        choice = input("  Enter 1-3 [2]: ").strip() or "2"
-    except (KeyboardInterrupt, EOFError):
+        live_efforts = get_model_reasoning_efforts(model)
+        if live_efforts:
+            return live_efforts
+    if capabilities.get("supports_reasoning"):
+        return tuple(capabilities.get("reasoning_efforts", DEFAULT_REASONING_EFFORT_OPTIONS))
+    if provider == "openrouter" and model_supports_reasoning(model):
+        return DEFAULT_REASONING_EFFORT_OPTIONS
+    return ()
+
+
+def resolve_reasoning_effort(provider: str, model: str, effort: str) -> str:
+    """Map a saved effort to one supported by the selected model."""
+    options = get_reasoning_effort_options(provider, model)
+    if not options or effort in options:
+        return effort
+    capabilities = MODEL_CAPABILITIES.get(model, {})
+    default_effort = capabilities.get("default_reasoning_effort")
+    if provider == "openrouter":
+        from .openrouter_models import get_model_default_reasoning_effort
+
+        default_effort = get_model_default_reasoning_effort(model) or default_effort
+    return default_effort if default_effort in options else options[0]
+
+
+def _maybe_prompt_reasoning_effort(provider: str, model: str) -> None:
+    """Prompt only with reasoning levels supported by the selected model."""
+    options = get_reasoning_effort_options(provider, model)
+    if not options:
         return
-    mapping = {"1": "low", "2": "medium", "3": "high"}
-    effort = mapping.get(choice, "medium")
+    if len(options) == 1:
+        effort = options[0]
+        print(f"\n  This model requires reasoning effort '{effort}'.")
+    else:
+        default_effort = resolve_reasoning_effort(provider, model, DEFAULT_REASONING_EFFORT)
+        default_choice = str(options.index(default_effort) + 1)
+        print("\n  This model supports reasoning. Choose effort level:")
+        for index, option in enumerate(options, 1):
+            print(f"    {index}. {option}")
+        try:
+            choice = input(
+                f"  Enter 1-{len(options)} [{default_choice}]: "
+            ).strip() or default_choice
+        except (KeyboardInterrupt, EOFError):
+            return
+        try:
+            effort = options[int(choice) - 1]
+        except (ValueError, IndexError):
+            effort = default_effort
     save_reasoning_effort(effort)
     print(f"  ok Reasoning effort set to '{effort}'.")
 
@@ -949,11 +1130,27 @@ def load_config(
 
     agent_config = settings_config.get("agent_config", {})
 
-    # Determine provider (priority: override > env var > env files > settings.json > default)
+    project_provider = (
+        env_config["provider"]
+        if env_config.get("provider_source") == "project"
+        else None
+    )
+    global_provider = (
+        env_config["provider"]
+        if env_config.get("provider_source") == "global"
+        else None
+    )
+    last_provider = settings_config.get("last_provider")
+    if last_provider not in DEFAULT_MODELS:
+        last_provider = None
+
+    # Explicit project/process choices win. Otherwise reuse the last selection.
     provider = (
         provider_override
         or os.getenv("RADSIM_PROVIDER")
-        or env_config["provider"]
+        or project_provider
+        or last_provider
+        or global_provider
         or settings_config.get("default_provider")
         or "openrouter"
     )
@@ -996,11 +1193,25 @@ def load_config(
         # 4. Legacy fallback
         api_key = os.getenv("RADSIM_API_KEY")
 
-    # Determine model (priority: override > env var > env files > settings.json > default)
+    project_model = (
+        env_config.get("model")
+        if env_config.get("model_source") == "project"
+        else None
+    )
+    global_model = (
+        env_config.get("model")
+        if env_config.get("model_source") == "global"
+        else None
+    )
+    last_model = load_last_model_selection(provider)
+
+    # Explicit project/process values win. Otherwise reuse the last selection.
     model = (
         model_override
         or os.getenv("RADSIM_MODEL")
-        or env_config.get("model")
+        or project_model
+        or last_model
+        or global_model
         or settings_config.get("default_model")
     )
 
@@ -1049,6 +1260,7 @@ def load_config(
     reasoning_effort = settings_config.get("reasoning_effort", DEFAULT_REASONING_EFFORT)
     if reasoning_effort not in REASONING_EFFORT_LEVELS:
         reasoning_effort = DEFAULT_REASONING_EFFORT
+    reasoning_effort = resolve_reasoning_effort(provider, model, reasoning_effort)
 
     return Config(
         provider=provider,
