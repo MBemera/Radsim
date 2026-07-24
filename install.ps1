@@ -61,6 +61,30 @@ function Get-PythonVersion {
     return "unknown"
 }
 
+function Get-PipxArgs {
+    param([string]$PythonCmd)
+    # Prefer `python -m pipx`; it works right after a pip --user install
+    # without depending on PATH being refreshed.
+    $ErrorActionPreference = "Continue"
+    & $PythonCmd -m pipx --version *> $null
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($code -eq 0) {
+        return @("-m", "pipx")
+    }
+    return $null
+}
+
+function Install-Pipx {
+    param([string]$PythonCmd)
+    Write-Info "Installing pipx (recommended for isolated CLI installs)..."
+    $ErrorActionPreference = "Continue"
+    & $PythonCmd -m pip install --user --upgrade pipx --quiet *> $null
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    return ($code -eq 0)
+}
+
 # Main installation logic
 Write-Title
 
@@ -99,21 +123,53 @@ if ($pipExitCode -ne 0) {
 }
 Write-Success "pip available"
 
-# Step 3: Install radsim from PyPI
-Write-Info "Installing RadSim from PyPI..."
-
-$ErrorActionPreference = "Continue"
-$installOutput = & $pythonCmd -m pip install --upgrade radsimcli --quiet 2>&1
-$installExitCode = $LASTEXITCODE
-$ErrorActionPreference = "Stop"
-
-if ($installExitCode -ne 0) {
-    Write-ErrorMessage "Installation failed:"
-    $installOutput | ForEach-Object { Write-Host "  $_" }
-    exit 1
+# Step 3: Install RadSim, preferring an isolated pipx environment
+$pipxArgs = Get-PipxArgs -PythonCmd $pythonCmd
+if (-not $pipxArgs) {
+    if (Install-Pipx -PythonCmd $pythonCmd) {
+        $pipxArgs = Get-PipxArgs -PythonCmd $pythonCmd
+    }
 }
 
-Write-Success "RadSim installed"
+$installedWithPipx = $false
+if ($pipxArgs) {
+    Write-Info "Installing RadSim with pipx..."
+    $ErrorActionPreference = "Continue"
+    & $pythonCmd @pipxArgs install radsimcli
+    $installExitCode = $LASTEXITCODE
+    if ($installExitCode -ne 0) {
+        # A non-zero result most often means RadSim is already installed.
+        & $pythonCmd @pipxArgs upgrade radsimcli
+        $installExitCode = $LASTEXITCODE
+    }
+    $ErrorActionPreference = "Stop"
+
+    if ($installExitCode -eq 0) {
+        $ErrorActionPreference = "Continue"
+        & $pythonCmd @pipxArgs ensurepath *> $null
+        $ErrorActionPreference = "Stop"
+        $installedWithPipx = $true
+        Write-Success "RadSim installed (pipx)"
+    }
+    else {
+        Write-Info "pipx install failed; falling back to pip."
+    }
+}
+
+if (-not $installedWithPipx) {
+    Write-Info "Installing RadSim with pip..."
+    $ErrorActionPreference = "Continue"
+    $installOutput = & $pythonCmd -m pip install --user --upgrade radsimcli --quiet 2>&1
+    $installExitCode = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+
+    if ($installExitCode -ne 0) {
+        Write-ErrorMessage "Installation failed:"
+        $installOutput | ForEach-Object { Write-Host "  $_" }
+        exit 1
+    }
+    Write-Success "RadSim installed"
+}
 
 # Step 5: Verify command and update PATH if needed
 $pathNeedsUpdate = $false
@@ -123,6 +179,11 @@ $radsimPath = & $pythonCmd -c "import shutil; print(shutil.which('radsim') or ''
 $ErrorActionPreference = "Stop"
 if ($radsimPath) {
     Write-Success "'radsim' command is available"
+}
+elseif ($installedWithPipx) {
+    # pipx ensurepath already added its bin dir to the user PATH.
+    $pathNeedsUpdate = $true
+    Write-Success "pipx configured PATH; restart your terminal to use 'radsim'"
 }
 else {
     # Per-user pip installs put radsim.exe in the USER scripts dir
