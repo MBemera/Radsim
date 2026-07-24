@@ -13,6 +13,7 @@ import argparse
 import ntpath
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import sysconfig
@@ -98,29 +99,104 @@ def detect_platform():
         return system
 
 
-def install_radsim():
-    """Install radsim from PyPI."""
-    print_info("Installing RadSim from PyPI...")
+def find_pipx():
+    """Return a command list that runs pipx, or None when it is unavailable."""
+    if shutil.which("pipx"):
+        return ["pipx"]
 
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--upgrade", "radsimcli", "--quiet"],
+    probe = subprocess.run(
+        [sys.executable, "-m", "pipx", "--version"],
         capture_output=True,
         text=True,
     )
+    if probe.returncode == 0:
+        return [sys.executable, "-m", "pipx"]
+
+    return None
+
+
+def bootstrap_pipx():
+    """Best-effort pipx install via pip --user (works on writable Pythons)."""
+    print_info("Installing pipx (recommended for isolated CLI installs)...")
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--user", "pipx"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def print_pipx_guidance():
+    """Explain how to install pipx per platform when automation fails."""
+    print()
+    print("  Modern systems block 'pip install' into the system Python (PEP 668).")
+    print("  Install pipx, then RadSim:")
+    print()
+    print("    Debian/Ubuntu:  sudo apt install pipx")
+    print("    Fedora:         sudo dnf install pipx")
+    print("    Arch:           sudo pacman -S python-pipx")
+    print("    openSUSE:       sudo zypper install python3-pipx")
+    print("    macOS:          brew install pipx")
+    print()
+    print("  Then:")
+    print("    pipx ensurepath")
+    print("    pipx install radsimcli")
+    print()
+
+
+def install_with_pipx(pipx_command):
+    """Install RadSim into an isolated pipx environment."""
+    print_info("Installing RadSim with pipx...")
+
+    result = subprocess.run([*pipx_command, "install", "radsimcli"], text=True)
+    if result.returncode != 0:
+        # A non-zero result most often means RadSim is already installed.
+        result = subprocess.run([*pipx_command, "upgrade", "radsimcli"], text=True)
 
     if result.returncode != 0:
-        print_error(f"Installation failed: {result.stderr}")
         return False
 
+    subprocess.run([*pipx_command, "ensurepath"], capture_output=True, text=True)
     print_success("RadSim installed")
     return True
 
 
+def install_with_pip():
+    """Fallback pip --user install; guide to pipx on externally-managed Python."""
+    print_info("Installing RadSim with pip (--user)...")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--user", "--upgrade", "radsimcli"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        print_success("RadSim installed")
+        return True
+
+    if "externally-managed" in result.stderr:
+        print_error("This Python is externally managed (PEP 668).")
+        print_pipx_guidance()
+    else:
+        print_error(f"Installation failed: {result.stderr.strip()}")
+
+    return False
+
+
+def install_radsim():
+    """Install RadSim, preferring an isolated pipx environment."""
+    pipx_command = find_pipx()
+    if pipx_command is None and bootstrap_pipx():
+        pipx_command = find_pipx()
+
+    if pipx_command is not None:
+        return install_with_pipx(pipx_command)
+
+    return install_with_pip()
+
+
 def verify_command():
     """Check if the radsim command is accessible."""
-    # Check common locations
-    import shutil
-
     if shutil.which("radsim"):
         print_success("'radsim' command is available")
         return True

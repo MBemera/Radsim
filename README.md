@@ -87,18 +87,70 @@ OpenRouter is just the most flexible starting point.
 
 ## Install
 
-From PyPI:
+### Quick install (macOS + Linux)
+
+The install script detects your distro, sets up pipx, and installs RadSim:
 
 ```bash
-python3 -m pip install radsimcli
+curl -fsSL https://raw.githubusercontent.com/MBemera/Radsim/main/install.sh | bash
 ```
 
-From source (recommended if you want to read the code or send PRs):
+### Recommended: pipx
+
+RadSim is a command-line app, so the cleanest install is [pipx](https://pipx.pypa.io).
+pipx puts RadSim in its own isolated environment, so it never clashes with your
+system Python. This also avoids the `externally-managed-environment` error
+(PEP 668) that Ubuntu/Debian, Fedora, Arch, and openSUSE raise when you
+`pip install` into the system Python.
+
+First make sure pipx is installed:
+
+```bash
+# Debian / Ubuntu / Kubuntu / Mint / Pop!_OS
+sudo apt install pipx
+
+# Fedora / RHEL
+sudo dnf install pipx
+
+# Arch / Manjaro
+sudo pacman -S python-pipx
+
+# openSUSE
+sudo zypper install python3-pipx
+
+# Alpine
+sudo apk add pipx
+
+# macOS
+brew install pipx
+```
+
+Then install RadSim:
+
+```bash
+pipx ensurepath          # adds pipx's bin dir to PATH (once)
+pipx install radsimcli
+```
+
+Restart your terminal after `pipx ensurepath` so the `radsim` command is found.
+
+### With pip
+
+If your Python is not externally managed (older distros, Windows, or an
+activated environment), plain pip works too:
+
+```bash
+python3 -m pip install --user radsimcli
+```
+
+### From source
+
+Recommended if you want to read the code or send PRs:
 
 ```bash
 git clone https://github.com/MBemera/Radsim.git
 cd Radsim
-python3 -m pip install -e ".[dev]"
+pipx install -e ".[dev]"     # or: python3 -m pip install -e ".[dev]"
 ```
 
 Verify:
