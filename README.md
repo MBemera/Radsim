@@ -123,6 +123,9 @@ sudo apk add pipx
 
 # macOS
 brew install pipx
+
+# Windows (PowerShell) — or: scoop install pipx
+python -m pip install --user pipx
 ```
 
 Then install RadSim:
