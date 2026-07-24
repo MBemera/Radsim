@@ -5,13 +5,38 @@ from types import SimpleNamespace
 import install as installer
 
 
-def test_install_uses_pip_upgrade(monkeypatch):
+def test_install_prefers_pipx(monkeypatch):
+    """When pipx is available, RadSim installs into an isolated pipx env."""
     calls = []
 
     def fake_run(arguments, **kwargs):
         calls.append(arguments)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
+    monkeypatch.setattr(
+        installer.shutil,
+        "which",
+        lambda name: "/usr/bin/pipx" if name == "pipx" else None,
+    )
+    monkeypatch.setattr(installer.subprocess, "run", fake_run)
+
+    assert installer.install_radsim() is True
+    assert calls == [
+        ["pipx", "install", "radsimcli"],
+        ["pipx", "ensurepath"],
+    ]
+
+
+def test_install_falls_back_to_pip_user(monkeypatch):
+    """Without pipx (and no bootstrap), RadSim installs via pip --user."""
+    calls = []
+
+    def fake_run(arguments, **kwargs):
+        calls.append(arguments)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(installer, "find_pipx", lambda: None)
+    monkeypatch.setattr(installer, "bootstrap_pipx", lambda: False)
     monkeypatch.setattr(installer.subprocess, "run", fake_run)
 
     assert installer.install_radsim() is True
@@ -21,9 +46,9 @@ def test_install_uses_pip_upgrade(monkeypatch):
             "-m",
             "pip",
             "install",
+            "--user",
             "--upgrade",
             "radsimcli",
-            "--quiet",
         ]
     ]
 
