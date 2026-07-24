@@ -87,68 +87,134 @@ OpenRouter is just the most flexible starting point.
 
 ## Install
 
-### Quick install (macOS + Linux)
+RadSim installs with [pipx](https://pipx.pypa.io), which puts it in its own
+isolated environment. You never create or activate a virtualenv, and it avoids
+the `externally-managed-environment` error (PEP 668) that modern macOS and Linux
+raise when you `pip install` into the system Python.
 
-The install script detects your distro, sets up pipx, and installs RadSim:
+Pick your platform, copy-paste the block, then **restart your terminal** so the
+updated `PATH` takes effect and run `radsim`.
+
+### Quick install (macOS & Linux, one line)
+
+Auto-detects your distro, sets up pipx, and installs RadSim:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MBemera/Radsim/main/install.sh | bash
 ```
 
-### Recommended: pipx
+Prefer to do it by hand? Use the per-platform blocks below.
 
-RadSim is a command-line app, so the cleanest install is [pipx](https://pipx.pypa.io).
-pipx puts RadSim in its own isolated environment, so it never clashes with your
-system Python. This also avoids the `externally-managed-environment` error
-(PEP 668) that Ubuntu/Debian, Fedora, Arch, and openSUSE raise when you
-`pip install` into the system Python.
-
-First make sure pipx is installed:
+### macOS
 
 ```bash
-# Debian / Ubuntu / Kubuntu / Mint / Pop!_OS
-sudo apt install pipx
-
-# Fedora / RHEL
-sudo dnf install pipx
-
-# Arch / Manjaro
-sudo pacman -S python-pipx
-
-# openSUSE
-sudo zypper install python3-pipx
-
-# Alpine
-sudo apk add pipx
-
-# macOS
+# With Homebrew (recommended)
 brew install pipx
-
-# Windows (PowerShell) — or: scoop install pipx
-python -m pip install --user pipx
-```
-
-Then install RadSim:
-
-```bash
-pipx ensurepath          # adds pipx's bin dir to PATH (once)
+pipx ensurepath
 pipx install radsimcli
 ```
 
-Restart your terminal after `pipx ensurepath` so the `radsim` command is found.
-
-### With pip
-
-If your Python is not externally managed (older distros, Windows, or an
-activated environment), plain pip works too:
+No Homebrew? Install pipx with pip instead:
 
 ```bash
-python3 -m pip install --user radsimcli
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+python3 -m pipx install radsimcli
+```
+
+### Ubuntu / Debian / Kubuntu / Mint / Pop!_OS
+
+```bash
+# Ubuntu 22.04+ or Debian 12+
+sudo apt update
+sudo apt install pipx
+pipx ensurepath
+pipx install radsimcli
+```
+
+Older releases (Ubuntu 20.04, Debian 11) have no `pipx` package — use pip:
+
+```bash
+sudo apt update && sudo apt install python3-pip
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+python3 -m pipx install radsimcli
+```
+
+### Fedora / RHEL / Rocky / Alma
+
+```bash
+# Fedora, and RHEL / Rocky / Alma 9+
+sudo dnf install pipx
+pipx ensurepath
+pipx install radsimcli
+```
+
+On RHEL / Rocky / Alma 8 (no `pipx` package), use pip:
+
+```bash
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+python3 -m pipx install radsimcli
+```
+
+### Arch / Manjaro
+
+```bash
+sudo pacman -S python-pipx
+pipx ensurepath
+pipx install radsimcli
+```
+
+### openSUSE
+
+```bash
+sudo zypper install python3-pipx
+pipx ensurepath
+pipx install radsimcli
+```
+
+### Alpine
+
+```bash
+sudo apk add pipx
+pipx ensurepath
+pipx install radsimcli
+```
+
+### Windows (PowerShell)
+
+Needs Python 3.10+ (install from python.org with "Add Python to PATH", or use
+the `py` launcher as shown):
+
+```powershell
+py -3 -m pip install --user pipx
+py -3 -m pipx ensurepath
+py -3 -m pipx install radsimcli
+```
+
+Or let the bundled installer set it up for you:
+
+```powershell
+.\install.ps1
+```
+
+Notes: `py -3 -m radsim` runs RadSim even before `PATH` is refreshed. Config and
+credentials live under `%USERPROFILE%\.radsim`. Scheduled jobs use Windows Task
+Scheduler; `winget`, Chocolatey, and Scoop are auto-detected for optional tool
+installs, but none is required.
+
+### Verify
+
+Restart your terminal first, then:
+
+```bash
+radsim --version
 ```
 
 ### From source
 
-Recommended if you want to read the code or send PRs:
+For reading the code or sending PRs:
 
 ```bash
 git clone https://github.com/MBemera/Radsim.git
@@ -156,53 +222,7 @@ cd Radsim
 pipx install -e ".[dev]"     # or: python3 -m pip install -e ".[dev]"
 ```
 
-Verify:
-
-```bash
-radsim --version
-```
-
-### Windows
-
-RadSim supports Windows 10 and 11 with Python 3.10 or newer. Check Python and
-pip from PowerShell:
-
-```powershell
-py -3 --version
-py -3 -m pip --version
-```
-
-Install the published package:
-
-```powershell
-py -3 -m pip install --upgrade radsimcli
-py -3 -m radsim --version
-py -3 -m radsim
-```
-
-`py -3 -m radsim` works even before Python's Scripts directory is available on
-`PATH`.
-
-The included PowerShell installer performs the same PyPI installation, checks
-Python and pip, and adds the directory containing `radsim.exe` to the current
-user's `PATH` when needed:
-
-```powershell
-.\install.ps1
-```
-
-Restart PowerShell if the installer changes `PATH`, then verify both Windows
-entry points:
-
-```powershell
-radsim
-where.exe radsim
-radsim --version
-py -3 -m radsim --version
-```
-
-For development against the checked-out source instead of the published PyPI
-release:
+On Windows PowerShell:
 
 ```powershell
 git clone https://github.com/MBemera/Radsim.git
@@ -211,24 +231,14 @@ py -3 -m pip install -e ".[dev]"
 py -3 -m pytest -q
 ```
 
-Pip creates `radsim.exe` in the active Python Scripts directory. Depending on
-how Python was installed, this is commonly the interpreter's `Scripts`
-directory or the per-user directory under
-`%APPDATA%\Python\PythonXY\Scripts`. Print both candidate locations with:
+### Plain pip (alternative)
 
-```powershell
-py -3 -c "import os, sysconfig; print(sysconfig.get_path('scripts')); print(sysconfig.get_path('scripts', os.name + '_user'))"
+If your Python isn't externally managed (older distros, an activated venv, or
+Windows), you can skip pipx entirely:
+
+```bash
+python3 -m pip install --user radsimcli
 ```
-
-RadSim runs native PowerShell commands on Windows and uses Windows Task
-Scheduler for scheduled jobs. `winget`, Chocolatey, and Scoop are detected for
-optional system-tool installation; none is required to install RadSim itself.
-User configuration and provider credentials are stored under
-`%USERPROFILE%\.radsim`; secrets are not written into the repository.
-
-The Windows CI job builds the wheel on `windows-latest`, installs it into a
-fresh virtual environment, verifies both `python -m radsim` and `radsim.exe`,
-validates `install.ps1`, and runs the Windows-specific test suite.
 
 ## First run
 
