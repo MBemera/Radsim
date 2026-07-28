@@ -12,6 +12,7 @@ from .definitions import TOOL_DEFINITIONS as TOOL_DEFINITIONS
 logger = logging.getLogger(__name__)
 
 EXTENSION_PERMISSION_TIERS = frozenset({"read_only", "mutation", "generated_code"})
+EXTENSION_INPUT_ROLES = frozenset({"path", "command"})
 MAX_EXTENSION_SCHEMA_BYTES = 32 * 1024
 MAX_EXTENSION_RESULT_BYTES = 512 * 1024
 _EXTENSION_TOOL_META = {}
@@ -511,6 +512,30 @@ def validate_extension_tool_definition(definition):
     }
 
 
+def validate_extension_input_roles(definition, properties):
+    """Validate the optional explicit path and command input declarations."""
+    roles = definition.get("input_roles", {}) if isinstance(definition, dict) else {}
+    if not isinstance(roles, dict):
+        raise ValueError("Tool input_roles must be an object")
+    unknown = sorted(set(roles) - EXTENSION_INPUT_ROLES)
+    if unknown:
+        raise ValueError(
+            f"Unknown input role(s): {', '.join(unknown)}. "
+            f"Valid: {', '.join(sorted(EXTENSION_INPUT_ROLES))}"
+        )
+    declared = {}
+    for role, keys in roles.items():
+        if not isinstance(keys, list) or any(not isinstance(key, str) for key in keys):
+            raise ValueError(f"Tool input_roles.{role} must be a list of property names")
+        missing = sorted(set(keys) - set(properties))
+        if missing:
+            raise ValueError(
+                f"Tool input_roles.{role} names undeclared propert(ies): {', '.join(missing)}"
+            )
+        declared[role] = tuple(keys)
+    return declared
+
+
 def can_register_extension_tool(name, *, replacing_owner=None):
     """Check the live registry without creating a parallel registry."""
     if name not in _TOOL_REGISTRY:
@@ -545,19 +570,26 @@ def _validate_extension_tool_input(definition, tool_input):
     return True, None
 
 
-def _extension_input_keys(definition):
+def _extension_input_keys(definition, declared_roles):
+    """Combine explicit input roles with the conventional name patterns.
+
+    Name matching alone misses inputs called `filename`, `dest`, or `cmd`, so a
+    tool that handles paths or commands under any other name must declare them
+    in `input_roles` to receive path, protected-file, symlink, and shell
+    validation.
+    """
     properties = definition["input_schema"]["properties"]
-    path_keys = []
-    command_keys = []
+    path_keys = set(declared_roles.get("path", ()))
+    command_keys = set(declared_roles.get("command", ()))
     for key in properties:
         lowered = key.lower()
         if lowered in {"path", "file", "directory"} or lowered.endswith(
             ("_path", "_paths", "_file", "_files", "_directory", "_directories", "_dir")
         ):
-            path_keys.append(key)
+            path_keys.add(key)
         if lowered == "command" or lowered.endswith("_command"):
-            command_keys.append(key)
-    return tuple(path_keys), tuple(command_keys)
+            command_keys.add(key)
+    return tuple(sorted(path_keys)), tuple(sorted(command_keys))
 
 
 def _validate_extension_tool_safety(metadata, tool_input):
@@ -589,7 +621,7 @@ def _validate_extension_tool_safety(metadata, tool_input):
     return True, None
 
 
-def register_extension_tool(owner, definition, execute, permission_tier):
+def register_extension_tool(owner, definition, execute, permission_tier, *, input_roles=None):
     """Add an extension tool to the existing live registry."""
     validated = validate_extension_tool_definition(definition)
     if permission_tier not in EXTENSION_PERMISSION_TIERS:
@@ -602,7 +634,12 @@ def register_extension_tool(owner, definition, execute, permission_tier):
     if not allowed:
         raise ValueError(error)
 
-    path_keys, command_keys = _extension_input_keys(validated)
+    declared_roles = (
+        validate_extension_input_roles(definition, validated["input_schema"]["properties"])
+        if input_roles is None
+        else input_roles
+    )
+    path_keys, command_keys = _extension_input_keys(validated, declared_roles)
     if command_keys and permission_tier == "read_only":
         raise ValueError("A tool with command input cannot use the read_only tier")
     metadata = {

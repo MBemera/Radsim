@@ -676,8 +676,8 @@ class ExtensionLoader:
                 os.replace(destination, failed)
                 os.replace(backup, destination)
                 shutil.rmtree(failed, ignore_errors=True)
+                self._restore_approval(destination)
                 if was_loaded:
-                    self._approve_candidate(_read_candidate(destination, "global"))
                     self.reload(destination.name)
             elif installed_new and destination is not None and destination.exists():
                 if destination.name in self.loaded:
@@ -688,6 +688,22 @@ class ExtensionLoader:
             failed_id = destination.name if destination is not None else "unknown"
             _record_extension_event(failed_id, "activate", "failed", error=str(error))
             return {"success": False, "error": f"Extension activation failed: {error}"}
+
+    def _restore_approval(self, destination: Path) -> None:
+        """Re-approve whichever version is on disk after a failed swap.
+
+        Installation and rollback approve the version they are about to
+        activate. When activation fails and the files are swapped back, the
+        stored fingerprint would otherwise describe files that are no longer
+        there, leaving the working extension permanently unapprovable.
+        """
+        try:
+            self._approve_candidate(_read_candidate(destination, "global"))
+        except (ValueError, OSError):
+            logger.warning(
+                "Could not restore the approval for %s; approve it again",
+                destination.name,
+            )
 
     def _approve_candidate(self, candidate: ExtensionCandidate) -> None:
         state = self._load_state()
@@ -730,6 +746,7 @@ class ExtensionLoader:
             if destination.exists() and temporary.exists():
                 os.replace(destination, backup)
                 os.replace(temporary, destination)
+                self._restore_approval(destination)
             _record_extension_event(extension_id, "rollback", "failed", error=str(error))
             return {"success": False, "error": f"Extension rollback failed: {error}"}
 

@@ -25,6 +25,16 @@ MAX_PROPOSAL_RECORDS = 500
 MAX_GENERATED_FILE_BYTES = 512 * 1024
 MAX_GENERATED_EXPLANATION_BYTES = 32 * 1024
 
+# An approved proposal must never be able to move a security switch. Only these
+# bounded tuning keys can be written by `set_config`; every other key, including
+# `tools.self_extension`, fails closed and stays under its own typed gate.
+APPROVABLE_CONFIG_KEYS = frozenset(
+    {
+        "self_improvement.auto_propose_threshold",
+        "self_improvement.max_pending_proposals",
+    }
+)
+
 
 class ImprovementProposal:
     """A structured proposal that cannot apply itself."""
@@ -141,11 +151,23 @@ class ProposalEngine:
         )
         pending = len(self.get_pending_proposals())
         accepted = unique[: max(0, maximum - pending)]
+        self._discard_unaccepted_staging(candidates, accepted)
         self._proposals.extend(accepted)
         self.last_analysis_at = datetime.now(timezone.utc).isoformat()
         self.last_analysis_duration_ms = (time.perf_counter() - started) * 1000
         self._save()
         return accepted
+
+    def _discard_unaccepted_staging(
+        self,
+        candidates: list[dict[str, Any]],
+        accepted: list[dict[str, Any]],
+    ) -> None:
+        """Remove staged files for candidates that duplicate or exceed the cap."""
+        accepted_ids = {proposal["proposal_id"] for proposal in accepted}
+        for candidate in candidates:
+            if candidate["proposal_id"] not in accepted_ids:
+                self._remove_staging(candidate)
 
     def _analyze_error_patterns(self) -> list[dict[str, Any]]:
         from .retrieval import ErrorAnalyzer
@@ -486,10 +508,16 @@ class ProposalEngine:
         if action_type == "set_config":
             from ..agent_config import get_agent_config_manager
 
-            get_agent_config_manager().set(str(action["key"]), action.get("value"))
+            key = str(action.get("key", ""))
+            if key not in APPROVABLE_CONFIG_KEYS:
+                return {
+                    "success": False,
+                    "error": f"Proposals cannot change the config key: {key or 'missing'}",
+                }
+            get_agent_config_manager().set(key, action.get("value"))
             return {
                 "success": True,
-                "message": f"Config updated: {action['key']} = {action.get('value')}",
+                "message": f"Config updated: {key} = {action.get('value')}",
             }
         if action_type == "save_memory":
             from ..memory import save_memory

@@ -23,6 +23,7 @@ from radsim.learning import (
     rank_learning_events,
     verified_success_events,
 )
+from radsim.learning.proposals import ImprovementProposal
 from radsim.trust_bandit import TrustBandit, classify_tool_tier
 
 
@@ -472,6 +473,126 @@ def test_skipping_extension_proposal_removes_staged_code(evolve_runtime):
 
     assert engine.skip_proposal(staged["proposal"]["proposal_id"])["success"] is True
     assert not staging_dir.exists()
+
+
+def test_repeated_analysis_leaves_no_orphaned_staging_directories(evolve_runtime):
+    _registry, _agent, manager, engine = evolve_runtime
+    manager.set("tools.self_extension", True)
+    manager.set("self_improvement.enabled", True)
+    for index in range(8):
+        engine.store.append(
+            LearningEvent.create(
+                event_type="task_completion",
+                task_category="testing",
+                outcome=TaskOutcome.SUCCESSFUL,
+                summary=f"run the tests {index}",
+                metadata={"tools_used": ["run_tests", "read_file"]},
+            )
+        )
+
+    engine.analyze_and_propose()
+    engine.analyze_and_propose()
+    engine.analyze_and_propose()
+
+    staged_directories = {path.name for path in engine.staging_root.iterdir()}
+    pending_ids = {
+        proposal["proposal_id"]
+        for proposal in engine.get_pending_proposals()
+        if proposal["proposal_type"] == "extension_proposal"
+    }
+    assert staged_directories == pending_ids
+
+
+def test_proposal_cannot_change_a_security_switch(evolve_runtime):
+    _registry, _agent, manager, engine = evolve_runtime
+    proposal = ImprovementProposal(
+        proposal_type="prompt_adjustment",
+        title="Innocuous looking proposal",
+        description="Pretends to be a note",
+        action={"type": "set_config", "key": "tools.self_extension", "value": True},
+        reason="Tampered proposal record",
+    ).to_dict()
+    engine._proposals.append(proposal)
+
+    result = engine.approve_proposal(proposal["proposal_id"])
+
+    assert result == {
+        "success": False,
+        "error": "Proposals cannot change the config key: tools.self_extension",
+    }
+    assert manager.get("tools.self_extension") is False
+    assert engine.get_proposal_by_id(proposal["proposal_id"])["status"] == "pending"
+
+
+def test_proposal_can_change_an_allowlisted_tuning_key(evolve_runtime):
+    _registry, _agent, manager, engine = evolve_runtime
+    proposal = ImprovementProposal(
+        proposal_type="prompt_adjustment",
+        title="Raise the automatic proposal threshold",
+        description="Analyse less often",
+        action={
+            "type": "set_config",
+            "key": "self_improvement.auto_propose_threshold",
+            "value": 25,
+        },
+        reason="Verified analysis cost",
+    ).to_dict()
+    engine._proposals.append(proposal)
+
+    assert engine.approve_proposal(proposal["proposal_id"])["success"] is True
+    assert manager.get("self_improvement.auto_propose_threshold") == 25
+
+
+def test_resetting_all_learning_data_clears_every_event_type(tmp_path):
+    from radsim.learning.store import LearningAnalytics
+
+    store = LearningStore(tmp_path, migrate_legacy=False)
+    stored_types = {
+        "task_completion",
+        "task_revert",
+        "tool_execution",
+        "error",
+        "task_example",
+        "feedback",
+        "message",
+        "api_call",
+        "proposal_decision",
+        "extension_lifecycle",
+    }
+    for event_type in stored_types:
+        store.append(
+            LearningEvent.create(
+                event_type=event_type,
+                outcome=TaskOutcome.SUCCESSFUL,
+                summary=f"stored {event_type}",
+            )
+        )
+    analytics = LearningAnalytics(storage_dir=tmp_path)
+    assert analytics.store.event_types() == stored_types
+
+    assert analytics.reset_learning_category("all")["success"] is True
+
+    assert analytics.store.count() == 0
+    assert analytics.store.event_types() == set()
+
+
+def test_resetting_one_category_keeps_the_other_events(tmp_path):
+    from radsim.learning.store import LearningAnalytics
+
+    store = LearningStore(tmp_path, migrate_legacy=False)
+    for event_type in ("error", "feedback"):
+        store.append(
+            LearningEvent.create(
+                event_type=event_type,
+                outcome=TaskOutcome.FAILED,
+                summary=f"stored {event_type}",
+            )
+        )
+    analytics = LearningAnalytics(storage_dir=tmp_path)
+
+    assert analytics.reset_learning_category("errors")["success"] is True
+
+    assert analytics.store.event_types() == {"feedback"}
 
 
 def test_generated_extension_files_are_bounded(evolve_runtime):

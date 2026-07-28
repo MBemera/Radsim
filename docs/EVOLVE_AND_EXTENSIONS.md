@@ -142,6 +142,30 @@ and generated-code tools require explicit confirmation. Tool inputs use the
 existing schema, path, protected-file, symlink, and command validation. Calls
 still pass through pre and post hooks and dynamic undo checkpoints.
 
+Path and command validation is applied to inputs named by convention (`path`,
+`file`, `directory`, `*_path`, `*_file`, `*_dir`, `command`, `*_command`). An
+input that holds a path or a command under any other name, such as `filename`
+or `cmd`, is only validated when the tool declares it:
+
+```python
+definition = {
+    "name": "rewrite_report",
+    "description": "Rewrite one generated report file.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"filename": {"type": "string"}},
+        "required": ["filename"],
+    },
+    "input_roles": {"path": ["filename"]},
+}
+```
+
+`input_roles` accepts `path` and `command`, each listing declared property
+names. It is stripped from the provider-facing schema and drives the same
+validation and undo checkpoints as the conventional names. Declaring roles is
+required for undeclared names because RadSim cannot infer intent from an
+arbitrary parameter name.
+
 Extensions cannot replace built-in registrations, toggle another extension's
 tool, mutate registry dictionaries through the API, or use observe hooks to
 approve a blocked action. Observer contexts are deep snapshots, so nested edits
@@ -174,12 +198,22 @@ provide evidence and self-extension is enabled. Analysis writes a manifest,
 source, tests, and explanation under `~/.radsim/extension_staging/`; it does
 not import or activate them.
 
-Review shows the proposal and requires typing `activate` before generated
-Python is validated in an isolated subprocess, installed atomically, and
-loaded. Rejection removes only the staged candidate. RadSim core source is
-never modified by this proposal type. Generated files, proposal history,
-canonical events, and extension storage all have explicit size or record
-bounds.
+Review shows the proposal and requires typing `activate`. After that approval
+RadSim compiles the source, runs any generated `test_extension.py` in an
+isolated subprocess, then imports the entrypoint in the RadSim process to
+confirm `setup(api)` registers cleanly before installing atomically and
+loading. The entrypoint import is not sandboxed: typing `activate` is the point
+at which generated Python gains the right to run with your permissions.
+
+Activation installs into the global extension directory and approves that exact
+fingerprint, so the extension loads automatically at the start of every later
+session, including non-interactive `-p` runs, until it is unloaded or
+extensions are turned off.
+
+Rejection removes only the staged candidate, and analysis discards the staged
+files for any candidate it does not keep. RadSim core source is never modified
+by this proposal type. Generated files, proposal history, canonical events, and
+extension storage all have explicit size or record bounds.
 
 ## Sample
 

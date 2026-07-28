@@ -10,6 +10,8 @@ review-gated Python extension boundary.
 - Model text alone records an `unknown` task outcome.
 - `add_tool`, generated code, and extension activation always require explicit
   approval and are excluded from learned trust.
+- Approving a proposal can never move a security switch. `set_config` actions
+  are restricted to an allowlist of tuning keys.
 - Project extensions require trust for the exact project and fingerprints for
   their current files.
 - Extensions reuse the existing tool, command, hook, policy, confirmation, and
@@ -31,6 +33,10 @@ sandbox malicious Python.
 - Retrieval uses one explainable local TF-IDF scorer.
 - Extensions support exact-file approval, project trust, load, reload, unload,
   staged activation, and rollback.
+- Extension tools can declare `input_roles` so path and command inputs are
+  validated even when they are not named by convention.
+- Resetting `all` learning data now clears every stored event type, not only
+  tasks, tools, errors, and examples.
 
 ## Engineering comparison
 
@@ -39,9 +45,9 @@ Measured against branch baseline `76b2ec7`:
 | Metric | Baseline | This change | Delta |
 | --- | ---: | ---: | ---: |
 | Production Python files | 108 | 107 | -1 |
-| Production Python lines | 37,958 | 40,034 | +2,076 (+5.5%) |
+| Production Python lines | 37,958 | 40,142 | +2,184 (+5.8%) |
 | Learning package modules | 9 | 6 | -3 |
-| Learning package lines | 3,162 | 3,272 | +110 (+3.5%) |
+| Learning package lines | 3,162 | 3,312 | +150 (+4.7%) |
 | Runtime dependencies | 4 | 4 | 0 |
 
 The production increase is the new extension API and trusted lifecycle layer.
@@ -51,5 +57,6 @@ implementations and consolidating their responsibilities into four modules.
 ## Validation
 
 - Ruff passes for `radsim`, `tests`, and `examples`.
-- The complete suite passes on Python 3.12: 1,830 tests.
+- The complete suite passes from the repository root on Python 3.14: 1,843
+  tests.
 - GitHub CI defines the supported Python 3.10 through 3.14 matrix.

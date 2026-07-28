@@ -357,6 +357,72 @@ def test_staged_install_and_one_command_rollback(enabled_loader):
     assert execute_tool("staged_tool", {})["version"] == "one"
 
 
+def test_failed_rollback_keeps_the_restored_version_approved(enabled_loader, monkeypatch):
+    for version, label in (("1.0.0", "one"), ("2.0.0", "two")):
+        stage = write_extension(
+            enabled_loader.staging_root,
+            "rollback-extension",
+            source=extension_source("rollback_tool", label),
+            version=version,
+        )
+        assert enabled_loader.install_staged_extension(stage)["success"] is True
+    assert execute_tool("rollback_tool", {})["version"] == "two"
+
+    original_prepare = ExtensionLoader._prepare
+    attempts = []
+
+    def fail_first_prepare(self, candidate, **keywords):
+        attempts.append(candidate)
+        if len(attempts) == 1:
+            raise RuntimeError("prepared version is broken")
+        return original_prepare(self, candidate, **keywords)
+
+    monkeypatch.setattr(ExtensionLoader, "_prepare", fail_first_prepare)
+
+    result = enabled_loader.rollback("rollback-extension")
+
+    assert result["success"] is False
+    assert execute_tool("rollback_tool", {})["version"] == "two"
+    assert enabled_loader.unload("rollback-extension")["success"] is True
+    assert enabled_loader.load("rollback-extension") == {
+        "success": True,
+        "message": "Loaded extension rollback-extension.",
+    }
+    assert execute_tool("rollback_tool", {})["version"] == "two"
+
+
+def test_failed_upgrade_keeps_the_restored_version_approved(enabled_loader, monkeypatch):
+    first = write_extension(
+        enabled_loader.staging_root,
+        "upgrade-extension",
+        source=extension_source("upgrade_tool", "one"),
+    )
+    assert enabled_loader.install_staged_extension(first)["success"] is True
+    assert enabled_loader.unload("upgrade-extension")["success"] is True
+
+    original_prepare = ExtensionLoader._prepare
+    attempts = []
+
+    def fail_after_validation(self, candidate, **keywords):
+        attempts.append(candidate)
+        if len(attempts) == 2:
+            raise RuntimeError("activation is broken")
+        return original_prepare(self, candidate, **keywords)
+
+    monkeypatch.setattr(ExtensionLoader, "_prepare", fail_after_validation)
+    second = write_extension(
+        enabled_loader.staging_root,
+        "upgrade-extension",
+        source=extension_source("upgrade_tool", "two"),
+        version="2.0.0",
+    )
+
+    assert enabled_loader.install_staged_extension(second)["success"] is False
+
+    assert enabled_loader.load("upgrade-extension")["success"] is True
+    assert execute_tool("upgrade_tool", {})["version"] == "one"
+
+
 def test_failed_staged_validation_never_enters_active_directory(enabled_loader):
     stage = write_extension(
         enabled_loader.staging_root,
