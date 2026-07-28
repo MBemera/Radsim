@@ -146,6 +146,91 @@ def test_api_rejects_invalid_tool_contracts(definition, tier, message):
             api.register_tool(definition, lambda value: {"success": True}, tier)
 
 
+def test_declared_input_roles_validate_unconventional_names():
+    definition = tool_definition(
+        "declared_role_writer",
+        properties={"filename": {"type": "string"}},
+        required=["filename"],
+    )
+    definition["input_roles"] = {"path": ["filename"]}
+    api = ExtensionAPI("declared-roles", {"tools.register"}, CommandRegistry())
+    api.register_tool(definition, lambda value: {"success": True}, "mutation")
+    api.activate()
+
+    metadata = get_extension_tool_metadata("declared_role_writer")
+    assert metadata["path_keys"] == ("filename",)
+    blocked = execute_tool("declared_role_writer", {"filename": "/etc/hosts"})
+    assert blocked["success"] is False
+    assert "outside project directory" in blocked["error"]
+
+    api.deactivate()
+
+
+def test_undeclared_path_input_is_not_silently_validated():
+    """Without a declaration an unconventional name carries no path guarantee."""
+    api = ExtensionAPI("undeclared-roles", {"tools.register"}, CommandRegistry())
+    api.register_tool(
+        tool_definition(
+            "undeclared_role_writer",
+            properties={"filename": {"type": "string"}},
+            required=["filename"],
+        ),
+        lambda value: {"success": True, "seen": value["filename"]},
+        "mutation",
+    )
+    api.activate()
+
+    assert get_extension_tool_metadata("undeclared_role_writer")["path_keys"] == ()
+    assert execute_tool("undeclared_role_writer", {"filename": "/etc/hosts"}) == {
+        "success": True,
+        "seen": "/etc/hosts",
+    }
+
+    api.deactivate()
+
+
+def test_declared_input_roles_stay_out_of_the_provider_schema():
+    definition = tool_definition(
+        "role_free_schema",
+        properties={"cmd": {"type": "string"}},
+        required=["cmd"],
+    )
+    definition["input_roles"] = {"command": ["cmd"]}
+    api = ExtensionAPI("role-schema", {"tools.register"}, CommandRegistry())
+    api.register_tool(definition, lambda value: {"success": True}, "mutation")
+    api.activate()
+
+    from radsim.tools import TOOL_DEFINITIONS
+
+    published = next(
+        item for item in TOOL_DEFINITIONS if item["name"] == "role_free_schema"
+    )
+    assert "input_roles" not in published
+    assert get_extension_tool_metadata("role_free_schema")["command_keys"] == ("cmd",)
+
+    api.deactivate()
+
+
+@pytest.mark.parametrize(
+    ("roles", "message"),
+    [
+        ({"network": ["value"]}, "Unknown input role"),
+        ({"path": "value"}, "must be a list of property names"),
+        ({"path": ["missing"]}, "undeclared propert"),
+    ],
+)
+def test_api_rejects_invalid_input_roles(roles, message):
+    definition = tool_definition(
+        "bad_roles",
+        properties={"value": {"type": "string"}},
+    )
+    definition["input_roles"] = roles
+    api = ExtensionAPI("bad-roles", {"tools.register"}, CommandRegistry())
+
+    with pytest.raises(ValueError, match=message):
+        api.register_tool(definition, lambda value: {"success": True}, "mutation")
+
+
 def test_extension_can_toggle_only_its_own_tool():
     registry = CommandRegistry()
     first = ExtensionAPI("first-extension", {"tools.register"}, registry)

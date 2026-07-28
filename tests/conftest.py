@@ -109,6 +109,15 @@ def _redirect_imported_config_paths(monkeypatch, config_directory):
             "CONFIG_DIR": config_directory,
             "SETTINGS_FILE": config_directory / "settings.json",
         },
+        # SKILLS_FILE is resolved from Path.home() at import time, so without
+        # this redirect every test after the first one reads and writes the
+        # skills file of whichever temporary home existed at import. That leaks
+        # a skills prompt layer between tests and makes prompt-size assertions
+        # pass or fail by run order.
+        "radsim.skills": {"SKILLS_FILE": config_directory / "skills.json"},
+        # UNDO_ROOT is frozen the same way, so checkpoint directories from the
+        # suite used to land in the developer's real ~/.radsim/undo.
+        "radsim.undo": {"UNDO_ROOT": config_directory / "undo"},
     }
     for module_name, path_values in copied_paths.items():
         module = sys.modules.get(module_name)

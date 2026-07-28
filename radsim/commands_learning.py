@@ -713,7 +713,9 @@ class LearningCommandHandlersMixin:
                 from .menu import safe_input
 
                 print_error(
-                    "Approval imports executable Python when the extension is loaded."
+                    "Approval imports executable Python when the extension is loaded, "
+                    "and approved extensions load automatically at the start of every "
+                    "later session, including non-interactive runs."
                 )
                 confirmation = safe_input(
                     f"  Type '{args[1]}' to approve this exact version: "
@@ -775,6 +777,11 @@ class LearningCommandHandlersMixin:
                         print_error(
                             "This activates generated Python after validation. "
                             "It can execute locally."
+                        )
+                        print_error(
+                            "It installs globally and loads automatically in every "
+                            "later session, including non-interactive runs, until "
+                            "you unload it or turn extensions off."
                         )
                         confirmation = safe_input(
                             "      Type 'activate' to approve generated code: "

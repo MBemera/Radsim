@@ -18,6 +18,7 @@ from .tools import (
     register_extension_tool,
     set_extension_tool_active,
     unregister_extension_tools,
+    validate_extension_input_roles,
     validate_extension_tool_definition,
 )
 
@@ -122,6 +123,10 @@ class ExtensionAPI:
         """Stage one tool for the existing tool registry."""
         self._require("tools.register")
         validated = validate_extension_tool_definition(definition)
+        declared_roles = validate_extension_input_roles(
+            definition,
+            validated["input_schema"]["properties"],
+        )
         if not callable(execute):
             raise ValueError("Tool executor must be callable")
         if permission_tier not in EXTENSION_PERMISSION_TIERS:
@@ -133,6 +138,7 @@ class ExtensionAPI:
         self._tool_specs.append(
             {
                 "definition": validated,
+                "input_roles": declared_roles,
                 "execute": execute,
                 "permission_tier": permission_tier,
                 "active": True,
@@ -252,6 +258,7 @@ class ExtensionAPI:
                     spec["definition"],
                     spec["execute"],
                     spec["permission_tier"],
+                    input_roles=spec["input_roles"],
                 )
                 if not spec["active"]:
                     set_extension_tool_active(self.owner, name, False)

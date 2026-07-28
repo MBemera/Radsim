@@ -287,6 +287,14 @@ class LearningStore:
             ).fetchone()
         return int(row["count"])
 
+    def event_types(self) -> set[str]:
+        """Return every event type currently stored."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT event_type FROM learning_events"
+            ).fetchall()
+        return {str(row["event_type"]) for row in rows}
+
     def delete(self, *, event_types: set[str] | None = None) -> int:
         """Delete a narrow event category. A missing filter never deletes all."""
         if not event_types:
@@ -717,8 +725,12 @@ class LearningAnalytics:
         }
         if category in ("all", "preferences"):
             PreferenceLearner(storage_dir=self.storage_dir).clear_preferences()
+        # "all" must clear every stored event type, including feedback,
+        # messages, API calls, proposal decisions, and extension lifecycle
+        # records, or a user clearing their data keeps rows they were told
+        # were deleted.
         targets = (
-            {"error", "task_example", "tool_execution", "task_completion", "task_revert"}
+            self.store.event_types()
             if category == "all"
             else event_map.get(category, set())
         )
