@@ -24,9 +24,8 @@ DEFAULT_CONFIG = {
         "docker": True,
         "database": True,
         "deploy": False,
-        # Self-extension writes model-generated Python into the installed
-        # package and hot-reloads it in-process. Off by default: it must be a
-        # deliberate opt-in, never reachable from prompt injection alone.
+        # Self-extension permits reviewed local Python extensions and the
+        # legacy add_tool path. Off by default and always a deliberate opt-in.
         "self_extension": False,
     },
     "learning": {
@@ -36,7 +35,6 @@ DEFAULT_CONFIG = {
         "reflection": True,
         "tool_optimization": True,
         "few_shot_assembly": True,
-        "active_learning": True,
     },
     "subagents": {
         "stream_output": True,
@@ -44,6 +42,7 @@ DEFAULT_CONFIG = {
     "self_improvement": {
         "enabled": False,
         "auto_propose": True,
+        "auto_propose_threshold": 10,
         "max_pending_proposals": 10,
     },
     "shell_commands": {
@@ -212,7 +211,7 @@ SECURITY_SWITCHES = (
     ("tools.docker", "Docker tool"),
     ("tools.database", "Database queries"),
     ("tools.deploy", "Deploy tool"),
-    ("tools.self_extension", "Self-extension (add_tool)"),
+    ("tools.self_extension", "Self-extension and add_tool"),
     ("confirmations.shell_commands", "Confirm shell commands"),
     ("confirmations.file_deletion", "Confirm file deletion"),
 )
@@ -250,6 +249,9 @@ class AgentConfigManager:
 
         # Merge defaults for any missing keys
         self._config = self._merge_defaults(DEFAULT_CONFIG, self._config)
+        learning = self._config.get("learning")
+        if isinstance(learning, dict):
+            learning.pop("active_learning", None)
         self._save()
 
     def _merge_defaults(self, defaults, current):
@@ -319,6 +321,15 @@ class AgentConfigManager:
         # Set the value
         current[keys[-1]] = value
         self._save()
+        if key_path == "tools.self_extension" and value is False:
+            try:
+                from .extension_loader import _extension_loader
+
+                if _extension_loader is not None:
+                    for extension_id in list(_extension_loader.loaded):
+                        _extension_loader.unload(extension_id)
+            except Exception:
+                logger.warning("Could not unload extensions after disabling them", exc_info=True)
         return True
 
     def is_tool_enabled(self, tool_name: str) -> bool:

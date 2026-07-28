@@ -76,7 +76,7 @@ PyPI = "https://pypi.org/project/radsimcli/"
 packages = ["radsim"]
 
 [tool.hatch.build.targets.sdist]
-include = ["radsim/", "LICENSE", "README.md"]
+include = ["radsim/", "docs/", "examples/", "LICENSE", "README.md"]
 
 [tool.ruff]
 target-version = "py310"

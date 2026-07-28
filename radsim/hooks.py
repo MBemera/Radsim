@@ -67,8 +67,9 @@ class HooksManager:
 
     def __init__(self):
         self._hooks: dict[HookType, list[HookFunction]] = {hook_type: [] for hook_type in HookType}
+        self._owners: dict[HookFunction, str] = {}
 
-    def register(self, hook_type: HookType, hook_func: HookFunction):
+    def register(self, hook_type: HookType, hook_func: HookFunction, *, owner="builtin"):
         """Register a hook function.
 
         Args:
@@ -76,11 +77,27 @@ class HooksManager:
             hook_func: Function that receives HookContext
         """
         self._hooks[hook_type].append(hook_func)
+        self._owners[hook_func] = owner
 
     def unregister(self, hook_type: HookType, hook_func: HookFunction):
         """Unregister a hook function."""
         if hook_func in self._hooks[hook_type]:
             self._hooks[hook_type].remove(hook_func)
+        if not any(hook_func in hooks for hooks in self._hooks.values()):
+            self._owners.pop(hook_func, None)
+
+    def unregister_owner(self, owner: str):
+        """Remove only hooks installed through one extension API instance."""
+        if not owner or owner == "builtin":
+            return []
+        removed = []
+        for hook_type, hooks in self._hooks.items():
+            owned = [hook for hook in hooks if self._owners.get(hook) == owner]
+            for hook in owned:
+                hooks.remove(hook)
+                self._owners.pop(hook, None)
+                removed.append((hook_type, hook))
+        return removed
 
     def execute(self, hook_type: HookType, context: HookContext) -> HookContext:
         """Execute all hooks of a given type.
@@ -111,8 +128,13 @@ class HooksManager:
         if hook_type is None:
             for ht in HookType:
                 self._hooks[ht] = []
+            self._owners = {}
         else:
+            removed = list(self._hooks[hook_type])
             self._hooks[hook_type] = []
+            for hook in removed:
+                if not any(hook in hooks for hooks in self._hooks.values()):
+                    self._owners.pop(hook, None)
 
 
 # Global hooks manager with thread-safe initialization

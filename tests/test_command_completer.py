@@ -124,3 +124,25 @@ def test_build_completer_returns_instance():
     registry = CommandRegistry()
     completer = build_completer(registry)
     assert isinstance(completer, SlashCommandCompleter)
+
+
+def test_evolve_subcommands_complete_after_space():
+    registry = CommandRegistry()
+    completer = build_completer(registry)
+
+    completions = _collect(completer, "/evolve learning ")
+    names = [completion.text for completion in completions]
+
+    assert names == ["/evolve learning off", "/evolve learning on"]
+
+
+def test_evolve_alias_uses_same_subcommand_completions():
+    registry = CommandRegistry()
+    completer = build_completer(registry)
+
+    completions = _collect(completer, "/self-improve st")
+
+    assert [completion.text for completion in completions] == [
+        "/self-improve stats",
+        "/self-improve status"
+    ]

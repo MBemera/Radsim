@@ -7,7 +7,7 @@ import time
 from .agent_constants import CONFIRMATION_TOOLS, LIGHT_CONFIRM_TOOLS, READ_ONLY_TOOLS
 from .output import Spinner, print_error, print_info, print_success, print_warning
 from .safety import confirm_action
-from .tools import execute_tool
+from .tools import execute_tool, get_extension_tool_metadata
 from .tools.validation import is_secret_read_path, validate_path
 
 logger = logging.getLogger(__name__)
@@ -116,7 +116,7 @@ class AgentPolicyMixin:
     def _warn_if_known_error(self, tool_name, tool_input):
         """Surface a warning when the planned action matches a past error."""
         try:
-            from .learning.error_analyzer import check_similar_error
+            from .learning import check_similar_error
 
             planned_action = f"{tool_name}: {str(tool_input)[:100]}"
             error_check = check_similar_error(planned_action, tool_name)
@@ -212,11 +212,24 @@ class AgentPolicyMixin:
         """
         key = READ_TOOL_PATH_KEYS.get(tool_name)
         if not key:
+            metadata = get_extension_tool_metadata(tool_name)
+            if metadata and metadata.get("permission_tier") == "read_only":
+                keys = metadata.get("path_keys", ())
+                raw_paths = []
+                for path_key in keys:
+                    value = tool_input.get(path_key)
+                    raw_paths.extend(value if isinstance(value, list) else [value])
+                return self._secret_read_targets(raw_paths)
+        if not key:
             return []
 
         raw = tool_input.get(key)
         paths = raw if isinstance(raw, list) else [raw]
+        return self._secret_read_targets(paths)
 
+    @staticmethod
+    def _secret_read_targets(paths):
+        """Resolve and identify provider-visible secret paths."""
         flagged = []
         for candidate in paths:
             if not candidate:
@@ -260,6 +273,36 @@ class AgentPolicyMixin:
         disabled_result = self._check_tool_disabled(tool_name)
         if disabled_result:
             return disabled_result
+
+        extension_metadata = get_extension_tool_metadata(tool_name)
+        if extension_metadata:
+            from .agent_config import get_agent_config_manager
+
+            if not get_agent_config_manager().get("tools.self_extension", False):
+                return {
+                    "success": False,
+                    "error": (
+                        "Extension tools are disabled. "
+                        "Enable them with /evolve extensions on."
+                    ),
+                }
+            if not extension_metadata.get("active", False):
+                return {"success": False, "error": f"Extension tool '{tool_name}' is inactive"}
+            if extension_metadata.get("permission_tier") == "read_only":
+                protected = self._protected_read_targets(tool_name, tool_input)
+                if protected:
+                    return self._confirm_protected_read(tool_name, tool_input, protected)
+                return execute_tool(tool_name, tool_input)
+            return self._run_tool_with_confirmation(
+                tool_name,
+                tool_input,
+                description=(
+                    f"Run extension tool '{tool_name}' "
+                    f"({extension_metadata.get('permission_tier')})"
+                ),
+                force_confirm=True,
+                use_spinner=True,
+            )
 
         handler_name = TOOL_HANDLERS.get(tool_name)
         if handler_name:

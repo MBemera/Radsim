@@ -1,12 +1,13 @@
 """Tests for the Learning System modules."""
 
 
-from radsim.learning.active_learner import ActiveLearner
-from radsim.learning.error_analyzer import ErrorAnalyzer
-from radsim.learning.few_shot_assembler import FewShotAssembler
+from radsim.learning import (
+    ErrorAnalyzer,
+    FewShotAssembler,
+    ReflectionEngine,
+    ToolOptimizer,
+)
 from radsim.learning.preference_learner import PreferenceLearner
-from radsim.learning.reflection_engine import ReflectionEngine
-from radsim.learning.tool_optimizer import ToolOptimizer
 
 
 class TestErrorAnalyzer:
@@ -112,25 +113,6 @@ class TestFewShotAssembler:
         assembler = FewShotAssembler(storage_dir=tmp_path)
         stats = assembler.get_examples_stats()
         assert isinstance(stats, dict)
-
-
-class TestActiveLearner:
-    """Test active learning and uncertainty assessment."""
-
-    def test_create_learner(self, tmp_path):
-        learner = ActiveLearner(storage_dir=tmp_path)
-        assert learner is not None
-
-    def test_assess_uncertainty(self, tmp_path):
-        learner = ActiveLearner(storage_dir=tmp_path)
-        result = learner.assess_uncertainty("Build a REST API with auth")
-        assert hasattr(result, "uncertainty_score")
-        assert hasattr(result, "should_ask")
-
-    def test_generate_clarifying_questions(self, tmp_path):
-        learner = ActiveLearner(storage_dir=tmp_path)
-        questions = learner.generate_clarifying_questions("Do something complex")
-        assert isinstance(questions, list)
 
 
 class TestToolOptimizer:

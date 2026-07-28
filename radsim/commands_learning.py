@@ -193,7 +193,14 @@ class LearningCommandHandlersMixin:
         stats = bandit.get_stats()
         mode = getattr(agent.config, "trust_mode", "medium")
 
-        print_block(("  Trust bandit", f"  Mode: {mode}"))
+        print_block(
+            (
+                "  Trust bandit",
+                f"  Mode: {mode}",
+                "  Generated code, extension activation, Tier 2, and unknown tools",
+                "  always require confirmation and are excluded from learned trust.",
+            )
+        )
 
         if not stats:
             print_info("No trust data yet. Learning starts after 5 confirms per action.")
@@ -376,40 +383,100 @@ class LearningCommandHandlersMixin:
         print_block((f"  {key_path}: {old_value} -> {value}",))
 
     def _cmd_evolve(self, agent, args=None):
-        """Review self-improvement proposals."""
+        """Control learning, proposals, and explicitly approved extensions."""
         from .agent_config import get_agent_config_manager
-        from .learning.self_improver import get_self_improver
+        from .learning import get_self_improver
         from .menu import interactive_menu
 
         config_mgr = get_agent_config_manager()
         improver = get_self_improver()
+        args = list(args or [])
 
-        if not config_mgr.get("self_improvement.enabled", False):
-            print_block(
-                (
-                    "  Self-improvement is disabled.",
-                    "  Enable with: /settings self_improvement.enabled true",
-                )
+        if not args:
+            proposal_on = bool(config_mgr.get("self_improvement.enabled", False))
+            auto_on = bool(config_mgr.get("self_improvement.auto_propose", True))
+            learning_on = bool(config_mgr.get("learning.enabled", True))
+            extensions_on = bool(config_mgr.get("tools.self_extension", False))
+            choice = interactive_menu(
+                "EVOLVE",
+                [
+                    ("status", "Status"),
+                    (
+                        "off" if proposal_on else "on",
+                        f"Proposal engine [{self._on_off(proposal_on)}]",
+                    ),
+                    (
+                        "auto off" if auto_on else "auto on",
+                        f"Automatic proposals [{self._on_off(auto_on)}]",
+                    ),
+                    (
+                        "learning off" if learning_on else "learning on",
+                        f"Learning collection [{self._on_off(learning_on)}]",
+                    ),
+                    ("settings", "Configure learning modules"),
+                    (
+                        "extensions off" if extensions_on else "extensions on",
+                        f"Self-extension [{self._on_off(extensions_on)}]",
+                    ),
+                    ("analyze", "Analyse verified learning data"),
+                    ("review", f"Review pending proposals [{len(improver.get_pending_proposals())}]"),
+                    ("history", "View proposal history"),
+                    ("stats", "View learning and proposal statistics"),
+                    ("exit", "Exit"),
+                ],
+            )
+            if choice in (None, "exit"):
+                return
+            args = choice.split()
+
+        action = args[0].lower()
+        if action == "status":
+            self._show_evolve_status(config_mgr, improver)
+            return
+
+        if action in ("on", "off"):
+            enabled = action == "on"
+            config_mgr.set("self_improvement.enabled", enabled)
+            state = self._on_off(enabled)
+            print_info(f"Proposal engine: {state}.")
+            if not enabled:
+                print_info("Learning data, proposals, automatic preference, and extensions were retained.")
+            return
+
+        if action in ("auto", "learning"):
+            if len(args) != 2 or args[1].lower() not in ("on", "off"):
+                print_info(f"Usage: /evolve {action} on|off")
+                return
+            enabled = args[1].lower() == "on"
+            key = (
+                "self_improvement.auto_propose"
+                if action == "auto"
+                else "learning.enabled"
+            )
+            config_mgr.set(key, enabled)
+            label = "Automatic proposals" if action == "auto" else "Learning collection"
+            print_info(f"{label}: {self._on_off(enabled)}.")
+            return
+
+        if action == "extensions":
+            self._handle_evolve_extensions(agent, config_mgr, args[1:])
+            return
+
+        if action == "settings":
+            self._configure_evolve_settings(config_mgr)
+            return
+
+        if action not in ("analyze", "review", "history", "stats"):
+            print_info(
+                "Usage: /evolve [status|on|off|auto on|off|learning on|off|"
+                "extensions on|off|settings|analyze|review|history|stats]"
             )
             return
 
-        if not args:
-            choice = interactive_menu(
-                "SELF-IMPROVEMENT",
-                [
-                    ("review", "Review pending proposals"),
-                    ("analyze", "Analyze & generate new proposals"),
-                    ("history", "View improvement history"),
-                    ("stats", "Improvement statistics"),
-                ],
-            )
-            if choice is None:
-                return
-            args = [choice]
-
-        action = args[0].lower()
-
         if action == "analyze":
+            if not config_mgr.get("self_improvement.enabled", False):
+                print_info("Proposal engine is OFF. Enable it with: /evolve on")
+                return
             print_block(("  Analyzing learning data...",), blank_after=False)
             new_proposals = improver.analyze_and_propose()
             if new_proposals:
@@ -441,16 +508,38 @@ class LearningCommandHandlersMixin:
             return
 
         if action == "stats":
+            from .learning import get_learning_stats
+            from .learning.retrieval import (
+                CATEGORY_WEIGHT,
+                CONTEXT_WEIGHT,
+                DECISION_WEIGHT,
+                OUTCOME_WEIGHT,
+                RECENCY_WEIGHT,
+                REVERT_WEIGHT,
+                TEXT_WEIGHT,
+            )
+
             stats = improver.get_stats()
+            learning_stats = get_learning_stats()
+            summary = learning_stats.get("summary", {})
             stat_lines = [
                 "  === SELF-IMPROVEMENT STATS ===",
                 "",
+                f"  Canonical Events: {learning_stats.get('store', {}).get('event_count', 0)}",
+                f"  Verified Success: {summary.get('overall_task_success_rate', 0):.0%}",
                 f"  Total Proposals:  {stats['total_proposals']}",
                 f"  Pending:          {stats['pending_count']}",
                 f"  Approved:         {stats['approved_count']}",
                 f"  Rejected:         {stats['rejected_count']}",
                 f"  Skipped:          {stats['skipped_count']}",
                 f"  Approval Rate:    {stats['approval_rate']:.0%}",
+                f"  Last Analysis:    {stats.get('last_analysis_duration_ms', 0):.1f} ms",
+                "",
+                "  Retrieval Weights:",
+                f"    text={TEXT_WEIGHT:.2f} outcome={OUTCOME_WEIGHT:.2f} "
+                f"recency={RECENCY_WEIGHT:.2f}",
+                f"    decision={DECISION_WEIGHT:.2f} category={CATEGORY_WEIGHT:.2f} "
+                f"tool/error={CONTEXT_WEIGHT:.2f} revert={REVERT_WEIGHT:.2f}",
             ]
             if stats["by_type"]:
                 stat_lines.extend(("", "  By Type:"))
@@ -461,6 +550,193 @@ class LearningCommandHandlersMixin:
             print_block(stat_lines)
             return
 
+        if not config_mgr.get("self_improvement.enabled", False):
+            print_info("Proposal engine is OFF. Enable it with: /evolve on")
+            return
+
+        self._review_evolve_proposals(agent, improver)
+
+    @staticmethod
+    def _on_off(value):
+        return "ON" if value else "OFF"
+
+    def _show_evolve_status(self, config_mgr, improver):
+        """Show every evolution-related state without changing it."""
+        stats = improver.get_stats()
+        learning_modules = config_mgr.get("learning", {})
+        active_modules = [
+            key
+            for key, enabled in learning_modules.items()
+            if key != "enabled" and enabled
+        ]
+        try:
+            from .extension_loader import get_extension_loader
+
+            extensions = get_extension_loader().status()
+        except Exception:
+            extensions = []
+        global_count = sum(item.get("scope") == "global" for item in extensions)
+        project_count = sum(item.get("scope") == "project" for item in extensions)
+        loaded_count = sum(item.get("status") == "loaded" for item in extensions)
+        last_analysis = stats.get("last_analysis") or "Never"
+        lines = (
+            f"  Proposal engine:     {self._on_off(config_mgr.get('self_improvement.enabled', False))}",
+            f"  Automatic proposals: {self._on_off(config_mgr.get('self_improvement.auto_propose', True))}",
+            f"  Learning collection: {self._on_off(config_mgr.get('learning.enabled', True))}",
+            f"  Learning modules:    {len(active_modules)} enabled",
+            f"  Self-extension:      {self._on_off(config_mgr.get('tools.self_extension', False))}",
+            f"  Extensions found:    {global_count} global, {project_count} project",
+            f"  Extensions loaded:   {loaded_count}",
+            f"  Pending proposals:   {stats.get('pending_count', 0)}",
+            f"  Last analysis:       {last_analysis}",
+        )
+        print_titled_block("EVOLVE STATUS", lines)
+
+    def _configure_evolve_settings(self, config_mgr):
+        """Configure existing evolution keys through one toggle menu."""
+        from .menu import toggle_menu
+
+        items = [
+            {
+                "key": "self_improvement.enabled",
+                "label": "Proposal engine",
+                "value": config_mgr.get("self_improvement.enabled", False),
+            },
+            {
+                "key": "self_improvement.auto_propose",
+                "label": "Automatic proposals",
+                "value": config_mgr.get("self_improvement.auto_propose", True),
+            },
+            {
+                "key": "learning.enabled",
+                "label": "Learning collection",
+                "value": config_mgr.get("learning.enabled", True),
+            },
+        ]
+        for module_name, enabled in sorted(config_mgr.get("learning", {}).items()):
+            if module_name == "enabled":
+                continue
+            items.append(
+                {
+                    "key": f"learning.{module_name}",
+                    "label": module_name.replace("_", " ").title(),
+                    "value": enabled,
+                }
+            )
+        states = toggle_menu(
+            "EVOLVE SETTINGS",
+            items,
+            footer_lines=("Self-extension is controlled separately by /evolve extensions.",),
+        )
+        if states is None:
+            print_info("No changes saved.")
+            return
+        changed = []
+        for key, value in states.items():
+            value = bool(value)
+            if bool(config_mgr.get(key)) != value:
+                config_mgr.set(key, value)
+                changed.append(key)
+        print_info(
+            f"Saved {len(changed)} evolve setting change(s)."
+            if changed
+            else "No changes."
+        )
+
+    def _handle_evolve_extensions(self, agent, config_mgr, args):
+        """Control the extension capability and loader lifecycle."""
+        if not args:
+            print_info(
+                "Usage: /evolve extensions "
+                "on|off|list|approve|trust-project|load|reload|unload|rollback"
+            )
+            return
+        action = args[0].lower()
+        if action == "on":
+            if config_mgr.get("tools.self_extension", False):
+                print_info("Self-extension is already ON.")
+                return
+            from .menu import safe_input
+
+            print_error("Generated Python extensions can execute locally with your user permissions.")
+            confirmation = safe_input("  Type 'enable' to allow reviewed extensions: ")
+            if confirmation is None or confirmation.strip().lower() != "enable":
+                print_info("Self-extension remains OFF.")
+                return
+            config_mgr.set("tools.self_extension", True)
+            from .extension_loader import get_extension_loader
+
+            get_extension_loader(getattr(agent, "command_registry", None)).load_approved()
+            print_info("Self-extension: ON. Generated code still requires explicit approval.")
+            return
+        if action == "off":
+            config_mgr.set("tools.self_extension", False)
+            print_info("Self-extension: OFF. Installed files and approvals were retained.")
+            return
+        if action == "list":
+            from .extension_loader import get_extension_loader
+
+            records = get_extension_loader(getattr(agent, "command_registry", None)).status()
+            if not records:
+                print_info("No extensions discovered.")
+                return
+            print_titled_block(
+                "EXTENSIONS",
+                [
+                    f"  {item['id']:<28} {item['scope']:<8} {item['status']}"
+                    for item in records
+                ],
+            )
+            return
+        if action == "trust-project":
+            from .menu import safe_input
+
+            print_error(
+                "Project extensions are executable Python controlled by this project."
+            )
+            confirmation = safe_input("  Type 'trust-project' to approve current versions: ")
+            if confirmation != "trust-project":
+                print_info("Project extensions remain untrusted.")
+                return
+            from .extension_loader import get_extension_loader
+
+            loader = get_extension_loader(getattr(agent, "command_registry", None))
+            result = loader.trust_project()
+            loader.load_approved()
+            print_info(result["message"])
+            return
+        if action in ("approve", "load", "reload", "unload", "rollback"):
+            if len(args) != 2:
+                print_info(f"Usage: /evolve extensions {action} <extension-id>")
+                return
+            if action == "approve":
+                from .menu import safe_input
+
+                print_error(
+                    "Approval imports executable Python when the extension is loaded."
+                )
+                confirmation = safe_input(
+                    f"  Type '{args[1]}' to approve this exact version: "
+                )
+                if confirmation != args[1]:
+                    print_info("Extension was not approved.")
+                    return
+            from .extension_loader import get_extension_loader
+
+            loader = get_extension_loader(getattr(agent, "command_registry", None))
+            result = getattr(loader, action)(args[1])
+            if result.get("success"):
+                print_info(result.get("message", f"Extension {action} complete."))
+            else:
+                print_error(result.get("error", f"Extension {action} failed."))
+            return
+        print_info(
+            "Usage: /evolve extensions "
+            "on|off|list|approve|trust-project|load|reload|unload|rollback"
+        )
+
+    def _review_evolve_proposals(self, agent, improver):
+        """Review pending proposals, with a stronger generated-code gate."""
         pending = improver.get_pending_proposals()
         if not pending:
             print_block(
@@ -474,10 +750,14 @@ class LearningCommandHandlersMixin:
         print_block((f"  === {len(pending)} PENDING PROPOSAL(S) ===",))
 
         for index, proposal in enumerate(pending, 1):
-            lines = (
-                f"  [{index}] {proposal['title']}", f"      Type: {proposal['proposal_type']}",
-                f"      {proposal['description']}", f"      Reason: {proposal['reason']}",
-            )
+            lines = [
+                f"  [{index}] {proposal['title']}",
+                f"      Type: {proposal['proposal_type']}",
+                f"      {proposal['description']}",
+                f"      Reason: {proposal['reason']}",
+            ]
+            if proposal.get("proposal_type") == "extension_proposal":
+                lines.extend(self._extension_proposal_details(proposal, improver))
             print_block(lines, blank_before=False)
 
             while True:
@@ -488,7 +768,29 @@ class LearningCommandHandlersMixin:
                     return
 
                 if choice in ("a", "approve"):
-                    result = improver.approve_proposal(proposal["proposal_id"])
+                    allow_generated = False
+                    if proposal.get("proposal_type") == "extension_proposal":
+                        from .menu import safe_input
+
+                        print_error(
+                            "This activates generated Python after validation. "
+                            "It can execute locally."
+                        )
+                        confirmation = safe_input(
+                            "      Type 'activate' to approve generated code: "
+                        )
+                        allow_generated = (
+                            confirmation is not None
+                            and confirmation.strip().lower() == "activate"
+                        )
+                        if not allow_generated:
+                            print("      Approval cancelled.")
+                            break
+                    result = improver.approve_proposal(
+                        proposal["proposal_id"],
+                        allow_generated_code=allow_generated,
+                        command_registry=getattr(agent, "command_registry", None),
+                    )
                     if result["success"]:
                         print(f"      Applied: {result['message']}")
                     else:
@@ -511,6 +813,53 @@ class LearningCommandHandlersMixin:
             print()
 
         print_block(("  All proposals reviewed.",), blank_before=False)
+
+    @staticmethod
+    def _extension_proposal_details(proposal, improver):
+        """Show bounded permissions, files, and source diff without importing code."""
+        import difflib
+        from pathlib import Path
+
+        action = proposal.get("action", {})
+        permissions = action.get("permissions", [])
+        lines = [f"      Permissions: {', '.join(permissions) or 'none'}"]
+        staging = Path(str(action.get("staging_dir", "")))
+        try:
+            staging = staging.resolve()
+            if improver.staging_root.resolve() not in staging.parents:
+                return [*lines, "      Files: unavailable (invalid staging path)"]
+            files = sorted(
+                str(path.relative_to(staging))
+                for path in staging.rglob("*")
+                if path.is_file()
+            )
+            lines.append(f"      Files: {', '.join(files) or 'none'}")
+            new_source = (staging / "extension.py").read_text().splitlines()
+            extension_id = str(action.get("extension_id", ""))
+            active_source = (
+                Path.home() / ".radsim" / "extensions" / extension_id / "extension.py"
+            )
+            old_source = (
+                active_source.read_text().splitlines()
+                if active_source.is_file()
+                else []
+            )
+            diff = list(
+                difflib.unified_diff(
+                    old_source,
+                    new_source,
+                    fromfile="active/extension.py",
+                    tofile="staged/extension.py",
+                    lineterm="",
+                )
+            )
+            lines.append("      Diff:")
+            lines.extend(f"        {line[:160]}" for line in diff[:20])
+            if len(diff) > 20:
+                lines.append(f"        ... {len(diff) - 20} more line(s)")
+        except (OSError, ValueError):
+            lines.append("      Files/diff: unavailable")
+        return lines
 
     def _cmd_skill(self, agent, args=None):
         """Configure custom skills/instructions."""
