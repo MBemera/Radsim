@@ -525,19 +525,41 @@ DEFAULT_COMMAND_SPECS = [
         ],
         related=["/evolve", "/config"],
     ),
-    _command(["/evolve", "/self-improve"], "_cmd_evolve", "Review self-improvement proposals", "learning",
+    _command(["/evolve", "/self-improve"], "_cmd_evolve", "Control learning, proposals, and extensions", "learning",
         accepts_args=True, telegram_safe=False,
-        title="Self-Improvement Proposals",
-        summary="Review, generate, and manage self-improvement proposals.",
-        usage=["/evolve", "/evolve analyze", "/evolve history", "/evolve stats"],
-        details="RadSim can propose improvements to itself based on usage patterns:\n\n"
-            "  • (no args) — Review pending proposals\n"
-            "  • analyze   — Generate new proposals from learning data\n"
-            "  • history   — View past approved/rejected proposals\n"
-            "  • stats     — Improvement statistics",
-        examples=["/evolve", "/evolve analyze", "/evolve stats"],
+        title="Evolve Controls",
+        summary="Control verified learning, proposals, and reviewed Python extensions.",
+        usage=[
+            "/evolve",
+            "/evolve status",
+            "/evolve on|off",
+            "/evolve auto on|off",
+            "/evolve learning on|off",
+            "/evolve extensions on|off",
+            "/evolve settings",
+            "/evolve analyze|review|history|stats",
+        ],
+        details="Use one command surface for evolution-related settings:\n\n"
+            "  • status              - Show every current state\n"
+            "  • on / off            - Toggle the proposal engine\n"
+            "  • auto on / off       - Toggle automatic proposals\n"
+            "  • learning on / off   - Toggle learning collection\n"
+            "  • extensions on / off - Toggle reviewed local extensions\n"
+            "  • settings            - Configure individual learning modules\n"
+            "  • analyze             - Create proposals from verified outcomes\n"
+            "  • review              - Explicitly approve or reject proposals\n"
+            "  • history / stats     - Inspect retained learning data",
+        examples=[
+            "/evolve status",
+            "/evolve on",
+            "/evolve learning off",
+            "/evolve analyze",
+        ],
         related=["/settings", "/selfmod"],
-        tips=["Enable with: /settings self_improvement.enabled true"],
+        tips=[
+            "Proposal analysis and self-extension are disabled by default.",
+            "Generated Python always requires explicit approval.",
+        ],
     ),
     _command(["/complexity", "/cx"], "_cmd_complexity", "Complexity budget & scoring", "analysis",
         accepts_args=True, telegram_safe=False,

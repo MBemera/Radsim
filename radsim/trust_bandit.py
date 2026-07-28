@@ -27,7 +27,13 @@ TIER_ONE_TOOLS = {
     "type_check",
     "save_context",
     "save_memory",
+}
+
+ALWAYS_CONFIRM_TOOLS = {
     "add_tool",
+    "activate_extension",
+    "apply_generated_code",
+    "install_extension",
 }
 
 TIER_TWO_TOOLS = {
@@ -118,6 +124,8 @@ class TrustBandit:
     def should_auto_confirm(self, tool_name: str, tool_input: dict[str, Any]) -> tuple[bool, str]:
         """Return whether this action can skip the prompt."""
         tier = classify_tool_tier(tool_name)
+        if tier == "always_confirm":
+            return False, "generated_code_always_confirm"
         if tier == "tier_two":
             return False, "tier_two_never_auto"
         if tier == "unknown":
@@ -248,7 +256,9 @@ class TrustBandit:
 
 
 def classify_tool_tier(tool_name: str) -> str:
-    """Classify a tool as tier_one, tier_two, or unknown."""
+    """Classify a tool as tier_one, tier_two, always_confirm, or unknown."""
+    if tool_name in ALWAYS_CONFIRM_TOOLS:
+        return "always_confirm"
     if tool_name.startswith("browser_"):
         return "tier_two"
     if tool_name in TIER_TWO_TOOLS:

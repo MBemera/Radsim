@@ -4,6 +4,7 @@ Learn user preferences from implicit and explicit feedback signals.
 Adapts system prompts and suggestions based on learned preferences.
 """
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 
 from ..persistence import atomic_write_json
+from .events import LearningEvent, TaskOutcome, bounded_text, stable_identifier
+from .store import LearningStore
 
 
 @dataclass
@@ -43,7 +46,7 @@ class PreferenceLearner:
         self.storage_dir = storage_dir or Path.home() / ".radsim" / "learning"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.prefs_file = self.storage_dir / "preferences.json"
-        self.feedback_file = self.storage_dir / "feedback.json"
+        self.store = LearningStore(storage_dir=self.storage_dir)
 
         self._preferences: dict = {}
         self._feedback: list[dict] = []
@@ -57,16 +60,25 @@ class PreferenceLearner:
             except (OSError, json.JSONDecodeError):
                 self._preferences = {}
 
-        if self.feedback_file.exists():
-            try:
-                self._feedback = json.loads(self.feedback_file.read_text())
-            except (OSError, json.JSONDecodeError):
-                self._feedback = []
+        self._feedback = [
+            {
+                "action": event.user_decision or "unknown",
+                "suggestion_preview": "",
+                "modification": "",
+                "quality_score": event.metadata.get("quality_score", 0.5),
+                "timestamp": event.created_at,
+                "metadata": event.metadata.get("context", {}),
+            }
+            for event in self.store.query(
+                event_types={"feedback"},
+                limit=200,
+                newest_first=False,
+            )
+        ]
 
     def _save(self):
         """Persist preferences to disk."""
         atomic_write_json(self.prefs_file, self._preferences)
-        atomic_write_json(self.feedback_file, self._feedback)
 
     def record_feedback(
         self,
@@ -97,14 +109,37 @@ class PreferenceLearner:
 
         feedback_record = {
             "action": action,
-            "suggestion_preview": suggestion[:200],
-            "modification": modification[:500] if modification else "",
+            "suggestion_preview": bounded_text(suggestion, 200),
+            "modification": bounded_text(modification, 500),
             "quality_score": quality_score,
             "timestamp": datetime.now().isoformat(),
             "metadata": metadata,
         }
 
         self._feedback.append(feedback_record)
+        feedback_outcome = {
+            "accept": TaskOutcome.SUCCESSFUL,
+            "good": TaskOutcome.SUCCESSFUL,
+            "modify": TaskOutcome.PARTIALLY_SUCCESSFUL,
+            "improve": TaskOutcome.PARTIALLY_SUCCESSFUL,
+            "reject": TaskOutcome.USER_REJECTED,
+        }.get(action, TaskOutcome.UNKNOWN)
+        self.store.append(
+            LearningEvent.create(
+                event_type="feedback",
+                action_signature=stable_identifier(suggestion),
+                outcome=feedback_outcome,
+                user_decision=bounded_text(action, 40),
+                summary="Feedback on assistant response",
+                metadata={
+                    "quality_score": quality_score,
+                    "context": metadata,
+                    "suggestion_hash": hashlib.sha256(
+                        suggestion.encode("utf-8", errors="replace")
+                    ).hexdigest()[:24],
+                },
+            )
+        )
 
         # Learn from feedback
         self._learn_from_feedback(action, suggestion, modification, metadata)
@@ -317,6 +352,7 @@ class PreferenceLearner:
         """Clear all learned preferences."""
         self._preferences = {}
         self._feedback = []
+        self.store.delete(event_types={"feedback"})
         self._save()
 
     def get_feedback_summary(self) -> dict:
@@ -355,6 +391,10 @@ def record_feedback(
     metadata: dict = None,
 ):
     """Convenience function to record feedback."""
+    from ..agent_config import get_agent_config_manager
+
+    if not get_agent_config_manager().is_learning_module_enabled("preference_learning"):
+        return
     get_preference_learner().record_feedback(action, suggestion, modification, metadata)
 
 

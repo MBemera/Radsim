@@ -9,6 +9,7 @@ can keep working in the main input loop. Jobs track status,
 output, and token usage.
 """
 
+import inspect
 import logging
 import threading
 import time
@@ -68,7 +69,8 @@ class BackgroundJobManager:
 
         Args:
             description: Human-readable task description
-            run_function: Callable that returns a SubAgentResult
+            run_function: Callable that returns a SubAgentResult. It may
+                accept one threading.Event for cooperative cancellation.
             model: Model ID being used
             tier: Task tier (fast, capable, review)
             sub_tasks: List of individual task descriptions (for parallel jobs)
@@ -95,7 +97,9 @@ class BackgroundJobManager:
 
         def worker():
             try:
-                result = run_function()
+                if cancel_event.is_set():
+                    return
+                result = self._invoke_run_function(run_function, cancel_event)
                 with self._lock:
                     if job.status == JobStatus.CANCELLED:
                         return
@@ -127,6 +131,16 @@ class BackgroundJobManager:
 
         thread.start()
         return job
+
+    @staticmethod
+    def _invoke_run_function(run_function, cancel_event):
+        """Pass the cancellation token only when the callable accepts it."""
+        try:
+            signature = inspect.signature(run_function)
+            signature.bind(cancel_event)
+        except (TypeError, ValueError):
+            return run_function()
+        return run_function(cancel_event)
 
     def get_job(self, job_id):
         """Get a job by ID. Returns None if not found."""

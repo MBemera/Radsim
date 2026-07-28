@@ -96,6 +96,7 @@ class RadSimAgent(
         self._last_response = ""  # For feedback commands (/good, /improve)
         self._current_task_start = None  # For task timing
         self._current_task_tools = []  # Tools used in current task
+        self._task_outcome_tracker = None  # Evidence collected for this turn
 
         # Track rejected writes so the AI can't retry after user says "n"
         self._rejected_writes = set()  # File paths rejected this turn
@@ -1028,7 +1029,7 @@ class RadSimAgent(
         )
 
     def _handle_add_tool(self, tool_input):
-        """Handle add_tool with confirmation. Trust-bandit can auto-confirm."""
+        """Handle generated Python with an explicit, non-bypassable confirmation."""
         name = tool_input.get("name", "")
         description = tool_input.get("description", "")
         body_preview = str(tool_input.get("body", ""))[:200]
@@ -1041,6 +1042,7 @@ class RadSimAgent(
             tool_name="add_tool",
             tool_input=tool_input,
             description=message,
+            force_confirm=True,
             success_message=f"Tool added: {name}",
         )
 

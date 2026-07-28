@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from .api_client import create_client
-from .learning import flush_tool_optimizer, get_reflection_engine, get_tool_optimizer
+from .learning import TaskOutcomeTracker, flush_tool_optimizer
 from .output import print_error, print_info, print_success, print_warning
 
 logger = logging.getLogger(__name__)
@@ -80,6 +80,7 @@ class AgentConversationMixin:
         self._last_response = ""
         self._current_task_start = None
         self._current_task_tools = []
+        self._task_outcome_tracker = None
         self._injected_job_ids = set()
         self._session_approve_shell = False
         self._pending_user_context = []
@@ -217,19 +218,68 @@ class AgentConversationMixin:
         """Process a user message and return the response."""
         self._interrupted.clear()
         self._is_processing.set()
+        config = getattr(self, "config", None)
+        self._task_outcome_tracker = TaskOutcomeTracker(
+            user_input,
+            provider=getattr(config, "provider", ""),
+            model=getattr(config, "model", ""),
+        )
+        usage_before = dict(getattr(self, "usage_stats", {}))
+        started_at = time.time()
+        result = ""
+        task_error = None
 
         from .escape_listener import start_escape_listener, stop_escape_listener
 
         start_escape_listener(self)
         try:
-            return self._process_message_inner(user_input)
+            result = self._process_message_inner(user_input)
+            return result
+        except BaseException as error:
+            task_error = error
+            if isinstance(error, KeyboardInterrupt):
+                self._task_outcome_tracker.mark_cancelled()
+            raise
         finally:
+            if self._interrupted.is_set() and self._task_outcome_tracker is not None:
+                self._task_outcome_tracker.mark_cancelled()
+            self._fire_post_message_hook(result, task_error)
+            self._record_learning_outcome(
+                result=result,
+                error=task_error,
+                duration_ms=(time.time() - started_at) * 1000,
+                usage_before=usage_before,
+            )
             try:
                 flush_tool_optimizer()
             except Exception:
                 logger.debug("Tool optimizer flush failed at turn boundary", exc_info=True)
             stop_escape_listener()
             self._is_processing.clear()
+
+    def _fire_post_message_hook(self, result, error):
+        """Notify non-blocking observers with the resolved outcome."""
+        tracker = getattr(self, "_task_outcome_tracker", None)
+        if tracker is None:
+            return
+        try:
+            from .hooks import HookContext, HookType, get_hooks_manager
+            from .learning.events import bounded_text
+
+            get_hooks_manager().execute(
+                HookType.POST_MESSAGE,
+                HookContext(
+                    hook_type=HookType.POST_MESSAGE,
+                    message=bounded_text(result, 1_000),
+                    error=error,
+                    metadata={
+                        "task_id": tracker.task_id,
+                        "outcome": tracker.resolve(error).value,
+                    },
+                ),
+            )
+        except Exception:
+            logger.debug("post_message hooks failed", exc_info=True)
 
     def _process_message_inner(self, user_input):
         """Inner message processing (wrapped by process_message for interrupt tracking)."""
@@ -267,7 +317,7 @@ class AgentConversationMixin:
 
             config_manager = get_agent_config_manager()
             if config_manager.is_learning_module_enabled("tool_optimization"):
-                from .learning.tool_optimizer import suggest_tool_chain
+                from .learning import suggest_tool_chain
 
                 suggested_chain = suggest_tool_chain(user_input[:200])
                 if suggested_chain:
@@ -289,45 +339,65 @@ class AgentConversationMixin:
         response = self._call_api()
         result = self._handle_response(response)
 
+        return result
+
+    def _record_learning_outcome(self, result, error, duration_ms, usage_before):
+        """Write one task event and run bounded lifecycle analysis."""
+        tracker = getattr(self, "_task_outcome_tracker", None)
+        if tracker is None:
+            return
         try:
             from .agent_config import get_agent_config_manager
+            from .learning import get_learning_store, get_self_improver, get_tool_optimizer
 
             config_manager = get_agent_config_manager()
+            if not config_manager.get("learning.enabled", True):
+                return
+            get_tool_optimizer().reset_current_chain()
 
-            if config_manager.is_learning_module_enabled("reflection"):
-                task_duration = time.time() - self._current_task_start if self._current_task_start else 0
-                reflection_engine = get_reflection_engine()
-                reflection_engine.reflect_on_completion(
-                    task_description=user_input[:200],
-                    approach_taken=f"Used tools: {', '.join(self._current_task_tools[:10])}",
-                    result=str(result)[:200] if result else "completed",
-                    success=True,
-                    tools_used=self._current_task_tools,
-                    duration_seconds=task_duration,
-                )
+            input_tokens = max(
+                0,
+                getattr(self, "usage_stats", {}).get("input_tokens", 0)
+                - usage_before.get("input_tokens", 0),
+            )
+            output_tokens = max(
+                0,
+                getattr(self, "usage_stats", {}).get("output_tokens", 0)
+                - usage_before.get("output_tokens", 0),
+            )
+            event = tracker.build_event(
+                result=result,
+                error=error,
+                duration_ms=duration_ms,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+            get_learning_store().append(event)
 
-            if config_manager.is_learning_module_enabled("tool_optimization"):
-                tool_optimizer = get_tool_optimizer()
-                tool_optimizer.complete_task_chain(user_input[:200], success=True)
-
-            if config_manager.get("self_improvement.enabled", False) and config_manager.get(
-                "self_improvement.auto_propose", True
-            ):
-                from .learning.self_improver import get_self_improver
-
+            if config_manager.get(
+                "self_improvement.enabled", False
+            ) and config_manager.get("self_improvement.auto_propose", True):
                 improver = get_self_improver()
-                new_reflections = improver.get_reflection_count_since_last_analysis()
-                if new_reflections >= 10:
-                    new_proposals = improver.analyze_and_propose()
-                    if new_proposals:
+                threshold = max(
+                    1,
+                    int(
+                        config_manager.get(
+                            "self_improvement.auto_propose_threshold",
+                            10,
+                        )
+                    ),
+                )
+                if improver.get_reflection_count_since_last_analysis() >= threshold:
+                    proposals = improver.analyze_and_propose()
+                    if proposals:
                         print_info(
-                            f"Self-improvement: {len(new_proposals)} new proposal(s). "
-                            "Use /evolve to review."
+                            f"Self-improvement: {len(proposals)} new proposal(s). "
+                            "Use /evolve review."
                         )
         except Exception:
-            logger.debug("Learning completion tracking failed, continuing main flow")
-
-        return result
+            logger.debug("Learning completion tracking failed, continuing main flow", exc_info=True)
+        finally:
+            self._task_outcome_tracker = None
 
     def _refresh_session_activity(self, active_task=None):
         """Mark the current session active for memory expiry.

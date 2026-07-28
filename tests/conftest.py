@@ -24,7 +24,15 @@ _SINGLETON_RESETS = [
     ("radsim.background", "_manager", None),
     ("radsim.health", "_health_checker", None),
     ("radsim.health", "_expiration_monitor", None),
-    ("radsim.learning.active_learner", "_active_learner", None),
+    ("radsim.learning.events", "_reflection_engine", None),
+    ("radsim.learning.preference_learner", "_preference_learner", None),
+    ("radsim.learning.proposals", "_proposal_engine", None),
+    ("radsim.learning.retrieval", "_error_analyzer", None),
+    ("radsim.learning.retrieval", "_few_shot_assembler", None),
+    ("radsim.learning.retrieval", "_tool_optimizer", None),
+    ("radsim.learning.store", "_analytics", None),
+    ("radsim.learning.store", "_stores", {}),
+    ("radsim.extension_loader", "_extension_loader", None),
     ("radsim.todo", "_tracker", None),
     ("radsim.safety", "_telegram_confirm_fn", None),
 ]
@@ -32,10 +40,17 @@ _SINGLETON_RESETS = [
 
 def _reset_singletons():
     """Drop cached singletons and shared caches for already-imported modules."""
+    loader_module = sys.modules.get("radsim.extension_loader")
+    if loader_module is not None:
+        loader = getattr(loader_module, "_extension_loader", None)
+        if loader is not None:
+            for loaded in list(loader.loaded.values()):
+                loaded.api.deactivate()
+
     for module_name, attr, value in _SINGLETON_RESETS:
         module = sys.modules.get(module_name)
         if module is not None and hasattr(module, attr):
-            setattr(module, attr, value)
+            setattr(module, attr, value.copy() if isinstance(value, dict) else value)
 
     runtime = sys.modules.get("radsim.runtime_context")
     if runtime is not None:

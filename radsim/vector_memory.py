@@ -13,11 +13,11 @@ Status:
 import hashlib
 import json
 import logging
-import math
-import re
 from datetime import datetime
 from pathlib import Path
 
+from .learning import tfidf_cosine_scores
+from .learning.retrieval import tokenize
 from .persistence import atomic_write_json
 
 # Configure logging
@@ -61,7 +61,6 @@ class JsonMemoryFallback:
         self.persist_directory = persist_directory
         self.persist_directory.mkdir(parents=True, exist_ok=True)
         self.collections: dict[str, list[dict]] = {}
-        self.document_frequencies: dict[str, dict[str, int]] = {}
         self._load_all_collections()
 
     def _get_collection_path(self, collection: str) -> Path:
@@ -85,7 +84,6 @@ class JsonMemoryFallback:
                 self.collections[collection] = []
         else:
             self.collections[collection] = []
-        self._rebuild_document_frequencies(collection)
 
     def _save_collection(self, collection: str) -> None:
         """Save a collection to disk."""
@@ -108,11 +106,9 @@ class JsonMemoryFallback:
             return
         if collection not in self.collections:
             self.collections[collection] = []
-            self.document_frequencies[collection] = {}
 
         entries = [self._build_entry(item) for item in items]
         self.collections[collection].extend(entries)
-        self._update_document_frequencies(collection, entries, change=1)
         self._save_collection(collection)
 
     def _build_entry(self, item: dict) -> dict:
@@ -125,26 +121,6 @@ class JsonMemoryFallback:
             "keywords": list(self._extract_keywords(content)),
         }
 
-    def _rebuild_document_frequencies(self, collection: str) -> None:
-        """Rebuild keyword counts after loading one collection."""
-        self.document_frequencies[collection] = {}
-        self._update_document_frequencies(
-            collection, self.collections[collection], change=1
-        )
-
-    def _update_document_frequencies(
-        self, collection: str, entries: list[dict], change: int
-    ) -> None:
-        """Apply entry keyword counts to the in-memory search index."""
-        frequencies = self.document_frequencies.setdefault(collection, {})
-        for entry in entries:
-            for keyword in set(entry.get("keywords", [])):
-                updated_count = frequencies.get(keyword, 0) + change
-                if updated_count > 0:
-                    frequencies[keyword] = updated_count
-                else:
-                    frequencies.pop(keyword, None)
-
     def search(self, collection: str, query: str, top_k: int) -> list[dict]:
         """Search using TF-IDF cosine similarity and return scored results."""
         if collection not in self.collections:
@@ -154,8 +130,7 @@ class JsonMemoryFallback:
         if not entries:
             return []
 
-        query_keywords = self._extract_keywords(query)
-        if not query_keywords:
+        if not self._extract_keywords(query):
             # If no keywords extracted, return recent entries
             recent = entries[-top_k:]
             return [
@@ -168,41 +143,14 @@ class JsonMemoryFallback:
                 for e in reversed(recent)
             ]
 
-        num_docs = len(entries)
-        doc_freq = self.document_frequencies.get(collection, {})
-        entry_keyword_sets = []
-        for entry in entries:
-            kw_set = set(entry.get("keywords", []))
-            entry_keyword_sets.append(kw_set)
-
+        similarities = tfidf_cosine_scores(
+            query,
+            [entry.get("content", "") for entry in entries],
+        )
         scored_results = []
-        for idx, entry in enumerate(entries):
-            entry_keywords = entry_keyword_sets[idx]
-            if not entry_keywords:
+        for entry, similarity in zip(entries, similarities, strict=True):
+            if similarity <= 0:
                 continue
-
-            # Compute TF-IDF cosine similarity between query and entry
-            shared_terms = query_keywords & entry_keywords
-            if not shared_terms:
-                continue
-
-            # IDF weight: log(N / df) — higher for rarer terms
-            dot_product = 0.0
-            query_norm_sq = 0.0
-            entry_norm_sq = 0.0
-
-            all_terms = query_keywords | entry_keywords
-            for term in all_terms:
-                idf = math.log((num_docs + 1) / (doc_freq.get(term, 0) + 1)) + 1.0
-                q_tfidf = idf if term in query_keywords else 0.0
-                e_tfidf = idf if term in entry_keywords else 0.0
-                dot_product += q_tfidf * e_tfidf
-                query_norm_sq += q_tfidf * q_tfidf
-                entry_norm_sq += e_tfidf * e_tfidf
-
-            norm = math.sqrt(query_norm_sq) * math.sqrt(entry_norm_sq)
-            similarity = dot_product / norm if norm > 0 else 0.0
-
             scored_results.append({
                 "id": entry["id"],
                 "content": entry["content"],
@@ -227,7 +175,6 @@ class JsonMemoryFallback:
         ]
 
         if removed_entries:
-            self._update_document_frequencies(collection, removed_entries, change=-1)
             self._save_collection(collection)
             return True
         return False
@@ -239,7 +186,6 @@ class JsonMemoryFallback:
     def clear(self, collection: str) -> None:
         """Clear all memories in a collection."""
         self.collections[collection] = []
-        self.document_frequencies[collection] = {}
         self._save_collection(collection)
 
     def _extract_keywords(self, text: str) -> set[str]:
@@ -248,32 +194,7 @@ class JsonMemoryFallback:
         Simple tokenization: lowercase, split on non-alphanumeric,
         filter short words and common stopwords.
         """
-        if not text:
-            return set()
-
-        # Tokenize: lowercase and split on non-word characters
-        words = re.findall(r'\b[a-z0-9]+\b', text.lower())
-
-        # Common stopwords to filter
-        stopwords = {
-            'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
-            'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
-            'would', 'could', 'should', 'may', 'might', 'must', 'can',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she',
-            'it', 'we', 'they', 'what', 'which', 'who', 'when', 'where',
-            'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only',
-            'own', 'same', 'so', 'than', 'too', 'very', 'just', 'and',
-            'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of',
-            'at', 'by', 'for', 'with', 'about', 'against', 'between',
-            'into', 'through', 'during', 'before', 'after', 'above',
-            'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off',
-        }
-
-        # Filter: keep words with 3+ chars that aren't stopwords
-        keywords = {w for w in words if len(w) >= 3 and w not in stopwords}
-
-        return keywords
+        return tokenize(text)
 
 
 def generate_memory_id(content: str, timestamp: str) -> str:

@@ -57,9 +57,13 @@ def _run_user_shell_command(command, agent):
 def run_single_shot(config, prompt, context_file=None):
     """Run a single-shot command and return the result."""
     from .agent import RadSimAgent
+    from .extension_loader import get_extension_loader
     from .user_hooks import fire_session_hooks
 
     agent = RadSimAgent(config, context_file)
+    registry = CommandRegistry()
+    agent.command_registry = registry
+    get_extension_loader(registry).load_approved()
     fire_session_hooks("session_start", provider=config.provider, model=config.model)
     try:
         return agent.process_message(prompt)
@@ -85,6 +89,7 @@ def run_interactive(config, context_file=None):
 
     agent = RadSimAgent(config, context_file)
     registry = CommandRegistry()
+    agent.command_registry = registry
     set_active_agent(agent)
 
     import atexit
@@ -92,6 +97,13 @@ def run_interactive(config, context_file=None):
     from .user_hooks import fire_session_hooks
 
     print_header(config.provider, config.model)
+
+    from .extension_loader import get_extension_loader
+
+    extension_results = get_extension_loader(registry).load_approved()
+    for result in extension_results:
+        if not result.get("success"):
+            print_warning(result.get("error", "Extension could not be loaded"))
 
     # Fire AFTER the banner so hook output lands where the user is
     # looking, not scrolled above the logo.
