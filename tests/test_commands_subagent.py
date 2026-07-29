@@ -47,11 +47,17 @@ class TestSubagentDispatch:
         ],
     )
     def test_subcommands_dispatch_cleanly(self, registry, agent, command, capsys):
-        handled = _run(registry, agent, command)
+        # Argless forms open a picker instead of printing usage, so cancelling
+        # every prompt is what "dispatches cleanly" means for them.
+        with patch("radsim.menu.interactive_menu", return_value=None), patch(
+            "radsim.menu.safe_input", return_value=""
+        ):
+            handled = _run(registry, agent, command)
         output = capsys.readouterr().out
 
         assert handled is True
         assert "Command error" not in output
+        assert "Usage:" not in output
 
     def test_alias_is_registered(self, registry, agent, capsys):
         _run(registry, agent, "/sub profiles")
@@ -69,7 +75,7 @@ class TestSubagentStatus:
     """Status reports the saved pair and never a credential."""
 
     def test_reports_no_selection_by_default(self, registry, agent, capsys):
-        _run(registry, agent, "/subagent")
+        _run(registry, agent, "/subagent status")
         assert "not selected" in capsys.readouterr().out
 
     def test_reports_a_saved_selection(self, registry, agent, capsys):
@@ -94,7 +100,7 @@ class TestSubagentStatus:
     def test_lists_the_built_in_profiles(self, registry, agent, capsys):
         from radsim.sub_agent_profiles import CAPABILITY_PROFILES
 
-        _run(registry, agent, "/subagent")
+        _run(registry, agent, "/subagent status")
         output = capsys.readouterr().out
 
         for name in CAPABILITY_PROFILES:
@@ -260,6 +266,126 @@ class TestSubagentRun:
 
         assert "untrusted evidence" in output
         assert "findings here" in output
+
+
+class TestSubagentMenus:
+    """Every action is reachable with no typed arguments."""
+
+    @pytest.fixture(autouse=True)
+    def _isolated_store(self, tmp_path, monkeypatch):
+        store = tmp_path / "subagents.json"
+        monkeypatch.setattr("radsim.sub_agent_profiles.get_custom_profiles_file", lambda: store)
+        return store
+
+    def test_bare_command_opens_an_action_menu(self, registry, agent, capsys):
+        with patch("radsim.menu.interactive_menu", return_value="profiles") as menu:
+            _run(registry, agent, "/subagent")
+
+        assert menu.call_args[0][0] == "SUB-AGENTS"
+        assert "capability profiles" in capsys.readouterr().out
+
+    def test_cancelling_the_action_menu_does_nothing(self, registry, agent, capsys):
+        with patch("radsim.menu.interactive_menu", return_value=None):
+            _run(registry, agent, "/subagent")
+
+        assert "Unknown" not in capsys.readouterr().out
+
+    def test_show_without_an_id_picks_from_a_menu(self, registry, agent, capsys):
+        from radsim.sub_agent_profiles import save_custom_profile
+
+        save_custom_profile("api-reviewer", "API reviewer", "review", "Check auth.")
+        with patch("radsim.menu.interactive_menu", return_value="api-reviewer"):
+            _run(registry, agent, "/subagent show")
+
+        assert "Base profile:  review" in capsys.readouterr().out
+
+    def test_delete_without_an_id_picks_from_a_menu(self, registry, agent):
+        from radsim.sub_agent_profiles import get_custom_profile, save_custom_profile
+
+        save_custom_profile("api-reviewer", "API reviewer", "review", "Check auth.")
+        with patch("radsim.menu.interactive_menu", return_value="api-reviewer"), patch(
+            "radsim.safety.confirm_action", return_value=True
+        ):
+            _run(registry, agent, "/subagent delete")
+
+        assert get_custom_profile("api-reviewer") is None
+
+    def test_edit_without_an_id_picks_from_a_menu(self, registry, agent):
+        from radsim.sub_agent_profiles import get_custom_profile, save_custom_profile
+
+        save_custom_profile("api-reviewer", "API reviewer", "review", "Old text.")
+        with patch("radsim.menu.interactive_menu", return_value="api-reviewer"), patch(
+            "radsim.menu.safe_input", return_value="New text."
+        ):
+            _run(registry, agent, "/subagent edit")
+
+        assert get_custom_profile("api-reviewer")["instructions"] == "New text."
+
+    def test_an_empty_store_explains_instead_of_erroring(self, registry, agent, capsys):
+        _run(registry, agent, "/subagent show")
+        output = capsys.readouterr().out
+
+        assert "No custom profiles yet" in output
+        assert "Usage:" not in output
+
+    def test_run_without_arguments_picks_a_profile_and_asks_for_the_task(self, registry):
+        calls = []
+        agent = SimpleNamespace(
+            config=SimpleNamespace(auto_confirm=True),
+            _telegram_mode=False,
+            _handle_delegate_task=lambda payload: calls.append(payload)
+            or {"success": True, "content": "done"},
+        )
+
+        with patch("radsim.menu.interactive_menu", return_value="profile:review"), patch(
+            "radsim.menu.safe_input", return_value="check auth.py"
+        ):
+            _run(registry, agent, "/subagent run")
+
+        assert calls == [
+            {
+                "task_description": "check auth.py",
+                "background": False,
+                "profile": "review",
+            }
+        ]
+
+    def test_run_menu_offers_custom_profiles_by_their_own_key(self, registry):
+        from radsim.sub_agent_profiles import save_custom_profile
+
+        save_custom_profile("api-reviewer", "API reviewer", "review", "Check auth.")
+        calls = []
+        agent = SimpleNamespace(
+            config=SimpleNamespace(auto_confirm=True),
+            _telegram_mode=False,
+            _handle_delegate_task=lambda payload: calls.append(payload)
+            or {"success": True, "content": "done"},
+        )
+
+        with patch(
+            "radsim.menu.interactive_menu", return_value="custom:api-reviewer"
+        ) as menu, patch("radsim.menu.safe_input", return_value="check auth.py"):
+            _run(registry, agent, "/subagent run")
+
+        offered = dict(menu.call_args[0][1])
+        assert "custom:api-reviewer" in offered
+        assert "profile:review" in offered
+        assert calls[0]["custom_profile"] == "api-reviewer"
+        assert "profile" not in calls[0]
+
+    def test_run_without_a_task_cancels(self, registry, capsys):
+        agent = SimpleNamespace(
+            config=SimpleNamespace(auto_confirm=True),
+            _telegram_mode=False,
+            _handle_delegate_task=lambda _payload: pytest.fail("delegation should not start"),
+        )
+
+        with patch("radsim.menu.interactive_menu", return_value="profile:review"), patch(
+            "radsim.menu.safe_input", return_value=""
+        ):
+            _run(registry, agent, "/subagent run")
+
+        assert "Cancelled" in capsys.readouterr().out
 
 
 class TestSubagentIsNotTelegramSafe:

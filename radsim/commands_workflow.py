@@ -546,8 +546,11 @@ class WorkflowCommandHandlersMixin:
 
     def _cmd_subagent(self, agent, args=None):
         """Manage the persistent sub-agent model and instruction profiles."""
-        parts = list(args) if args else []
-        action = parts[0].lower() if parts else "status"
+        parts = list(args) if args else self._prompt_subagent_action()
+        if not parts:
+            return
+
+        action = parts[0].lower()
         argument = " ".join(parts[1:]).strip()
 
         actions = {
@@ -567,6 +570,76 @@ class WorkflowCommandHandlersMixin:
             print_info("Actions: status, model, profiles, create, show, edit, delete, run")
             return
         handler()
+
+    def _prompt_subagent_action(self):
+        """Show the sub-agent menu and return the equivalent command args."""
+        from .menu import interactive_menu
+
+        choice = interactive_menu(
+            "SUB-AGENTS",
+            [
+                ("status", "Show the saved model and profiles"),
+                ("model", "Choose and save the sub-agent model"),
+                ("profiles", "List profiles and their limits"),
+                ("run", "Run one task under a profile"),
+                ("create", "Create a custom instruction profile"),
+                ("show", "Show one custom profile"),
+                ("edit", "Edit a custom profile's instructions"),
+                ("delete", "Delete a custom profile"),
+            ],
+        )
+        if choice is None:
+            return None
+        return [choice]
+
+    def _pick_custom_profile(self, title):
+        """Let the user pick one custom profile by menu.
+
+        Returns None when there are none or the user cancels, so every caller
+        works with no typed argument at all.
+        """
+        from .menu import interactive_menu
+        from .sub_agent_profiles import load_custom_profiles
+
+        profiles = load_custom_profiles()
+        if not profiles:
+            print_info("No custom profiles yet. Use /subagent create to add one.")
+            return None
+
+        return interactive_menu(
+            title,
+            [
+                (profile["id"], f"{profile['name']} (extends {profile['base_profile']})")
+                for profile in profiles
+            ],
+        )
+
+    def _pick_run_profile(self):
+        """Let the user pick the profile one /subagent run task will use.
+
+        Returns:
+            The delegation arguments for the chosen profile, or None when
+            cancelled. Custom profiles resolve through ``custom_profile`` so
+            their locked base profile still decides permissions.
+        """
+        from .menu import interactive_menu
+        from .sub_agent_profiles import CAPABILITY_PROFILES, load_custom_profiles
+
+        options = [
+            (f"profile:{name}", profile["description"])
+            for name, profile in sorted(CAPABILITY_PROFILES.items())
+        ]
+        options.extend(
+            (f"custom:{profile['id']}", f"{profile['name']} (extends {profile['base_profile']})")
+            for profile in load_custom_profiles()
+        )
+
+        choice = interactive_menu("SUB-AGENT PROFILE", options)
+        if choice is None:
+            return None
+
+        kind, _separator, value = choice.partition(":")
+        return {"custom_profile": value} if kind == "custom" else {"profile": value}
 
     def _subagent_status(self, agent):
         """Show the saved sub-agent selection and available profiles."""
@@ -682,8 +755,8 @@ class WorkflowCommandHandlersMixin:
         """Show one custom profile and the boundary it inherits."""
         from .sub_agent_profiles import get_custom_profile, get_profile
 
+        profile_id = profile_id or self._pick_custom_profile("SHOW CUSTOM PROFILE")
         if not profile_id:
-            print_error("Usage: /subagent show <id>")
             return
 
         profile = get_custom_profile(profile_id)
@@ -716,8 +789,8 @@ class WorkflowCommandHandlersMixin:
         from .menu import safe_input
         from .sub_agent_profiles import get_custom_profile, save_custom_profile
 
+        profile_id = profile_id or self._pick_custom_profile("EDIT CUSTOM PROFILE")
         if not profile_id:
-            print_error("Usage: /subagent edit <id>")
             return
 
         profile = get_custom_profile(profile_id)
@@ -744,8 +817,8 @@ class WorkflowCommandHandlersMixin:
         from .safety import confirm_action
         from .sub_agent_profiles import delete_custom_profile, get_custom_profile
 
+        profile_id = profile_id or self._pick_custom_profile("DELETE CUSTOM PROFILE")
         if not profile_id:
-            print_error("Usage: /subagent delete <id>")
             return
 
         if get_custom_profile(profile_id) is None:
@@ -764,17 +837,26 @@ class WorkflowCommandHandlersMixin:
 
     def _subagent_run(self, agent, argument):
         """Run one explicit sub-agent task using the saved model."""
+        from .menu import safe_input
+
         parts = argument.split(maxsplit=1)
-        if len(parts) < 2:
-            print_error("Usage: /subagent run <profile> <task>")
+        if parts:
+            profile_arguments = {"profile": parts[0]}
+        else:
+            profile_arguments = self._pick_run_profile()
+            if profile_arguments is None:
+                return
+
+        task_description = parts[1] if len(parts) > 1 else safe_input("  Task for the sub-agent: ")
+        if not task_description:
+            print_info("Cancelled — no task given.")
             return
 
-        profile_name, task_description = parts[0], parts[1]
         result = agent._handle_delegate_task(
             {
                 "task_description": task_description,
-                "profile": profile_name,
                 "background": False,
+                **profile_arguments,
             }
         )
         if not result.get("success"):

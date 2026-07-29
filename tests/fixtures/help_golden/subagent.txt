@@ -12,22 +12,27 @@
     /subagent model
     /subagent profiles
     /subagent create
-    /subagent show <id>
-    /subagent edit <id>
-    /subagent delete <id>
-    /subagent run <profile> <task>
+    /subagent status
+    /subagent show [id]
+    /subagent edit [id]
+    /subagent delete [id]
+    /subagent run [profile] [task]
 
   Details:
     Sub-agents use their own saved provider and model, separate from
     your main model. The selection survives /clear, restarts, and
     /switch, and only you can change it — the agent cannot.
     
-      • (no args)   — Show the saved model and available profiles
+      • (no args)   — Open the sub-agent menu
+      • status      — Show the saved model and available profiles
       • model       — Choose and save the sub-agent provider/model
       • profiles    — List capability profiles and their limits
       • create      — Add instructions on top of a locked profile
       • show/edit/delete — Manage one custom profile
-      • run         — Run one task under a named profile
+      • run         — Run one task under a profile
+    
+    Every action works with no arguments: leaving an id or profile
+    out opens a picker instead of printing usage.
     
     Capability profiles decide what a sub-agent may do. Custom
     instructions refine behaviour but can never add tools or
