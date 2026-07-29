@@ -294,6 +294,7 @@ that typing them as a prompt would be wasteful. They all work mid-session.
 | `/skill` | Manage your custom-instruction skill files. |
 | `/teach` | Toggle teach mode (annotated diffs, slower pace). |
 | `/plan`, `/panning` | Plan-then-execute and brain-dump processing workflows. |
+| `/subagent` | Choose the sub-agent model and manage capability profiles. |
 | `/background`, `/job` | Start sub-agent jobs and scheduled jobs. |
 | `/mcp`, `/telegram` | Connect to MCP servers; configure Telegram remote control. |
 | `/complexity`, `/stress`, `/archaeology` | Score complexity, run adversarial review, find dead code. |
@@ -330,7 +331,9 @@ The model gets 72 tools by default, grouped by what they let it do:
   an API key gets replaced with `[REDACTED_SECRET]`.
 
 - **Stay organized.** `todo_read`, `todo_write`, `plan_task`, `delegate_task`
-  for in-session tracking and farming work out to a sub-agent.
+  for in-session tracking and farming work out to a sub-agent. Sub-agents run
+  under locked capability profiles on a model you choose separately — see
+  [Sub-agents](#sub-agents) below.
 
 - **Heavier operations.** `run_docker`, `database_query`, `generate_tests`,
   `refactor_code`, `deploy`. All confirm.
@@ -348,6 +351,54 @@ MCP support is opt-in:
 ```bash
 python3 -m pip install "radsimcli[mcp]"
 ```
+
+## Sub-agents
+
+RadSim can farm bounded work out to a sub-agent. Three things decide what a
+sub-agent can do, and they are kept deliberately separate.
+
+**The model is yours to choose.** Sub-agents run on their own saved provider
+and model, picked with `/subagent model` and stored in
+`~/.radsim/agent_config.json`. It is independent of your main model: `/switch`,
+`/free`, `/clear`, and restarting all leave it alone, and the agent cannot
+change it — `delegate_task` has no model argument at all. Until you pick one,
+the first delegation stops and asks. Nothing silently falls back to a cheaper
+model.
+
+**The profile decides permissions, not the model.** Each sub-agent runs under
+one locked capability profile:
+
+| Profile | Can do | Background |
+| --- | --- | --- |
+| `explore` | Read and search the project | yes |
+| `review` | `explore` plus static analysis | yes |
+| `research` | Fetch web pages — no project file reads | yes, after you approve outbound access |
+| `verify` | Run tests, lint, and type checks | no |
+| `implement` | Read plus edit project files through the file tools | no |
+
+No profile combines arbitrary project reads with outbound network access —
+that pairing is the exfiltration path, so `research` trades file access away
+for the network. No profile gets a shell, deletes, git writes, dependency
+changes, deploys, memory writes, or `delegate_task`, so a sub-agent cannot
+spawn another sub-agent. An unknown profile name is an error, never a
+permissive default.
+
+**Every tool call is brokered.** Sub-agent tool calls do not reach the tool
+registry directly. They pass through a policy broker that re-checks the
+profile allowlist, your `/settings` tool switches, path validation, and
+protected-credential rules, and refuses anything it cannot positively approve.
+Foreground calls additionally run through the same confirmation and hook path
+as the main agent. Background jobs cannot change files or run project code at
+all, and cancelling one stops the work rather than just relabelling it.
+
+**Custom profiles add instructions, never permissions.** `/subagent create`
+saves an instruction profile on top of one locked base profile, in
+`~/.radsim/subagents.json`. Instructions refine how the sub-agent works; they
+cannot add tools, change the model, widen paths, or bypass a confirmation.
+
+Sub-agent output comes back labelled as untrusted evidence. It is bounded,
+terminal-escaped, and never presented to the main agent as a system message —
+verify a claim before relying on it.
 
 ## Safety
 
@@ -378,6 +429,8 @@ Everything user-level lives under `~/.radsim`:
 | --- | --- |
 | `~/.radsim/.env` | Provider, model, and API keys. |
 | `~/.radsim/settings.json` | Reasoning effort, rate limits, UI preferences. |
+| `~/.radsim/agent_config.json` | Tool switches, security level, sub-agent model. |
+| `~/.radsim/subagents.json` | Custom sub-agent instruction profiles. |
 | `~/.radsim/memory/` | Persistent memory store. |
 | `~/.radsim/schedules.json` | Scheduled jobs. |
 | `~/.radsim/mcp.json` | MCP server config. |
@@ -395,7 +448,11 @@ For contributors. Files are flat under `radsim/`:
 | `radsim/config.py` | Provider lists, defaults, pricing, settings, env loading. |
 | `radsim/tools/` | Tool definitions and implementations. |
 | `radsim/commands*.py` | Slash command registry and handlers. |
-| `radsim/safety.py` | Path checks and confirmation prompts. |
+| `radsim/prompts.py`, `prompt_fragments/` | Composed system prompt and its checked-in fragments. |
+| `radsim/sub_agent.py` | Sub-agent runner (the only one). |
+| `radsim/sub_agent_policy.py` | Broker every sub-agent tool call passes through. |
+| `radsim/sub_agent_profiles.py` | Locked capability profiles and custom instruction profiles. |
+| `radsim/safety.py` | Path checks, core-policy boundary, confirmation prompts. |
 | `radsim/memory.py` | Persistent memory plus secret sanitization. |
 | `radsim/mcp_client.py` | Optional MCP integration. |
 | `radsim/telegram.py` | Telegram bridge. |

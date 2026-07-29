@@ -544,6 +544,246 @@ class WorkflowCommandHandlersMixin:
         )
         print_block(lines, blank_before=False, blank_after=False)
 
+    def _cmd_subagent(self, agent, args=None):
+        """Manage the persistent sub-agent model and instruction profiles."""
+        parts = list(args) if args else []
+        action = parts[0].lower() if parts else "status"
+        argument = " ".join(parts[1:]).strip()
+
+        actions = {
+            "status": lambda: self._subagent_status(agent),
+            "model": lambda: self._subagent_choose_model(agent),
+            "profiles": lambda: self._subagent_list_profiles(),
+            "create": lambda: self._subagent_create_profile(),
+            "show": lambda: self._subagent_show_profile(argument),
+            "edit": lambda: self._subagent_edit_profile(argument),
+            "delete": lambda: self._subagent_delete_profile(argument),
+            "run": lambda: self._subagent_run(agent, argument),
+        }
+
+        handler = actions.get(action)
+        if handler is None:
+            print_error(f"Unknown /subagent action '{action}'")
+            print_info("Actions: status, model, profiles, create, show, edit, delete, run")
+            return
+        handler()
+
+    def _subagent_status(self, agent):
+        """Show the saved sub-agent selection and available profiles."""
+        from .agent_config import get_agent_config_manager
+        from .sub_agent_profiles import describe_profiles, load_custom_profiles
+
+        config_manager = get_agent_config_manager()
+        provider, model = config_manager.get_subagent_selection()
+
+        lines = ["  Sub-agent settings", ""]
+        if provider and model:
+            lines.append(f"  Model:      {provider} / {model}")
+        else:
+            lines.append("  Model:      not selected — run /subagent model")
+        lines.extend(
+            (
+                f"  Streaming:  {'on' if config_manager.get('subagents.stream_output', True) else 'off'}",
+                f"  Parallel:   up to {config_manager.get('subagents.max_parallel', 3)} at a time",
+                f"  Iterations: {config_manager.get('subagents.max_iterations', 10)} per task",
+                "",
+                "  This selection is separate from your main model and survives",
+                "  /clear, restarts, and /switch.",
+                "",
+                "  Built-in profiles",
+                "",
+            )
+        )
+        lines.extend(
+            f"    {row['name']:<10} {row['description']}" for row in describe_profiles()
+        )
+
+        custom = load_custom_profiles()
+        if custom:
+            lines.extend(("", "  Custom profiles", ""))
+            lines.extend(
+                f"    {profile['id']:<16} extends {profile['base_profile']}" for profile in custom
+            )
+
+        print_block(lines)
+
+    def _subagent_choose_model(self, agent):
+        """Select and persist the sub-agent provider and model."""
+        provider, model = agent._prompt_subagent_model()
+        if not provider or not model:
+            print_info("Sub-agent model unchanged.")
+
+    def _subagent_list_profiles(self):
+        """List built-in and custom profiles with their boundaries."""
+        from .sub_agent_profiles import describe_profiles, load_custom_profiles
+
+        lines = ["  Built-in capability profiles", ""]
+        for row in describe_profiles():
+            limits = [
+                f"{row['tool_count']} tools",
+                "background ok" if row["background"] else "foreground only",
+                "can edit files" if row["mutation"] else "read-only",
+                "network" if row["network"] else "no network",
+            ]
+            lines.append(f"    {row['name']:<10} {row['description']}")
+            lines.append(f"    {'':<10} {' · '.join(limits)}")
+
+        custom = load_custom_profiles()
+        lines.extend(("", "  Custom instruction profiles", ""))
+        if custom:
+            lines.extend(
+                f"    {profile['id']:<16} {profile['name']} (extends {profile['base_profile']})"
+                for profile in custom
+            )
+        else:
+            lines.append("    none — create one with /subagent create")
+
+        print_block(lines)
+
+    def _subagent_create_profile(self):
+        """Create a custom instruction profile on top of a locked base profile."""
+        from .menu import interactive_menu, safe_input
+        from .sub_agent_profiles import CAPABILITY_PROFILES, save_custom_profile
+
+        profile_id = safe_input("  Profile id (lowercase, e.g. api-reviewer): ")
+        if not profile_id:
+            print_info("Cancelled.")
+            return
+
+        name = safe_input("  Display name: ")
+        if not name:
+            print_info("Cancelled.")
+            return
+
+        base_options = [
+            (profile_name, profile["description"])
+            for profile_name, profile in sorted(CAPABILITY_PROFILES.items())
+        ]
+        base_profile = interactive_menu("BASE CAPABILITY PROFILE", base_options)
+        if base_profile is None:
+            print_info("Cancelled.")
+            return
+
+        print_info("Instructions refine how the sub-agent works. They cannot add tools.")
+        instructions = safe_input("  Instructions: ")
+        if not instructions:
+            print_info("Cancelled.")
+            return
+
+        result = save_custom_profile(profile_id.strip().lower(), name, base_profile, instructions)
+        if not result.get("success"):
+            print_error(result.get("error", "Could not save profile"))
+            return
+
+        verb = "updated" if result.get("replaced") else "created"
+        print_success(f"Profile '{result['profile']['id']}' {verb} (extends {base_profile})")
+
+    def _subagent_show_profile(self, profile_id):
+        """Show one custom profile and the boundary it inherits."""
+        from .sub_agent_profiles import get_custom_profile, get_profile
+
+        if not profile_id:
+            print_error("Usage: /subagent show <id>")
+            return
+
+        profile = get_custom_profile(profile_id)
+        if profile is None:
+            print_error(f"No custom profile named '{profile_id}'")
+            return
+
+        base = get_profile(profile["base_profile"])
+        print_block(
+            [
+                f"  Profile: {profile['id']}",
+                "",
+                f"  Name:          {profile['name']}",
+                f"  Base profile:  {profile['base_profile']} — {base['description']}",
+                f"  Background:    {'allowed' if base['allows_background'] else 'not allowed'}",
+                f"  File changes:  {'allowed' if base['allows_mutation'] else 'not allowed'}",
+                f"  Network:       {'allowed' if base['allows_network'] else 'not allowed'}",
+                f"  Tools:         {len(base['tools'])} from the base allowlist",
+                "",
+                "  Instructions",
+                "",
+                *(f"    {line}" for line in profile["instructions"].splitlines()),
+                "",
+                "  Instructions cannot widen the base profile.",
+            ]
+        )
+
+    def _subagent_edit_profile(self, profile_id):
+        """Edit a custom profile's instructions without changing its model."""
+        from .menu import safe_input
+        from .sub_agent_profiles import get_custom_profile, save_custom_profile
+
+        if not profile_id:
+            print_error("Usage: /subagent edit <id>")
+            return
+
+        profile = get_custom_profile(profile_id)
+        if profile is None:
+            print_error(f"No custom profile named '{profile_id}'")
+            return
+
+        print_info(f"Current instructions: {profile['instructions']}")
+        instructions = safe_input("  New instructions: ")
+        if not instructions:
+            print_info("Cancelled — profile unchanged.")
+            return
+
+        result = save_custom_profile(
+            profile["id"], profile["name"], profile["base_profile"], instructions
+        )
+        if not result.get("success"):
+            print_error(result.get("error", "Could not save profile"))
+            return
+        print_success(f"Profile '{profile['id']}' updated")
+
+    def _subagent_delete_profile(self, profile_id):
+        """Delete a custom profile after an explicit confirmation."""
+        from .safety import confirm_action
+        from .sub_agent_profiles import delete_custom_profile, get_custom_profile
+
+        if not profile_id:
+            print_error("Usage: /subagent delete <id>")
+            return
+
+        if get_custom_profile(profile_id) is None:
+            print_error(f"No custom profile named '{profile_id}'")
+            return
+
+        if not confirm_action(f"Delete custom sub-agent profile '{profile_id}'?", config=None):
+            print_info("Cancelled — profile kept.")
+            return
+
+        result = delete_custom_profile(profile_id)
+        if not result.get("success"):
+            print_error(result.get("error", "Could not delete profile"))
+            return
+        print_success(f"Profile '{profile_id}' deleted")
+
+    def _subagent_run(self, agent, argument):
+        """Run one explicit sub-agent task using the saved model."""
+        parts = argument.split(maxsplit=1)
+        if len(parts) < 2:
+            print_error("Usage: /subagent run <profile> <task>")
+            return
+
+        profile_name, task_description = parts[0], parts[1]
+        result = agent._handle_delegate_task(
+            {
+                "task_description": task_description,
+                "profile": profile_name,
+                "background": False,
+            }
+        )
+        if not result.get("success"):
+            print_error(result.get("error", "Sub-agent task failed"))
+            return
+        print_block(["  Sub-agent result (untrusted evidence)", "", *(
+            f"  {line}" for line in str(result.get("content", "")).splitlines()
+        )])
+
     def _cmd_background(self, agent, args=None):
         """View and manage background sub-agent jobs."""
         import time as time_module
@@ -642,8 +882,8 @@ class WorkflowCommandHandlersMixin:
         }.get(job.status.value, job.status.value)
         detail_rows = [
             ("Status:", status_display),
-            ("Model:", job.model),
-            ("Tier:", job.tier),
+            ("Model:", f"{job.provider}/{job.model}" if job.provider else job.model),
+            ("Profile:", job.profile),
             ("Duration:", f"{job.duration:.1f}s"),
         ]
         if job.input_tokens or job.output_tokens:

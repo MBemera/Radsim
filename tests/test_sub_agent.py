@@ -1,575 +1,491 @@
-"""Tests for sub-agent functionality.
+"""Tests for the sub-agent runner.
 
-Tests model resolution, task delegation, agentic tool loop, and parallel execution (mocked).
+Covers model resolution (fail-closed), profile wiring, the agentic tool loop
+through the policy broker, cancellation, and result bounding.
 """
 
+import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from radsim.sub_agent import (
-    HAIKU_MODEL,
-    MODEL_TIERS,
-    TOOL_SUBSETS,
+    MAX_RESULT_CHARS,
+    SubAgentModelError,
     SubAgentResult,
     SubAgentTask,
-    _build_model_aliases,
     delegate_task,
     execute_subagent_task,
     get_available_models,
-    get_tools_for_tier,
-    list_available_models,
-    resolve_model_name,
-    resolve_task_config,
+    resolve_subagent_model,
+    stream_subagent_task,
 )
 
+VALID_PROVIDER = "openrouter"
+VALID_MODEL = "moonshotai/kimi-k2.5"
 
-class TestGetAvailableModels(unittest.TestCase):
-    """Test that available models come from config."""
 
-    def test_returns_openrouter_models(self):
-        """Available models come from PROVIDER_MODELS['openrouter']."""
-        models = get_available_models()
-        assert isinstance(models, list)
+def _task(**overrides):
+    """Build a task with a valid saved selection unless overridden."""
+    fields = {
+        "task_description": "Summarise auth.py",
+        "provider": VALID_PROVIDER,
+        "model": VALID_MODEL,
+        "profile": "explore",
+    }
+    fields.update(overrides)
+    return SubAgentTask(**fields)
+
+
+class TestAvailableModels(unittest.TestCase):
+    """Model catalogue lookups are provider-aware."""
+
+    def test_returns_models_for_a_known_provider(self):
+        models = get_available_models(VALID_PROVIDER)
         assert len(models) > 0
-        # Each entry is a (model_id, description) tuple
         for model_id, description in models:
             assert isinstance(model_id, str)
             assert isinstance(description, str)
 
-    def test_contains_kimi(self):
-        """Config should include kimi model."""
-        model_ids = [mid for mid, _desc in get_available_models()]
-        assert "moonshotai/kimi-k2.5" in model_ids
+    def test_unknown_provider_returns_empty(self):
+        assert get_available_models("not-a-provider") == []
 
-    def test_no_free_models(self):
-        """No free models like qwen-coder should appear."""
-        model_ids = [mid for mid, _desc in get_available_models()]
-        for mid in model_ids:
-            assert ":free" not in mid
+    def test_every_provider_is_reachable(self):
+        """Sub-agents are no longer OpenRouter-only."""
+        assert get_available_models("claude")
+        assert get_available_models("openai")
 
 
-class TestModelResolution(unittest.TestCase):
-    """Test model name resolution."""
+class TestModelResolutionFailsClosed(unittest.TestCase):
+    """An unusable selection raises instead of substituting a model."""
 
-    def test_resolve_alias_haiku(self):
-        """'haiku' alias resolves to Haiku model."""
-        result = resolve_model_name("haiku")
-        assert result == HAIKU_MODEL
+    def test_unknown_model_raises(self):
+        with pytest.raises(SubAgentModelError) as error:
+            resolve_subagent_model(VALID_PROVIDER, "nonexistent-model-xyz")
+        assert "not available" in str(error.value)
 
-    def test_resolve_alias_fast(self):
-        """'fast' alias resolves to Haiku model."""
-        result = resolve_model_name("fast")
-        assert result == HAIKU_MODEL
+    def test_unknown_model_does_not_fall_back(self):
+        """The old behaviour silently substituted Haiku. It must not return one."""
+        with pytest.raises(SubAgentModelError) as error:
+            resolve_subagent_model(VALID_PROVIDER, "nonexistent-model-xyz")
+        assert "haiku" not in str(error.value).lower()
 
-    def test_resolve_full_model_id(self):
-        """Full model ID from config passes through."""
-        result = resolve_model_name("moonshotai/kimi-k2.5")
-        assert result == "moonshotai/kimi-k2.5"
+    def test_unknown_provider_raises(self):
+        with pytest.raises(SubAgentModelError):
+            resolve_subagent_model("not-a-provider", VALID_MODEL)
 
-    def test_unknown_model_falls_back_to_haiku(self):
-        """Unknown model name falls back to Haiku with warning."""
-        result = resolve_model_name("nonexistent-model-xyz")
-        assert result == HAIKU_MODEL
+    def test_missing_provider_raises(self):
+        with pytest.raises(SubAgentModelError):
+            resolve_subagent_model(None, None)
 
-    def test_case_insensitive(self):
-        """Alias resolution is case-insensitive."""
-        assert resolve_model_name("HAIKU") == resolve_model_name("haiku")
+    def test_missing_credential_raises_without_changing_selection(self, ):
+        with patch("radsim.config.get_provider_api_key", return_value=None):
+            with pytest.raises(SubAgentModelError) as error:
+                resolve_subagent_model(VALID_PROVIDER, VALID_MODEL)
+        message = str(error.value)
+        assert "/login openrouter" in message
+        assert "Neither model selection was changed" in message
 
-    def test_resolve_config_short_name(self):
-        """Short name derived from config model ID resolves."""
-        # "moonshotai/kimi-k2.5" should create alias "kimi-k2.5" and "kimi"
-        aliases = _build_model_aliases()
-        assert "kimi" in aliases or "kimi-k2.5" in aliases
-
-
-class TestBuildModelAliases(unittest.TestCase):
-    """Test alias building from config."""
-
-    def test_always_includes_haiku(self):
-        """Haiku alias is always present."""
-        aliases = _build_model_aliases()
-        assert "haiku" in aliases
-        assert aliases["haiku"] == HAIKU_MODEL
-
-    def test_always_includes_fast(self):
-        """'fast' alias is always present and points to Haiku."""
-        aliases = _build_model_aliases()
-        assert "fast" in aliases
-        assert aliases["fast"] == HAIKU_MODEL
-
-    def test_aliases_from_config(self):
-        """Aliases are derived from config model IDs."""
-        aliases = _build_model_aliases()
-        # Should have aliases for models in config
-        assert len(aliases) >= 2  # At least haiku and fast
+    def test_valid_pair_resolves_with_key(self):
+        with patch("radsim.config.get_provider_api_key", return_value="key-123"):
+            provider, model, api_key = resolve_subagent_model(VALID_PROVIDER, VALID_MODEL)
+        assert (provider, model, api_key) == (VALID_PROVIDER, VALID_MODEL, "key-123")
 
 
-class TestListAvailableModels(unittest.TestCase):
-    """Test listing available models."""
+class TestUnknownProfileFailsClosed(unittest.TestCase):
+    """An unknown profile is an error, not a permissive default."""
 
-    def test_list_returns_config_models(self):
-        """Listed models come from config."""
-        models = list_available_models()
-        assert isinstance(models, dict)
-        assert len(models) > 0
-
-    def test_list_includes_haiku(self):
-        """List always includes Haiku."""
-        models = list_available_models()
-        assert HAIKU_MODEL in models
-
-
-class TestSubAgentTaskExecution(unittest.TestCase):
-    """Test sub-agent task execution with mocked API."""
-
-    @patch("radsim.sub_agent.get_openrouter_api_key")
-    def test_no_api_key_returns_error(self, mock_get_key):
-        """Test error returned when no API key."""
-        mock_get_key.return_value = None
-
-        task = SubAgentTask(
-            task_description="Test task",
-            model="haiku",
-        )
-        result = execute_subagent_task(task)
-
+    def test_unknown_profile_returns_error_result(self):
+        result = execute_subagent_task(_task(profile="nonexistent"))
         assert result.success is False
-        assert "API key" in result.error or "OPENROUTER_API_KEY" in result.error
+        assert "Unknown subagent profile" in result.error
 
-    @patch("radsim.sub_agent.get_openrouter_api_key")
-    @patch("radsim.sub_agent.create_client")
-    def test_successful_execution(self, mock_create_client, mock_get_key):
-        """Test successful task execution."""
-        mock_get_key.return_value = "test-api-key"
+    def test_unknown_profile_runs_no_tools(self):
+        with patch("radsim.sub_agent.create_client") as mock_create_client:
+            result = execute_subagent_task(_task(profile="nonexistent"))
+        mock_create_client.assert_not_called()
+        assert result.tool_calls == 0
 
-        mock_client = MagicMock()
-        mock_client.chat.return_value = {
-            "content": [{"type": "text", "text": "Test response"}],
-            "usage": {"input_tokens": 10, "output_tokens": 20},
-        }
-        mock_create_client.return_value = mock_client
+    def test_retired_capable_tier_is_rejected(self):
+        result = execute_subagent_task(_task(profile="capable"))
+        assert result.success is False
+        assert "has been removed" in result.error
 
-        task = SubAgentTask(
-            task_description="What is 2+2?",
-            model="haiku",
-        )
-        result = execute_subagent_task(task)
+    def test_legacy_fast_tier_maps_to_explore(self):
+        with patch("radsim.config.get_provider_api_key", return_value="key"), patch(
+            "radsim.sub_agent.create_client"
+        ) as mock_create_client:
+            mock_client = MagicMock()
+            mock_client.chat.return_value = {"content": [{"type": "text", "text": "ok"}], "usage": {}}
+            mock_create_client.return_value = mock_client
+            result = execute_subagent_task(_task(profile="fast"))
+        assert result.profile_used == "explore"
+
+
+class TestTaskExecution(unittest.TestCase):
+    """The runner executes a bounded task against the supplied selection."""
+
+    def setUp(self):
+        self.key_patcher = patch("radsim.config.get_provider_api_key", return_value="test-key")
+        self.key_patcher.start()
+        self.addCleanup(self.key_patcher.stop)
+
+    def test_successful_execution(self):
+        with patch("radsim.sub_agent.create_client") as mock_create_client:
+            mock_client = MagicMock()
+            mock_client.chat.return_value = {
+                "content": [{"type": "text", "text": "Test response"}],
+                "usage": {"input_tokens": 10, "output_tokens": 20},
+            }
+            mock_create_client.return_value = mock_client
+            result = execute_subagent_task(_task())
 
         assert result.success is True
         assert result.content == "Test response"
         assert result.input_tokens == 10
         assert result.output_tokens == 20
+        assert result.profile_used == "explore"
 
-    @patch("radsim.sub_agent.get_openrouter_api_key")
-    @patch("radsim.sub_agent.create_client")
-    def test_execution_with_error(self, mock_create_client, mock_get_key):
-        """Test task execution handles API errors."""
-        mock_get_key.return_value = "test-api-key"
-        mock_create_client.side_effect = Exception("API error")
+    def test_uses_the_supplied_provider_and_model(self):
+        with patch("radsim.sub_agent.create_client") as mock_create_client:
+            mock_client = MagicMock()
+            mock_client.chat.return_value = {"content": [], "usage": {}}
+            mock_create_client.return_value = mock_client
+            result = execute_subagent_task(_task())
 
-        task = SubAgentTask(
-            task_description="Test task",
-            model="haiku",
-        )
-        result = execute_subagent_task(task)
+        assert mock_create_client.call_args[0][0] == VALID_PROVIDER
+        assert mock_create_client.call_args[0][2] == VALID_MODEL
+        assert result.model_used == VALID_MODEL
+        assert result.provider_used == VALID_PROVIDER
 
+    def test_execution_reports_api_errors(self):
+        with patch("radsim.sub_agent.create_client", side_effect=Exception("API error")):
+            result = execute_subagent_task(_task())
         assert result.success is False
         assert "API error" in result.error
 
-    @patch("radsim.config.resolve_reasoning_effort", return_value="high")
-    @patch("radsim.config.load_reasoning_effort", return_value="high")
-    @patch("radsim.sub_agent.get_openrouter_api_key", return_value="test-api-key")
-    @patch("radsim.sub_agent.create_client")
-    def test_execution_threads_reasoning_into_client(
-        self,
-        mock_create_client,
-        _mock_get_key,
-        _mock_load_effort,
-        _mock_resolve_effort,
-    ):
-        mock_client = MagicMock()
-        mock_client.chat.return_value = {
-            "content": [{"type": "text", "text": "done"}],
-            "usage": {},
-        }
-        mock_create_client.return_value = mock_client
-
-        execute_subagent_task(
-            SubAgentTask(
-                task_description="Test task",
-                model="openai/gpt-5.6-sol",
-            )
-        )
+    def test_reasoning_effort_is_threaded_into_the_client(self):
+        with patch("radsim.config.resolve_reasoning_effort", return_value="high"), patch(
+            "radsim.config.load_reasoning_effort", return_value="high"
+        ), patch("radsim.sub_agent.create_client") as mock_create_client:
+            mock_client = MagicMock()
+            mock_client.chat.return_value = {"content": [], "usage": {}}
+            mock_create_client.return_value = mock_client
+            execute_subagent_task(_task())
 
         mock_create_client.assert_called_once_with(
-            "openrouter",
-            "test-api-key",
-            "openai/gpt-5.6-sol",
-            reasoning_effort="high",
+            VALID_PROVIDER, "test-key", VALID_MODEL, reasoning_effort="high"
         )
 
+    def test_only_profile_tools_are_offered_to_the_model(self):
+        with patch("radsim.sub_agent.create_client") as mock_create_client:
+            mock_client = MagicMock()
+            mock_client.chat.return_value = {"content": [], "usage": {}}
+            mock_create_client.return_value = mock_client
+            execute_subagent_task(_task(profile="explore"))
 
-class TestDelegateTaskConvenience(unittest.TestCase):
-    """Test the delegate_task convenience function."""
+        offered = {tool["name"] for tool in mock_client.chat.call_args[1]["tools"]}
+        assert "read_file" in offered
+        assert "write_file" not in offered
+        assert "run_shell_command" not in offered
+        assert "delegate_task" not in offered
 
-    @patch("radsim.sub_agent.execute_subagent_task")
-    def test_delegate_task_creates_proper_task(self, mock_execute):
-        """Test delegate_task creates SubAgentTask correctly."""
-        mock_execute.return_value = SubAgentResult(
-            success=True,
-            content="Done",
-            model_used="test-model",
-            provider_used="openrouter",
-        )
+    def test_oversized_result_is_capped(self):
+        with patch("radsim.sub_agent.create_client") as mock_create_client:
+            mock_client = MagicMock()
+            mock_client.chat.return_value = {
+                "content": [{"type": "text", "text": "x" * (MAX_RESULT_CHARS + 5_000)}],
+                "usage": {},
+            }
+            mock_create_client.return_value = mock_client
+            result = execute_subagent_task(_task())
 
-        delegate_task(
-            "Do something",
-            model="moonshotai/kimi-k2.5",
-            system_prompt="Be helpful",
-        )
-
-        mock_execute.assert_called_once()
-        task = mock_execute.call_args[0][0]
-        assert task.task_description == "Do something"
-        assert task.model == "moonshotai/kimi-k2.5"
-        assert task.system_prompt == "Be helpful"
-
-    @patch("radsim.sub_agent.execute_subagent_task")
-    def test_delegate_task_defaults_to_haiku(self, mock_execute):
-        """Default model for delegate_task is haiku, not free."""
-        mock_execute.return_value = SubAgentResult(
-            success=True, content="Done", model_used="test", provider_used="openrouter"
-        )
-        delegate_task("Simple task")
-
-        task = mock_execute.call_args[0][0]
-        assert task.model == "haiku"
-
-
-class TestSubAgentResult(unittest.TestCase):
-    """Test SubAgentResult dataclass."""
-
-    def test_default_values(self):
-        """Test default values are set correctly."""
-        result = SubAgentResult(
-            success=True,
-            content="test",
-            model_used="test-model",
-            provider_used="openrouter",
-        )
-        assert result.input_tokens == 0
-        assert result.output_tokens == 0
-        assert result.error == ""
-
-
-class TestModelTiers(unittest.TestCase):
-    """Test tiered model architecture."""
-
-    def test_tiers_defined(self):
-        """All three tiers exist."""
-        assert "fast" in MODEL_TIERS
-        assert "capable" in MODEL_TIERS
-        assert "review" in MODEL_TIERS
-
-    def test_fast_tier_uses_haiku(self):
-        """Fast tier defaults to Haiku."""
-        assert "haiku" in MODEL_TIERS["fast"]["default_model"]
-
-    def test_capable_tier_full_tools(self):
-        """Capable tier gets all tools."""
-        assert MODEL_TIERS["capable"]["tool_subset"] == "full"
-
-    def test_fast_tier_read_only(self):
-        """Fast tier only gets read-only tools."""
-        assert MODEL_TIERS["fast"]["tool_subset"] == "read_only"
-
-    def test_haiku_alias_resolves(self):
-        """Haiku alias resolves to correct model."""
-        result = resolve_model_name("haiku")
-        assert "haiku" in result
-
-    def test_fast_alias_points_to_haiku(self):
-        """'fast' alias points to Haiku."""
-        result = resolve_model_name("fast")
-        assert "haiku" in result
-
-
-class TestGetToolsForTier(unittest.TestCase):
-    """Test tool filtering by tier."""
-
-    def test_fast_tier_limited_tools(self):
-        """Fast tier returns a subset of tools."""
-        tools = get_tools_for_tier("fast")
-        tool_names = {t["name"] for t in tools}
-        assert "read_file" in tool_names
-        assert "grep_search" in tool_names
-        assert "write_file" not in tool_names
-        assert "replace_in_file" not in tool_names
-        assert "run_shell_command" not in tool_names
-
-    def test_capable_tier_all_tools(self):
-        """Capable tier returns all tools."""
-        from radsim.tools.definitions import TOOL_DEFINITIONS
-
-        tools = get_tools_for_tier("capable")
-        assert len(tools) == len(TOOL_DEFINITIONS)
-
-    def test_unknown_tier_defaults_to_capable(self):
-        """Unknown tier name falls back to capable (full tools)."""
-        from radsim.tools.definitions import TOOL_DEFINITIONS
-
-        tools = get_tools_for_tier("nonexistent")
-        assert len(tools) == len(TOOL_DEFINITIONS)
-
-    def test_review_tier_read_only(self):
-        """Review tier uses read-only tools."""
-        tools = get_tools_for_tier("review")
-        tool_names = {t["name"] for t in tools}
-        assert "read_file" in tool_names
-        assert "write_file" not in tool_names
-
-
-class TestResolveTaskConfig(unittest.TestCase):
-    """Test resolve_task_config function."""
-
-    def test_fast_tier_config(self):
-        """Fast tier returns correct config."""
-        config = resolve_task_config("summarize this file", tier="fast")
-        assert "haiku" in config["model"]
-        assert config["max_tokens"] == 2048
-        assert len(config["tools"]) < 30
-
-    def test_capable_tier_config(self):
-        """Capable tier returns correct config."""
-        config = resolve_task_config("refactor this code", tier="capable")
-        assert config["max_tokens"] == 4096
-
-    def test_model_override_with_config_model(self):
-        """Explicit config model overrides tier default."""
-        config = resolve_task_config(
-            "summarize", tier="fast", model="moonshotai/kimi-k2.5"
-        )
-        assert config["model"] == "moonshotai/kimi-k2.5"
-
-    def test_alias_override(self):
-        """Model aliases are resolved when overriding."""
-        config = resolve_task_config("task", tier="fast", model="haiku")
-        assert config["model"] == HAIKU_MODEL
-
-
-class TestToolSubsets(unittest.TestCase):
-    """Test TOOL_SUBSETS configuration."""
-
-    def test_read_only_subset_exists(self):
-        """read_only subset is defined."""
-        assert "read_only" in TOOL_SUBSETS
-        assert isinstance(TOOL_SUBSETS["read_only"], list)
-
-    def test_full_subset_is_none(self):
-        """full subset is None (means all tools)."""
-        assert TOOL_SUBSETS["full"] is None
-
-    def test_read_only_contains_expected_tools(self):
-        """read_only subset includes the key read tools."""
-        ro = TOOL_SUBSETS["read_only"]
-        assert "read_file" in ro
-        assert "grep_search" in ro
-        assert "repo_map" in ro
-        assert "submit_completion" in ro
-
-    def test_read_only_contains_web_fetch(self):
-        """read_only subset includes web_fetch."""
-        assert "web_fetch" in TOOL_SUBSETS["read_only"]
-
-    def test_read_only_contains_todo_read(self):
-        """read_only subset includes todo_read."""
-        assert "todo_read" in TOOL_SUBSETS["read_only"]
-
-
-class TestSubAgentTaskDefaults(unittest.TestCase):
-    """Test SubAgentTask dataclass new fields."""
-
-    def test_tools_default_empty(self):
-        """Tools default to empty list."""
-        task = SubAgentTask(task_description="test", model="haiku")
-        assert task.tools == []
-
-    def test_max_iterations_default(self):
-        """max_iterations defaults to 10."""
-        task = SubAgentTask(task_description="test", model="haiku")
-        assert task.max_iterations == 10
-
-    def test_tools_can_be_set(self):
-        """Tools can be set to a list of definitions."""
-        tools = [{"name": "read_file", "description": "Read a file"}]
-        task = SubAgentTask(task_description="test", model="haiku", tools=tools)
-        assert task.tools == tools
-
-    def test_max_iterations_can_be_set(self):
-        """max_iterations can be overridden."""
-        task = SubAgentTask(task_description="test", model="haiku", max_iterations=5)
-        assert task.max_iterations == 5
+        assert len(result.content) < MAX_RESULT_CHARS + 200
+        assert "truncated" in result.content
 
 
 class TestAgenticLoop(unittest.TestCase):
-    """Test the agentic tool loop in execute_subagent_task."""
+    """Tool calls route through the broker and feed back into the loop."""
 
-    @patch("radsim.sub_agent.get_openrouter_api_key")
-    @patch("radsim.sub_agent.create_client")
-    def test_tool_use_then_text(self, mock_create_client, mock_get_key):
-        """Model calls a tool then returns text — verify 2 API calls."""
-        mock_get_key.return_value = "test-key"
+    def setUp(self):
+        self.key_patcher = patch("radsim.config.get_provider_api_key", return_value="test-key")
+        self.key_patcher.start()
+        self.addCleanup(self.key_patcher.stop)
 
-        mock_client = MagicMock()
+    def test_tool_use_then_text(self):
         tool_response = {
             "content": [
-                {"type": "tool_use", "id": "tool_1", "name": "read_file", "input": {"file_path": "test.py"}},
+                {"type": "tool_use", "id": "t1", "name": "read_file", "input": {"file_path": "a.py"}}
             ],
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
         text_response = {
-            "content": [{"type": "text", "text": "File contents analyzed."}],
+            "content": [{"type": "text", "text": "Analysed."}],
             "usage": {"input_tokens": 20, "output_tokens": 15},
         }
-        mock_client.chat.side_effect = [tool_response, text_response]
-        mock_create_client.return_value = mock_client
 
-        tools = [{"name": "read_file", "description": "Read a file", "input_schema": {}}]
-        task = SubAgentTask(
-            task_description="Analyze test.py",
-            model="haiku",
-            tools=tools,
-        )
-
-        with patch("radsim.sub_agent._execute_tool_calls") as mock_exec:
-            mock_exec.return_value = [
-                {"type": "tool_result", "tool_use_id": "tool_1", "content": '{"success": true, "content": "hello"}'}
-            ]
-            result = execute_subagent_task(task)
+        with patch("radsim.sub_agent.create_client") as mock_create_client, patch(
+            "radsim.sub_agent_policy.SubAgentPolicyBroker._run",
+            return_value={"success": True, "content": "hello"},
+        ):
+            mock_client = MagicMock()
+            mock_client.chat.side_effect = [tool_response, text_response]
+            mock_create_client.return_value = mock_client
+            result = execute_subagent_task(_task())
 
         assert result.success is True
-        assert result.content == "File contents analyzed."
+        assert result.content == "Analysed."
         assert mock_client.chat.call_count == 2
         assert result.input_tokens == 30
-        assert result.output_tokens == 20
+        assert result.tool_calls == 1
 
-    @patch("radsim.sub_agent.get_openrouter_api_key")
-    @patch("radsim.sub_agent.create_client")
-    def test_max_iterations_safety(self, mock_create_client, mock_get_key):
-        """Model endlessly requesting tools stops at max_iterations."""
-        mock_get_key.return_value = "test-key"
-
-        mock_client = MagicMock()
-        infinite_tool_response = {
+    def test_iteration_limit_stops_the_loop(self):
+        looping_response = {
             "content": [
-                {"type": "tool_use", "id": "tool_1", "name": "read_file", "input": {"file_path": "x.py"}},
+                {"type": "tool_use", "id": "t1", "name": "read_file", "input": {"file_path": "a.py"}}
             ],
             "usage": {"input_tokens": 5, "output_tokens": 3},
         }
-        mock_client.chat.return_value = infinite_tool_response
-        mock_create_client.return_value = mock_client
 
-        tools = [{"name": "read_file", "description": "Read", "input_schema": {}}]
-        task = SubAgentTask(
-            task_description="Loop forever",
-            model="haiku",
-            tools=tools,
-            max_iterations=3,
-        )
-
-        with patch("radsim.sub_agent._execute_tool_calls") as mock_exec:
-            mock_exec.return_value = [
-                {"type": "tool_result", "tool_use_id": "tool_1", "content": '{"success": true}'}
-            ]
-            result = execute_subagent_task(task)
+        with patch("radsim.sub_agent.create_client") as mock_create_client, patch(
+            "radsim.sub_agent_policy.SubAgentPolicyBroker._run",
+            return_value={"success": True},
+        ):
+            mock_client = MagicMock()
+            mock_client.chat.return_value = looping_response
+            mock_create_client.return_value = mock_client
+            result = execute_subagent_task(_task(max_iterations=3))
 
         assert result.success is True
-        assert "max iterations" in result.content.lower()
+        assert "iteration limit" in result.content
         assert mock_client.chat.call_count == 3
 
-    @patch("radsim.sub_agent.get_openrouter_api_key")
-    @patch("radsim.sub_agent.create_client")
-    def test_no_tools_single_call(self, mock_create_client, mock_get_key):
-        """No tools means single API call with no loop."""
-        mock_get_key.return_value = "test-key"
-
-        mock_client = MagicMock()
-        mock_client.chat.return_value = {
-            "content": [{"type": "text", "text": "Simple response"}],
-            "usage": {"input_tokens": 10, "output_tokens": 20},
+    def test_denied_tool_is_reported_without_running(self):
+        """A tool outside the profile comes back as a blocked result, not an escape."""
+        tool_response = {
+            "content": [
+                {"type": "tool_use", "id": "t1", "name": "write_file", "input": {"file_path": "a.py"}}
+            ],
+            "usage": {},
         }
-        mock_create_client.return_value = mock_client
+        text_response = {"content": [{"type": "text", "text": "Blocked."}], "usage": {}}
 
-        task = SubAgentTask(
-            task_description="Simple question",
-            model="haiku",
-        )
-        result = execute_subagent_task(task)
+        with patch("radsim.sub_agent.create_client") as mock_create_client, patch(
+            "radsim.sub_agent_policy.SubAgentPolicyBroker._run"
+        ) as mock_run:
+            mock_client = MagicMock()
+            mock_client.chat.side_effect = [tool_response, text_response]
+            mock_create_client.return_value = mock_client
+            result = execute_subagent_task(_task(profile="explore"))
 
-        assert result.success is True
-        assert result.content == "Simple response"
+        mock_run.assert_not_called()
+        assert "write_file" in result.denied_tools
+        assert result.tool_calls == 0
+
+
+class TestCancellation(unittest.TestCase):
+    """Cancellation stops work, not only the reported status."""
+
+    def setUp(self):
+        self.key_patcher = patch("radsim.config.get_provider_api_key", return_value="test-key")
+        self.key_patcher.start()
+        self.addCleanup(self.key_patcher.stop)
+
+    def test_cancel_before_start_makes_no_api_call(self):
+        cancel_event = threading.Event()
+        cancel_event.set()
+
+        with patch("radsim.sub_agent.create_client") as mock_create_client:
+            mock_client = MagicMock()
+            mock_create_client.return_value = mock_client
+            result = execute_subagent_task(_task(cancel_event=cancel_event))
+
+        mock_client.chat.assert_not_called()
+        assert result.cancelled is True
+        assert result.success is False
+
+    def test_cancel_between_iterations_stops_further_calls(self):
+        cancel_event = threading.Event()
+        tool_response = {
+            "content": [
+                {"type": "tool_use", "id": "t1", "name": "read_file", "input": {"file_path": "a.py"}}
+            ],
+            "usage": {},
+        }
+
+        def cancel_then_respond(*_args, **_kwargs):
+            cancel_event.set()
+            return tool_response
+
+        with patch("radsim.sub_agent.create_client") as mock_create_client:
+            mock_client = MagicMock()
+            mock_client.chat.side_effect = cancel_then_respond
+            mock_create_client.return_value = mock_client
+            result = execute_subagent_task(_task(cancel_event=cancel_event, max_iterations=5))
+
         assert mock_client.chat.call_count == 1
-        call_kwargs = mock_client.chat.call_args[1]
-        assert call_kwargs.get("tools") is None
+        assert result.cancelled is True
+
+    def test_cancelled_task_runs_no_tools(self):
+        cancel_event = threading.Event()
+        cancel_event.set()
+
+        from radsim.sub_agent_policy import SubAgentPolicyBroker
+
+        broker = SubAgentPolicyBroker("explore", cancel_event=cancel_event)
+        allowed, reason = broker.check("read_file", {"file_path": "a.py"})
+
+        assert allowed is False
+        assert "cancelled" in reason
+
+    def test_expired_deadline_stops_the_loop(self):
+        """A task that outruns its wall clock stops instead of looping on."""
+        with patch("radsim.sub_agent.create_client") as mock_create_client:
+            mock_client = MagicMock()
+            mock_create_client.return_value = mock_client
+            result = execute_subagent_task(_task(timeout_seconds=-1))
+
+        mock_client.chat.assert_not_called()
+        assert result.success is False
+        assert "time limit" in result.error
+
+    def test_partial_output_is_preserved_when_stopped(self):
+        cancel_event = threading.Event()
+        partial = {
+            "content": [
+                {"type": "text", "text": "found so far"},
+                {"type": "tool_use", "id": "t1", "name": "read_file", "input": {"file_path": "a.py"}},
+            ],
+            "usage": {},
+        }
+
+        def cancel_then_respond(*_args, **_kwargs):
+            cancel_event.set()
+            return partial
+
+        with patch("radsim.sub_agent.create_client") as mock_create_client:
+            mock_client = MagicMock()
+            mock_client.chat.side_effect = cancel_then_respond
+            mock_create_client.return_value = mock_client
+            result = execute_subagent_task(_task(cancel_event=cancel_event))
+
+        assert result.cancelled is True
+        assert "found so far" in result.content
 
 
-class TestDelegateTaskWithTools(unittest.TestCase):
-    """Test delegate_task convenience function with tools parameter."""
+class TestStreamingRunner(unittest.TestCase):
+    """The streaming path shares the runner's guarantees."""
 
-    @patch("radsim.sub_agent.execute_subagent_task")
-    def test_delegate_passes_tools(self, mock_execute):
-        """delegate_task passes tools to SubAgentTask."""
-        mock_execute.return_value = SubAgentResult(
-            success=True, content="Done", model_used="test", provider_used="openrouter"
-        )
-        tools = [{"name": "read_file"}]
-        delegate_task("Do task", model="haiku", tools=tools, max_iterations=5)
+    def setUp(self):
+        self.key_patcher = patch("radsim.config.get_provider_api_key", return_value="test-key")
+        self.key_patcher.start()
+        self.addCleanup(self.key_patcher.stop)
+
+    def _drain(self, generator):
+        chunks = []
+        try:
+            while True:
+                chunks.append(next(generator))
+        except StopIteration as stop:
+            return chunks, stop.value
+
+    def test_streams_text_and_returns_result(self):
+        with patch("radsim.sub_agent.create_client") as mock_create_client:
+            mock_client = MagicMock()
+            mock_client.stream_chat.return_value = iter(
+                [
+                    {"type": "text_delta", "text": "Hello"},
+                    {
+                        "type": "final_response",
+                        "response": {"content": [{"type": "text", "text": "Hello"}], "usage": {}},
+                    },
+                ]
+            )
+            mock_create_client.return_value = mock_client
+            chunks, result = self._drain(stream_subagent_task(_task()))
+
+        assert chunks == [{"type": "text_delta", "text": "Hello"}]
+        assert result.success is True
+        assert result.content == "Hello"
+
+    def test_unknown_profile_fails_before_streaming(self):
+        with patch("radsim.sub_agent.create_client") as mock_create_client:
+            _chunks, result = self._drain(stream_subagent_task(_task(profile="nope")))
+        mock_create_client.assert_not_called()
+        assert result.success is False
+
+
+class TestBackgroundProfileGuard(unittest.TestCase):
+    """Profiles that mutate or execute code cannot run in the background."""
+
+    def test_implement_cannot_run_in_background(self):
+        result = execute_subagent_task(_task(profile="implement", background=True))
+        assert result.success is False
+        assert "cannot run in the background" in result.error
+
+    def test_verify_cannot_run_in_background(self):
+        result = execute_subagent_task(_task(profile="verify", background=True))
+        assert result.success is False
+
+    def test_explore_can_run_in_background(self):
+        with patch("radsim.config.get_provider_api_key", return_value="key"), patch(
+            "radsim.sub_agent.create_client"
+        ) as mock_create_client:
+            mock_client = MagicMock()
+            mock_client.chat.return_value = {"content": [{"type": "text", "text": "ok"}], "usage": {}}
+            mock_create_client.return_value = mock_client
+            result = execute_subagent_task(_task(profile="explore", background=True))
+        assert result.success is True
+
+
+class TestDelegateTaskEntryPoint(unittest.TestCase):
+    """The developer entry point requires an explicit provider and model."""
+
+    def test_delegate_requires_provider_and_model(self):
+        with pytest.raises(TypeError):
+            delegate_task("do something")
+
+    def test_delegate_builds_the_expected_task(self):
+        with patch("radsim.sub_agent.execute_subagent_task") as mock_execute:
+            mock_execute.return_value = SubAgentResult(
+                success=True, content="Done", model_used=VALID_MODEL, provider_used=VALID_PROVIDER
+            )
+            delegate_task(
+                "Do something",
+                provider=VALID_PROVIDER,
+                model=VALID_MODEL,
+                profile="review",
+                custom_instructions="Focus on auth.",
+            )
 
         task = mock_execute.call_args[0][0]
-        assert task.tools == tools
-        assert task.max_iterations == 5
+        assert task.task_description == "Do something"
+        assert task.provider == VALID_PROVIDER
+        assert task.model == VALID_MODEL
+        assert task.profile == "review"
+        assert task.custom_instructions == "Focus on auth."
 
-    @patch("radsim.sub_agent.execute_subagent_task")
-    def test_delegate_default_no_tools(self, mock_execute):
-        """delegate_task with no tools passes empty list."""
-        mock_execute.return_value = SubAgentResult(
-            success=True, content="Done", model_used="test", provider_used="openrouter"
+
+class TestSubAgentResultShape(unittest.TestCase):
+    """The result carries the evidence the primary agent needs."""
+
+    def test_defaults(self):
+        result = SubAgentResult(
+            success=True, content="test", model_used=VALID_MODEL, provider_used=VALID_PROVIDER
         )
-        delegate_task("Simple task")
+        assert result.input_tokens == 0
+        assert result.output_tokens == 0
+        assert result.tool_calls == 0
+        assert result.denied_tools == []
+        assert result.cancelled is False
+        assert result.error == ""
 
-        task = mock_execute.call_args[0][0]
-        assert task.tools == []
-        assert task.max_iterations == 10
-
-
-class TestTierToolWiring(unittest.TestCase):
-    """Test that tier config includes tools correctly."""
-
-    def test_fast_config_has_tools(self):
-        """Fast tier config includes tool definitions."""
-        config = resolve_task_config("explore codebase", tier="fast")
-        assert isinstance(config["tools"], list)
-        assert len(config["tools"]) > 0
-
-    def test_fast_config_includes_web_fetch(self):
-        """Fast tier tools include web_fetch."""
-        config = resolve_task_config("fetch docs", tier="fast")
-        tool_names = {t["name"] for t in config["tools"]}
-        assert "web_fetch" in tool_names
-
-    def test_fast_config_excludes_write_tools(self):
-        """Fast tier tools exclude write operations."""
-        config = resolve_task_config("read something", tier="fast")
-        tool_names = {t["name"] for t in config["tools"]}
-        assert "write_file" not in tool_names
-        assert "run_shell_command" not in tool_names
-
-    def test_capable_config_has_all_tools(self):
-        """Capable tier config includes all tool definitions."""
-        from radsim.tools.definitions import TOOL_DEFINITIONS
-
-        config = resolve_task_config("refactor code", tier="capable")
-        assert len(config["tools"]) == len(TOOL_DEFINITIONS)
+    def test_task_defaults_to_least_privileged_profile(self):
+        task = SubAgentTask(task_description="t", provider=VALID_PROVIDER, model=VALID_MODEL)
+        assert task.profile == "explore"
+        assert task.background is False
+        assert task.custom_instructions == ""
 
 
 if __name__ == "__main__":

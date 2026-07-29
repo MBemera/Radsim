@@ -18,7 +18,6 @@ from .agent_constants import (  # noqa: F401 - re-exported for compatibility
 from .agent_conversation import AgentConversationMixin
 from .agent_policy import AgentPolicyMixin
 from .agent_subagents import AgentSubAgentMixin
-from .agent_subtasks import SubAgentMixin
 from .api_client import create_client
 from .output import (
     Spinner,
@@ -113,8 +112,8 @@ class RadSimAgent(
         # Teach mode: track if we've already asked the model to retry with annotations
         self._teach_retry_attempted = False
 
-        # Session-level model for capable/review sub-agent tasks
-        self._session_capable_model = None
+        # Sub-agent provider/model live in agent_config.json, not in session
+        # state, so they survive /clear, restarts, and primary model switches.
         self._session_approve_shell = False
         self._pending_user_context = []
 
@@ -1119,7 +1118,3 @@ def print_tools_list():
     from .agent_runtime import print_tools_list as print_tools_list_runtime
 
     return print_tools_list_runtime()
-
-
-class SubAgent(SubAgentMixin, RadSimAgent):
-    """A sub-agent that performs a delegated task."""

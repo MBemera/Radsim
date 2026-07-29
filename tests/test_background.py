@@ -48,10 +48,13 @@ class TestBackgroundJobManager(unittest.TestCase):
         def run():
             return result_holder
 
-        job = self.manager.start_job("test task", run, model="haiku", tier="fast")
+        job = self.manager.start_job(
+            "test task", run, model="claude-haiku-4-5", provider="claude", profile="explore"
+        )
         assert job.job_id == 1
-        assert job.model == "haiku"
-        assert job.tier == "fast"
+        assert job.model == "claude-haiku-4-5"
+        assert job.provider == "claude"
+        assert job.profile == "explore"
 
         # Wait for completion
         job._thread.join(timeout=2)

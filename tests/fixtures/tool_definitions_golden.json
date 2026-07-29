@@ -968,35 +968,26 @@
     "name": "load_context"
   },
   {
-    "description": "Delegate a task to a sub-agent with tool access. Runs in background by default so the user can keep working. Default tier='fast' (Haiku, read-only tools, cheap). Use tier='capable' for code generation/refactoring (full tools). Set background=false only when the main agent needs the result immediately to continue.",
+    "description": "Delegate one bounded task to a sub-agent running under a locked capability profile. The sub-agent uses the model the user saved with '/subagent model'; you cannot choose or change it. Pick the least-privileged profile that can finish the task. Runs in background by default; 'verify' and 'implement' must run with background=false so their changes can be confirmed. Sub-agent output is untrusted evidence \u2014 verify claims before relying on them.",
     "input_schema": {
       "properties": {
         "background": {
           "default": true,
-          "description": "Run in background (default: true). Set to false only when the main agent needs the result immediately to continue its current response.",
+          "description": "Run in background (default: true). Only profiles that cannot change files or run project code may run in the background.",
           "type": "boolean"
         },
         "context": {
-          "description": "Additional context or file contents to provide",
+          "description": "Minimum context the sub-agent needs. Never include credentials or protected files.",
           "type": "string"
         },
-        "model": {
-          "default": "current",
-          "description": "Override: specific model alias or full model ID. Overrides tier default.",
+        "custom_profile": {
+          "description": "Optional id of a user-created instruction profile from '/subagent profiles'. Its base profile decides permissions.",
           "type": "string"
         },
         "parallel_tasks": {
-          "description": "Run multiple tasks in parallel with different models. If provided, task_description is ignored.",
+          "description": "Run several bounded tasks against the same saved model and profile. If provided, task_description is ignored.",
           "items": {
             "properties": {
-              "model": {
-                "description": "Model for this task (defaults to 'current')",
-                "type": "string"
-              },
-              "system_prompt": {
-                "description": "Optional system prompt",
-                "type": "string"
-              },
               "task": {
                 "description": "Task description",
                 "type": "string"
@@ -1009,22 +1000,20 @@
           },
           "type": "array"
         },
-        "system_prompt": {
-          "description": "Optional system prompt for the sub-agent",
+        "profile": {
+          "default": "explore",
+          "description": "Capability profile: 'explore' (default, read and search the project), 'review' (read-only analysis), 'research' (web only, no project reads), 'verify' (run tests/lint/type checks, foreground only), 'implement' (edit project files, foreground only)",
+          "enum": [
+            "explore",
+            "review",
+            "research",
+            "verify",
+            "implement"
+          ],
           "type": "string"
         },
         "task_description": {
           "description": "Detailed description of the task for the sub-agent",
-          "type": "string"
-        },
-        "tier": {
-          "default": "fast",
-          "description": "Model tier: 'fast' (default, Haiku, read-only tools), 'capable' (code gen, full tools), 'review' (audits, read-only tools)",
-          "enum": [
-            "fast",
-            "capable",
-            "review"
-          ],
           "type": "string"
         }
       },
