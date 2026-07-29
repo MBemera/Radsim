@@ -64,7 +64,6 @@ class SubAgentTask:
     background: bool = False
     cancel_event: object = None
     executor: object = None
-    tools: list = field(default_factory=list)
 
 
 @dataclass
