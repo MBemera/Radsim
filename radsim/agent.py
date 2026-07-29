@@ -297,7 +297,12 @@ class RadSimAgent(
             return {"success": False, "error": reason}
 
         # Self-modification safety check
-        from .safety import is_core_prompt_intact, is_self_modification
+        from .safety import is_core_policy_path, is_core_prompt_intact, is_self_modification
+
+        is_core, core_reason = is_core_policy_path(file_path)
+        if is_core:
+            print_error(core_reason)
+            return {"success": False, "error": core_reason}
 
         is_selfmod, _ = is_self_modification(file_path)
         if is_selfmod:
@@ -425,7 +430,12 @@ class RadSimAgent(
         # Self-modification safety check for replace_in_file
         from pathlib import Path as _Path
 
-        from .safety import is_core_prompt_intact, is_self_modification
+        from .safety import is_core_policy_path, is_core_prompt_intact, is_self_modification
+
+        is_core, core_reason = is_core_policy_path(file_path)
+        if is_core:
+            print_error(core_reason)
+            return {"success": False, "error": core_reason}
 
         is_selfmod, _ = is_self_modification(file_path)
         if is_selfmod:
