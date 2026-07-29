@@ -50,6 +50,9 @@ class SubAgentTask:
     ``provider`` and ``model`` are the user's persistent selection, passed in
     by the caller. This module never picks them, and never falls back to
     another model when they are missing or invalid.
+
+    ``max_tokens`` of 0 means "use the profile's own output ceiling", which is
+    the normal case; a non-zero value overrides it for one task.
     """
 
     task_description: str
@@ -188,7 +191,9 @@ def _prepare_run(task):
             error=str(error),
         )
 
-    if task.background and not get_profile(profile_name)["allows_background"]:
+    profile = get_profile(profile_name)
+
+    if task.background and not profile["allows_background"]:
         return None, SubAgentResult(
             success=False,
             content="",
@@ -229,6 +234,7 @@ def _prepare_run(task):
             "provider": provider,
             "model_id": model_id,
             "api_key": task.api_key or api_key,
+            "max_tokens": task.max_tokens or profile["max_tokens"],
             "broker": broker,
             "system_prompt": compose_subagent_prompt(profile_name, task.custom_instructions),
             "tools": get_tools_for_profile(profile_name) or None,
@@ -263,6 +269,28 @@ def _stopped_result(context, content=""):
             if expired
             else "Task cancelled before completion."
         ),
+    )
+
+
+# Reasons a provider gives for stopping at the output ceiling rather than at
+# the end of an answer.
+TRUNCATION_STOP_REASONS = frozenset({"max_tokens", "length"})
+
+
+def _truncation_notice(response, context):
+    """Return a warning when the model stopped at the profile's token ceiling.
+
+    A response cut off mid-sentence otherwise reads to the primary agent as a
+    finished answer, which is exactly the false completion the subagent policy
+    forbids.
+    """
+    if not response:
+        return ""
+    if response.get("stop_reason") not in TRUNCATION_STOP_REASONS:
+        return ""
+    return (
+        f"\n\n[Sub-agent output stopped at the '{context['profile_name']}' profile's "
+        f"{context['max_tokens']}-token ceiling. The result is incomplete.]"
     )
 
 
@@ -311,6 +339,7 @@ def execute_subagent_task(task: SubAgentTask) -> SubAgentResult:
                 messages=messages,
                 system_prompt=context["system_prompt"],
                 tools=tools,
+                max_tokens=context["max_tokens"],
             )
 
             usage = response.get("usage", {})
@@ -320,7 +349,7 @@ def execute_subagent_task(task: SubAgentTask) -> SubAgentResult:
             if not tools or not _response_has_tool_use(response):
                 return _finished_result(
                     context,
-                    _extract_text_from_response(response),
+                    _extract_text_from_response(response) + _truncation_notice(response, context),
                     total_input_tokens,
                     total_output_tokens,
                 )
@@ -382,6 +411,7 @@ def stream_subagent_task(task: SubAgentTask) -> Generator[dict, None, SubAgentRe
                 messages=messages,
                 system_prompt=context["system_prompt"],
                 tools=tools,
+                max_tokens=context["max_tokens"],
             ):
                 if chunk.get("type") == "text_delta":
                     full_content += chunk.get("text", "")
@@ -395,7 +425,10 @@ def stream_subagent_task(task: SubAgentTask) -> Generator[dict, None, SubAgentRe
 
             if not tools or not final_response or not _response_has_tool_use(final_response):
                 return _finished_result(
-                    context, full_content, total_input_tokens, total_output_tokens
+                    context,
+                    full_content + _truncation_notice(final_response, context),
+                    total_input_tokens,
+                    total_output_tokens,
                 )
 
             if broker.should_stop():
