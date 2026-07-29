@@ -38,8 +38,16 @@ DEFAULT_CONFIG = {
         "few_shot_assembly": True,
         "active_learning": True,
     },
+    # Subagent settings are deliberately separate from the primary provider
+    # and model (~/.radsim/.env). Nothing here feeds back into the primary
+    # selection, and /switch, /free and /clear leave these keys untouched.
+    # null means the user has not chosen a subagent model yet.
     "subagents": {
+        "selected_provider": None,
+        "selected_model": None,
         "stream_output": True,
+        "max_parallel": 3,
+        "max_iterations": 10,
     },
     "self_improvement": {
         "enabled": False,
@@ -433,6 +441,49 @@ class AgentConfigManager:
             "shell_mode": preset["shell_commands"]["mode"],
             "confirmations": preset["confirmations"],
         }
+
+    def get_subagent_selection(self) -> tuple:
+        """Return the persisted (provider, model) pair for subagents.
+
+        Returns (None, None) when the user has not chosen one, or when the
+        stored pair no longer exists in the catalogue. Callers must treat
+        both cases as "ask the user" — never as "pick something".
+        """
+        from .config import is_supported_provider_model
+
+        provider = self.get("subagents.selected_provider")
+        model = self.get("subagents.selected_model")
+        if not provider or not model:
+            return None, None
+
+        supported, reason = is_supported_provider_model(provider, model)
+        if not supported:
+            logger.warning("Stored subagent selection is no longer valid: %s", reason)
+            return None, None
+
+        return provider, model
+
+    def set_subagent_selection(self, provider: str, model: str) -> dict:
+        """Persist a validated subagent provider and model pair.
+
+        The pair is validated against the catalogue before it is written, so
+        an invalid selection fails closed instead of being stored and
+        surfacing later as a confusing runtime error.
+        """
+        from .config import is_supported_provider_model
+
+        supported, reason = is_supported_provider_model(provider, model)
+        if not supported:
+            return {"success": False, "error": reason}
+
+        self.set("subagents.selected_provider", provider)
+        self.set("subagents.selected_model", model)
+        return {"success": True, "provider": provider, "model": model}
+
+    def clear_subagent_selection(self) -> None:
+        """Forget the persisted subagent pair so the next delegation asks again."""
+        self.set("subagents.selected_provider", None)
+        self.set("subagents.selected_model", None)
 
     def get_full_config(self) -> dict:
         """Return the full config dictionary (read-only copy)."""
