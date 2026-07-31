@@ -149,8 +149,6 @@ def run_interactive(config, context_file=None):
             print_info(f"Resumed session. Active Task: {active_task}")
             memory.session_mem.update_activity()
 
-    agent.start_telegram_processor()
-
     while True:
         try:
             active_modes = get_active_modes()

@@ -263,26 +263,42 @@ class ProjectMemory(BaseMemory):
         return self._save_json(self.json_file, self.data)
 
     def update_recent_file(self, file_path: str, intent: str = "accessed"):
+        return self.update_recent_files([file_path], intent=intent)
+
+    def update_recent_files(self, file_paths: list[str], intent: str = "accessed"):
+        """Track several file accesses with one memory write."""
+        if not file_paths:
+            return True
+
         if "recent_files" not in self.data:
             self.data["recent_files"] = []
 
-        # Find and update, or add
-        for entry in self.data["recent_files"]:
-            if entry.get("path") == file_path:
-                entry["last_accessed"] = datetime.now().isoformat()
+        updated_at = datetime.now().isoformat()
+        entries_by_path = {
+            entry.get("path"): entry
+            for entry in self.data["recent_files"]
+            if entry.get("path")
+        }
+
+        for file_path in file_paths:
+            entry = entries_by_path.get(file_path)
+            if entry is not None:
+                entry["last_accessed"] = updated_at
                 entry["access_count"] = entry.get("access_count", 0) + 1
                 entry["last_intent"] = intent
                 intents = entry.setdefault("intents", {})
                 intents[intent] = intents.get(intent, 0) + 1
-                return self._save_json(self.json_file, self.data)
+                continue
 
-        self.data["recent_files"].append({
-            "path": file_path,
-            "last_accessed": datetime.now().isoformat(),
-            "access_count": 1,
-            "last_intent": intent,
-            "intents": {intent: 1},
-        })
+            entry = {
+                "path": file_path,
+                "last_accessed": updated_at,
+                "access_count": 1,
+                "last_intent": intent,
+                "intents": {intent: 1},
+            }
+            self.data["recent_files"].append(entry)
+            entries_by_path[file_path] = entry
 
         # Keep manageable size
         if len(self.data["recent_files"]) > 50:
