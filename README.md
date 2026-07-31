@@ -291,6 +291,7 @@ that typing them as a prompt would be wasteful. They all work mid-session.
 | `/ratelimit` | Cap how many tool calls the model can make per turn. |
 | `/clear`, `/new` | Forget the current conversation; start fresh. |
 | `/memory` | Inspect or edit persistent memory. |
+| `/evolve` | Inspect or control learning, proposals, and reviewed extensions. |
 | `/skill` | Manage your custom-instruction skill files. |
 | `/teach` | Toggle teach mode (annotated diffs, slower pace). |
 | `/plan`, `/panning` | Plan-then-execute and brain-dump processing workflows. |
@@ -338,13 +339,14 @@ The model gets 72 tools by default, grouped by what they let it do:
 - **Heavier operations.** `run_docker`, `database_query`, `generate_tests`,
   `refactor_code`, `deploy`. All confirm.
 
-- **Add more tools at runtime.** `add_tool` lets the model register a new
-  tool by name, schema, and Python body. The new tool is appended to
-  `radsim/tools/custom_tools.py` and hot-loaded into the live registry — no
-  restart needed. `list_custom_tools` and `remove_tool` manage the result.
+- **Add reviewed extensions.** `/evolve extensions on` enables the extension
+  capability after a typed warning. Approved extensions can register tools,
+  slash commands, and observe-only hooks through RadSim's existing registries.
+  Generated Python and extension activation always require explicit approval.
 
-If you ask "can you do X?" and the answer is no, the right follow-up is often
-"add a tool that does X" — that's a single `add_tool` call, not a code change.
+The extension capability and proposal engine are both off by default. See
+[Evolve and extensions](docs/EVOLVE_AND_EXTENSIONS.md) for the manifest,
+trust, reload, rollback, and API contracts.
 
 MCP support is opt-in:
 
@@ -432,6 +434,9 @@ Everything user-level lives under `~/.radsim`:
 | `~/.radsim/agent_config.json` | Tool switches, security level, sub-agent model. |
 | `~/.radsim/subagents.json` | Custom sub-agent instruction profiles. |
 | `~/.radsim/memory/` | Persistent memory store. |
+| `~/.radsim/learning/` | Bounded canonical learning events and migration log. |
+| `~/.radsim/extensions/` | Explicitly approved global extensions. |
+| `~/.radsim/extension_storage/` | Bounded storage namespaced by extension ID. |
 | `~/.radsim/schedules.json` | Scheduled jobs. |
 | `~/.radsim/mcp.json` | MCP server config. |
 | `~/.radsim/models_cache.json` | Cached OpenRouter model catalogue. |
@@ -448,6 +453,9 @@ For contributors. Files are flat under `radsim/`:
 | `radsim/config.py` | Provider lists, defaults, pricing, settings, env loading. |
 | `radsim/tools/` | Tool definitions and implementations. |
 | `radsim/commands*.py` | Slash command registry and handlers. |
+| `radsim/learning/` | Canonical events, store, retrieval, preferences, and proposals. |
+| `radsim/extension_api.py` | Stable adapter over the live registries. |
+| `radsim/extension_loader.py` | Manifest validation, trust, reload, unload, and rollback. |
 | `radsim/prompts.py`, `prompt_fragments/` | Composed system prompt and its checked-in fragments. |
 | `radsim/sub_agent.py` | Sub-agent runner (the only one). |
 | `radsim/sub_agent_policy.py` | Broker every sub-agent tool call passes through. |

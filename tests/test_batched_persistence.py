@@ -1,15 +1,13 @@
 """Batching and crash-safety tests for learning and vector-memory writes."""
 
 import json
-from collections import Counter
 from unittest.mock import MagicMock
 
 import pytest
 
-import radsim.learning.tool_optimizer as tool_optimizer_module
 import radsim.persistence as persistence
 from radsim.agent import RadSimAgent
-from radsim.learning.tool_optimizer import ToolOptimizer
+from radsim.learning import ToolOptimizer, tfidf_cosine_scores
 from radsim.vector_memory import COLLECTION_CONVERSATIONS, JsonMemoryFallback, VectorMemory
 
 
@@ -45,7 +43,7 @@ def test_individual_and_batch_add_produce_identical_json(tmp_path):
     assert individual_json == batched_json
 
 
-def test_fallback_add_many_saves_once_and_updates_keyword_counts(
+def test_fallback_add_many_saves_once_and_uses_shared_retrieval(
     tmp_path, monkeypatch
 ):
     fallback = JsonMemoryFallback(tmp_path / "batched")
@@ -59,10 +57,14 @@ def test_fallback_add_many_saves_once_and_updates_keyword_counts(
     monkeypatch.setattr(fallback, "_save_collection", counting_save)
     fallback.add_many(COLLECTION_CONVERSATIONS, memory_items(10))
 
-    frequencies = fallback.document_frequencies[COLLECTION_CONVERSATIONS]
     assert save_calls == [COLLECTION_CONVERSATIONS]
-    assert frequencies["alpha"] == 10
-    assert frequencies["shared"] == 10
+    results = fallback.search(COLLECTION_CONVERSATIONS, "alpha shared", 3)
+    expected = tfidf_cosine_scores(
+        "alpha shared",
+        [item["content"] for item in memory_items(10)],
+    )
+    assert len(results) == 3
+    assert results[0]["distance"] == pytest.approx(1 - max(expected))
 
 
 def test_high_level_memory_batch_rejects_empty_content_without_writing(tmp_path):
@@ -78,16 +80,8 @@ def test_high_level_memory_batch_rejects_empty_content_without_writing(tmp_path)
     assert not collection_path.exists()
 
 
-def test_tool_optimizer_flush_writes_each_file_once(tmp_path, monkeypatch):
+def test_tool_optimizer_writes_canonical_events_synchronously(tmp_path):
     optimizer = ToolOptimizer(storage_dir=tmp_path)
-    write_paths = []
-    original_write = tool_optimizer_module.atomic_write_json
-
-    def counting_write(path, data, secure=False):
-        write_paths.append(path)
-        original_write(path, data, secure=secure)
-
-    monkeypatch.setattr(tool_optimizer_module, "atomic_write_json", counting_write)
 
     for index in range(10):
         optimizer.track_tool_execution(
@@ -99,18 +93,10 @@ def test_tool_optimizer_flush_writes_each_file_once(tmp_path, monkeypatch):
         )
     optimizer.complete_task_chain("batch persistence", success=True)
 
-    assert write_paths == []
-    assert optimizer.flush() is True
-    assert Counter(write_paths) == {
-        optimizer.executions_file: 1,
-        optimizer.chains_file: 1,
-        optimizer.scores_file: 1,
-    }
-    assert json.loads(optimizer.executions_file.read_text()) == optimizer._executions
-    assert json.loads(optimizer.chains_file.read_text()) == optimizer._chains
-    assert json.loads(optimizer.scores_file.read_text()) == optimizer._scores
     assert optimizer.flush() is False
-    assert len(write_paths) == 3
+    assert optimizer.store.count(event_types={"tool_execution"}) == 10
+    assert optimizer.store.count(event_types={"task_completion"}) == 1
+    assert optimizer.store.db_path.is_file()
 
 
 def test_turn_cancellation_flushes_optimizer(monkeypatch):

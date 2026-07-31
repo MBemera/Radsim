@@ -75,6 +75,9 @@ def _snapshot_one_file(path):
         return record
 
     record["existed"] = True
+    if not path.is_file():
+        record["skipped_reason"] = "target is not a regular file"
+        return record
     size = path.stat().st_size
     if size > MAX_SNAPSHOT_BYTES:
         record["skipped_reason"] = f"file is {size} bytes (over the snapshot limit)"
@@ -100,6 +103,15 @@ def prepare_checkpoint(tool_name, tool_input):
         or None when this tool needs no checkpoint.
     """
     path_keys = CHECKPOINT_TOOLS.get(tool_name)
+    if not path_keys:
+        try:
+            from .tools import get_extension_tool_metadata
+
+            metadata = get_extension_tool_metadata(tool_name)
+            if metadata and metadata.get("permission_tier") != "read_only":
+                path_keys = metadata.get("path_keys", ())
+        except Exception:
+            path_keys = None
     if not path_keys or not isinstance(tool_input, dict):
         return None
 

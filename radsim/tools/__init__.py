@@ -1,6 +1,8 @@
 """RadSim Tools Package - Modular tool implementation."""
 
+import json
 import logging
+import re
 from importlib import import_module
 
 from .constants import DESTRUCTIVE_COMMANDS as DESTRUCTIVE_COMMANDS
@@ -8,6 +10,21 @@ from .constants import PROTECTED_PATTERNS as PROTECTED_PATTERNS
 from .definitions import TOOL_DEFINITIONS as TOOL_DEFINITIONS
 
 logger = logging.getLogger(__name__)
+
+EXTENSION_PERMISSION_TIERS = frozenset({"read_only", "mutation", "generated_code"})
+EXTENSION_INPUT_ROLES = frozenset({"path", "command"})
+MAX_EXTENSION_SCHEMA_BYTES = 32 * 1024
+MAX_EXTENSION_RESULT_BYTES = 512 * 1024
+_EXTENSION_TOOL_META = {}
+_TOOL_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+_JSON_TYPES = {
+    "string": str,
+    "integer": int,
+    "number": (int, float),
+    "boolean": bool,
+    "object": dict,
+    "array": list,
+}
 
 
 def _run_tool_function(module_path, function_name, *args):
@@ -444,6 +461,269 @@ def _merge_custom_tools():
 
 
 _merge_custom_tools()
+
+
+def validate_extension_tool_definition(definition):
+    """Validate the provider-facing subset supported by extension tools."""
+    if not isinstance(definition, dict):
+        raise ValueError("Tool definition must be an object")
+    try:
+        encoded = json.dumps(definition, sort_keys=True)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Tool definition must be JSON serializable") from error
+    if len(encoded.encode("utf-8")) > MAX_EXTENSION_SCHEMA_BYTES:
+        raise ValueError("Tool definition exceeds the schema size limit")
+    definition = json.loads(encoded)
+    name = definition.get("name")
+    if not isinstance(name, str) or not _TOOL_NAME_PATTERN.fullmatch(name):
+        raise ValueError("Tool name must use 2-64 lowercase letters, digits, or underscores")
+    description = definition.get("description")
+    if not isinstance(description, str) or not description.strip() or len(description) > 500:
+        raise ValueError("Tool description must contain 1-500 characters")
+    schema = definition.get("input_schema")
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        raise ValueError("Tool input_schema must be an object schema")
+    properties = schema.get("properties", {})
+    required = schema.get("required", [])
+    if not isinstance(properties, dict) or len(properties) > 30:
+        raise ValueError("Tool schema properties must be an object with at most 30 entries")
+    if (
+        not isinstance(required, list)
+        or any(not isinstance(key, str) for key in required)
+        or len(required) != len(set(required))
+        or any(key not in properties for key in required)
+    ):
+        raise ValueError("Tool schema required fields must name declared properties")
+    for key, property_schema in properties.items():
+        if (
+            not isinstance(key, str)
+            or not isinstance(property_schema, dict)
+            or property_schema.get("type") not in _JSON_TYPES
+        ):
+            raise ValueError(f"Unsupported schema for property: {key}")
+    return {
+        "name": name,
+        "description": description.strip(),
+        "input_schema": {
+            "type": "object",
+            "properties": properties,
+            "required": list(required),
+        },
+    }
+
+
+def validate_extension_input_roles(definition, properties):
+    """Validate the optional explicit path and command input declarations."""
+    roles = definition.get("input_roles", {}) if isinstance(definition, dict) else {}
+    if not isinstance(roles, dict):
+        raise ValueError("Tool input_roles must be an object")
+    unknown = sorted(set(roles) - EXTENSION_INPUT_ROLES)
+    if unknown:
+        raise ValueError(
+            f"Unknown input role(s): {', '.join(unknown)}. "
+            f"Valid: {', '.join(sorted(EXTENSION_INPUT_ROLES))}"
+        )
+    declared = {}
+    for role, keys in roles.items():
+        if not isinstance(keys, list) or any(not isinstance(key, str) for key in keys):
+            raise ValueError(f"Tool input_roles.{role} must be a list of property names")
+        missing = sorted(set(keys) - set(properties))
+        if missing:
+            raise ValueError(
+                f"Tool input_roles.{role} names undeclared propert(ies): {', '.join(missing)}"
+            )
+        declared[role] = tuple(keys)
+    return declared
+
+
+def can_register_extension_tool(name, *, replacing_owner=None):
+    """Check the live registry without creating a parallel registry."""
+    if name not in _TOOL_REGISTRY:
+        return True, None
+    metadata = _EXTENSION_TOOL_META.get(name)
+    if metadata and metadata.get("owner") == replacing_owner:
+        return True, None
+    return False, f"Tool already registered: {name}"
+
+
+def _schema_value_matches(value, expected):
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, _JSON_TYPES[expected])
+
+
+def _validate_extension_tool_input(definition, tool_input):
+    schema = definition["input_schema"]
+    properties = schema["properties"]
+    missing = [key for key in schema["required"] if key not in tool_input]
+    if missing:
+        return False, f"Missing required input: {', '.join(sorted(missing))}"
+    unknown = set(tool_input) - set(properties)
+    if unknown:
+        return False, f"Unknown input field: {', '.join(sorted(unknown))}"
+    for key, value in tool_input.items():
+        expected = properties[key]["type"]
+        if not _schema_value_matches(value, expected):
+            return False, f"Input '{key}' must be {expected}"
+    return True, None
+
+
+def _extension_input_keys(definition, declared_roles):
+    """Combine explicit input roles with the conventional name patterns.
+
+    Name matching alone misses inputs called `filename`, `dest`, or `cmd`, so a
+    tool that handles paths or commands under any other name must declare them
+    in `input_roles` to receive path, protected-file, symlink, and shell
+    validation.
+    """
+    properties = definition["input_schema"]["properties"]
+    path_keys = set(declared_roles.get("path", ()))
+    command_keys = set(declared_roles.get("command", ()))
+    for key in properties:
+        lowered = key.lower()
+        if lowered in {"path", "file", "directory"} or lowered.endswith(
+            ("_path", "_paths", "_file", "_files", "_directory", "_directories", "_dir")
+        ):
+            path_keys.add(key)
+        if lowered == "command" or lowered.endswith("_command"):
+            command_keys.add(key)
+    return tuple(sorted(path_keys)), tuple(sorted(command_keys))
+
+
+def _validate_extension_tool_safety(metadata, tool_input):
+    from .validation import (
+        contains_symlink,
+        is_protected_path,
+        validate_path,
+        validate_shell_command,
+    )
+
+    for key in metadata["path_keys"]:
+        values = tool_input.get(key, [])
+        values = values if isinstance(values, list) else [values]
+        for value in values:
+            safe, resolved, error = validate_path(value)
+            if not safe:
+                return False, error
+            if metadata["permission_tier"] != "read_only":
+                protected, reason = is_protected_path(value, resolved)
+                if protected:
+                    return False, f"Protected extension write blocked: {reason}"
+                symlinked, path = contains_symlink(value)
+                if symlinked:
+                    return False, f"Extension write through symlink blocked: {path}"
+    for key in metadata["command_keys"]:
+        safe, error = validate_shell_command(tool_input.get(key))
+        if not safe:
+            return False, f"Extension command rejected: {error}"
+    return True, None
+
+
+def register_extension_tool(owner, definition, execute, permission_tier, *, input_roles=None):
+    """Add an extension tool to the existing live registry."""
+    validated = validate_extension_tool_definition(definition)
+    if permission_tier not in EXTENSION_PERMISSION_TIERS:
+        raise ValueError(
+            "permission_tier must be read_only, mutation, or generated_code"
+        )
+    if not callable(execute):
+        raise ValueError("Tool executor must be callable")
+    allowed, error = can_register_extension_tool(validated["name"])
+    if not allowed:
+        raise ValueError(error)
+
+    declared_roles = (
+        validate_extension_input_roles(definition, validated["input_schema"]["properties"])
+        if input_roles is None
+        else input_roles
+    )
+    path_keys, command_keys = _extension_input_keys(validated, declared_roles)
+    if command_keys and permission_tier == "read_only":
+        raise ValueError("A tool with command input cannot use the read_only tier")
+    metadata = {
+        "owner": owner,
+        "permission_tier": permission_tier,
+        "active": True,
+        "path_keys": path_keys,
+        "command_keys": command_keys,
+    }
+
+    def guarded_execute(tool_input):
+        if not metadata["active"]:
+            return {"success": False, "error": f"Extension tool '{validated['name']}' is inactive"}
+        valid, input_error = _validate_extension_tool_input(validated, tool_input)
+        if not valid:
+            return {"success": False, "error": input_error}
+        safe, safety_error = _validate_extension_tool_safety(metadata, tool_input)
+        if not safe:
+            return {"success": False, "error": safety_error}
+        try:
+            result = execute(dict(tool_input))
+        except Exception as error:
+            logger.exception("Extension tool %s crashed", validated["name"])
+            return {
+                "success": False,
+                "error": (
+                    f"Extension tool crashed: {type(error).__name__}: "
+                    f"{str(error)[:300]}"
+                ),
+            }
+        if not isinstance(result, dict) or not isinstance(result.get("success"), bool):
+            return {
+                "success": False,
+                "error": "Extension tools must return a dict with a boolean 'success'",
+            }
+        try:
+            encoded_result = json.dumps(result)
+        except (TypeError, ValueError):
+            return {
+                "success": False,
+                "error": "Extension tool results must be JSON serializable",
+            }
+        if len(encoded_result.encode("utf-8")) > MAX_EXTENSION_RESULT_BYTES:
+            return {
+                "success": False,
+                "error": "Extension tool result exceeds the size limit",
+            }
+        return result
+
+    _TOOL_REGISTRY[validated["name"]] = guarded_execute
+    TOOL_DEFINITIONS.append(validated)
+    _EXTENSION_TOOL_META[validated["name"]] = metadata
+    return validated["name"]
+
+
+def set_extension_tool_active(owner, name, enabled):
+    """Toggle one extension-owned tool without changing its registration."""
+    metadata = _EXTENSION_TOOL_META.get(name)
+    if metadata is None or metadata.get("owner") != owner:
+        raise ValueError(f"Extension does not own tool: {name}")
+    metadata["active"] = bool(enabled)
+
+
+def unregister_extension_tools(owner):
+    """Remove only tool registrations owned by one extension."""
+    names = sorted(
+        name
+        for name, metadata in _EXTENSION_TOOL_META.items()
+        if metadata.get("owner") == owner
+    )
+    for name in names:
+        _TOOL_REGISTRY.pop(name, None)
+        _EXTENSION_TOOL_META.pop(name, None)
+    if names:
+        TOOL_DEFINITIONS[:] = [
+            definition for definition in TOOL_DEFINITIONS if definition["name"] not in names
+        ]
+    return names
+
+
+def get_extension_tool_metadata(name):
+    """Return a copy of extension ownership and policy metadata."""
+    metadata = _EXTENSION_TOOL_META.get(name)
+    return dict(metadata) if metadata else None
 
 
 def execute_tool(tool_name, tool_input):

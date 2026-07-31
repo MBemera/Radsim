@@ -83,7 +83,7 @@ def agent_factory(tmp_path, monkeypatch):
     monkeypatch.setattr("radsim.agent_api.track_tool_execution", lambda **kw: None)
     monkeypatch.setattr("radsim.agent_api.record_error", lambda **kw: None)
     monkeypatch.setattr(
-        "radsim.learning.error_analyzer.check_similar_error",
+        "radsim.learning.check_similar_error",
         lambda *a, **kw: {"error_found": False},
     )
 

@@ -1,33 +1,44 @@
 
   ╭─────────────────────────────────────────────╮
   │  /evolve  (/self-improve)                   │
-  │  Self-Improvement Proposals                 │
+  │  Evolve Controls                            │
   ╰─────────────────────────────────────────────╯
 
   Summary:
-    Review, generate, and manage self-improvement proposals.
+    Control verified learning, proposals, and reviewed Python extensions.
 
   Usage:
     /evolve
-    /evolve analyze
-    /evolve history
-    /evolve stats
+    /evolve status
+    /evolve on|off
+    /evolve auto on|off
+    /evolve learning on|off
+    /evolve extensions on|off
+    /evolve settings
+    /evolve analyze|review|history|stats
 
   Details:
-    RadSim can propose improvements to itself based on usage patterns:
+    Use one command surface for evolution-related settings:
     
-      • (no args) — Review pending proposals
-      • analyze   — Generate new proposals from learning data
-      • history   — View past approved/rejected proposals
-      • stats     — Improvement statistics
+      • status              - Show every current state
+      • on / off            - Toggle the proposal engine
+      • auto on / off       - Toggle automatic proposals
+      • learning on / off   - Toggle learning collection
+      • extensions on / off - Toggle reviewed local extensions
+      • settings            - Configure individual learning modules
+      • analyze             - Create proposals from verified outcomes
+      • review              - Explicitly approve or reject proposals
+      • history / stats     - Inspect retained learning data
 
   Examples:
-    $ /evolve
+    $ /evolve status
+    $ /evolve on
+    $ /evolve learning off
     $ /evolve analyze
-    $ /evolve stats
 
   Tips:
-    Tip: Enable with: /settings self_improvement.enabled true
+    Tip: Proposal analysis and self-extension are disabled by default.
+    Tip: Generated Python always requires explicit approval.
 
   Related: /settings  /selfmod
 

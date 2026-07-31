@@ -668,6 +668,19 @@ class CoreCommandHandlersMixin:
             print_success(f"Removed (did not exist before): {deleted_path}")
         for skipped in result["skipped"]:
             print_warning(f"Skipped: {skipped}")
+        try:
+            from .agent_config import get_agent_config_manager
+            from .learning import record_revert
+
+            if get_agent_config_manager().get("learning.enabled", True):
+                record_revert(
+                    summary=(
+                        f"User reverted {result.get('tool') or 'the last change'} "
+                        f"from {result.get('time') or 'an earlier task'}"
+                    )
+                )
+        except Exception:
+            pass
 
 
 def _extract_last_code_block(text):

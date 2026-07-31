@@ -134,6 +134,24 @@ class AgentApiMixin:
                 if budget_warning:
                     print_warning(budget_warning)
 
+            try:
+                from .hooks import HookContext, HookType, get_hooks_manager
+
+                get_hooks_manager().execute(
+                    HookType.POST_API,
+                    HookContext(
+                        hook_type=HookType.POST_API,
+                        metadata={
+                            "provider": getattr(self.config, "provider", ""),
+                            "model": getattr(self.config, "model", ""),
+                            "stop_reason": str(response.get("stop_reason", ""))[:80],
+                            "usage": dict(response.get("usage", {})),
+                        },
+                    ),
+                )
+            except Exception:
+                logger.debug("post_api hooks failed", exc_info=True)
+
             return response
 
         except (RateLimitExceeded, CircuitBreakerOpen, BudgetExceeded):
@@ -265,6 +283,8 @@ class AgentApiMixin:
 
             if self._interrupted.is_set():
                 user_rejected = True
+                if self._task_outcome_tracker is not None:
+                    self._task_outcome_tracker.mark_cancelled()
 
             if user_rejected:
                 tool_results.append(
@@ -299,6 +319,12 @@ class AgentApiMixin:
                         ),
                     }
                 )
+                if self._task_outcome_tracker is not None:
+                    self._task_outcome_tracker.record_tool(
+                        tool_name,
+                        False,
+                        error=f"Tool input parse error: {tool_input.get('__parse_error__')}",
+                    )
                 continue
 
             tool_start_time = time.time()
@@ -332,18 +358,34 @@ class AgentApiMixin:
             if not tool_success and "STOPPED" in tool_error:
                 user_rejected = True
 
+            if self._task_outcome_tracker is not None:
+                self._task_outcome_tracker.record_tool(
+                    tool_name,
+                    tool_success,
+                    duration_ms,
+                    tool_error,
+                )
+
             if self.config.verbose or tool_name in READ_ONLY_TOOLS:
                 print_tool_result_verbose(tool_handle, tool_name, result, duration_ms)
 
             try:
-                track_tool_execution(
-                    tool_name=tool_name,
-                    success=tool_success,
-                    duration_ms=duration_ms,
-                    input_data=tool_input,
-                    output_data=result,
-                    error=tool_error,
-                )
+                from .agent_config import get_agent_config_manager
+
+                if get_agent_config_manager().is_learning_module_enabled("tool_optimization"):
+                    tracker = self._task_outcome_tracker
+                    track_tool_execution(
+                        tool_name=tool_name,
+                        success=tool_success,
+                        duration_ms=duration_ms,
+                        input_data=tool_input,
+                        output_data=result,
+                        error=tool_error,
+                        task_context=tracker.task_description if tracker else "",
+                        task_id=tracker.task_id if tracker else "",
+                        model=getattr(self.config, "model", ""),
+                        provider=getattr(self.config, "provider", ""),
+                    )
                 self._current_task_tools.append(tool_name)
             except Exception:
                 logger.debug("Learning tool tracking failed during tool execution")
@@ -373,9 +415,13 @@ class AgentApiMixin:
         self.messages.append({"role": "user", "content": tool_results + image_blocks})
 
         if user_rejected:
+            if self._task_outcome_tracker is not None:
+                self._task_outcome_tracker.user_rejected = True
             return "\n".join(text_output) or "Understood — action cancelled."
 
         if self._interrupted.is_set():
+            if self._task_outcome_tracker is not None:
+                self._task_outcome_tracker.mark_cancelled()
             return "\n".join(text_output) or "Cancelled."
 
         return None

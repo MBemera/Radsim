@@ -23,8 +23,17 @@ class CommandRegistry(
         self.commands = {}
         self._register_defaults()
 
-    def register(self, names, handler, description="", category="custom", accepts_args=False):
-        """Register a new command."""
+    def register(
+        self,
+        names,
+        handler,
+        description="",
+        category="custom",
+        accepts_args=False,
+        *,
+        owner="custom",
+    ):
+        """Register commands in the existing registry with ownership metadata."""
         if isinstance(names, str):
             names = [names]
 
@@ -35,6 +44,10 @@ class CommandRegistry(
                 name = "/" + name
             normalized_names.append(name)
 
+        conflicts = [name for name in normalized_names if name in self.commands]
+        if conflicts:
+            raise ValueError(f"Command already registered: {', '.join(sorted(conflicts))}")
+
         primary_name = normalized_names[0]
         for name in normalized_names:
             self.commands[name] = {
@@ -43,7 +56,38 @@ class CommandRegistry(
                 "primary": primary_name,
                 "category": category,
                 "accepts_args": accepts_args,
+                "owner": owner,
             }
+        return tuple(normalized_names)
+
+    def can_register(self, names, *, replacing_owner=None):
+        """Return a deterministic conflict message, ignoring one reload owner."""
+        if isinstance(names, str):
+            names = [names]
+        conflicts = []
+        for name in names:
+            normalized = name.lower()
+            if not normalized.startswith("/"):
+                normalized = "/" + normalized
+            current = self.commands.get(normalized)
+            if current and current.get("owner") != replacing_owner:
+                conflicts.append(normalized)
+        if conflicts:
+            return False, f"Command already registered: {', '.join(sorted(conflicts))}"
+        return True, None
+
+    def unregister_owner(self, owner):
+        """Remove only commands registered by an extension owner."""
+        if not owner or owner == "builtin":
+            return []
+        removed = [
+            name
+            for name, info in self.commands.items()
+            if info.get("owner") == owner
+        ]
+        for name in removed:
+            del self.commands[name]
+        return sorted(removed)
 
     def is_telegram_safe(self, command):
         """Check if a command is safe to run from Telegram."""
@@ -108,6 +152,7 @@ class CommandRegistry(
                 spec["description"],
                 category=spec["category"],
                 accepts_args=spec["accepts_args"],
+                owner="builtin",
             )
 
     def get_relevant_commands(self, context):

@@ -1,0 +1,12 @@
+{
+  "id": "targeted-tests",
+  "name": "Targeted Tests",
+  "version": "1.0.0",
+  "entrypoint": "extension.py",
+  "permissions": [
+    "tools.register",
+    "commands.register",
+    "hooks.observe",
+    "storage.read_write"
+  ]
+}

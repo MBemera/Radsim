@@ -350,6 +350,19 @@ def fire_session_hooks(event, provider="", model=""):
 
 def fire_error_hooks(tool_name, error_type, error_message):
     """Fire on_error hooks after a tool crash. Never blocks."""
+    from .hooks import HookContext, HookType, get_hooks_manager
+
+    get_hooks_manager().execute(
+        HookType.ON_ERROR,
+        HookContext(
+            hook_type=HookType.ON_ERROR,
+            tool_name=tool_name,
+            metadata={
+                "error_type": str(error_type)[:MAX_REASON_CHARS],
+                "error_message": str(error_message)[:MAX_REASON_CHARS],
+            },
+        ),
+    )
     fire_hooks(
         "on_error",
         tool_name=tool_name,
