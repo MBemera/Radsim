@@ -14,6 +14,7 @@ from tests.evals.candidates import (
     build_candidate_a,
     build_candidate_b,
     get_candidate,
+    pinned_baseline_is_available,
 )
 from tests.evals.cases import ALL_CASES, get_cases
 from tests.evals.harness import run_case
@@ -82,11 +83,25 @@ class TestCaseMatrix:
 class TestCandidates:
     """Both prompts are reconstructable and different."""
 
+    # Candidate A is read out of Git at a pinned commit, which a shallow
+    # clone does not have. Skip rather than fail: nothing about the harness
+    # is broken when the history simply is not there.
+    needs_history = pytest.mark.skipif(
+        not pinned_baseline_is_available(),
+        reason="pinned baseline commit is not in this clone (shallow checkout)",
+    )
+
+    @needs_history
     def test_pinned_baseline_is_readable(self):
         assert len(build_candidate_a()) > 5_000
 
+    @needs_history
     def test_current_prompt_is_smaller_than_the_baseline(self):
         assert len(build_candidate_b()) < len(build_candidate_a())
+
+    def test_missing_baseline_raises_a_candidate_error(self):
+        with pytest.raises(CandidateError):
+            build_candidate_a(commit="0000000000000000000000000000000000000000")
 
     def test_unknown_candidate_is_rejected(self):
         with pytest.raises(CandidateError):

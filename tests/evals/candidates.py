@@ -25,6 +25,21 @@ class CandidateError(RuntimeError):
     """Raised when a candidate prompt cannot be reconstructed."""
 
 
+def pinned_baseline_is_available(commit=PINNED_BASELINE_COMMIT):
+    """Return True when the pinned commit exists in this clone.
+
+    CI checks out a shallow clone, which has no history behind the tip, so
+    candidate A cannot be reconstructed there.
+    """
+    result = subprocess.run(
+        ["git", "-C", str(REPOSITORY_ROOT), "cat-file", "-e", f"{commit}^{{commit}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def read_file_at_commit(path, commit=PINNED_BASELINE_COMMIT):
     """Return one repository file's contents as of a commit."""
     result = subprocess.run(
