@@ -28,19 +28,30 @@ def _guard_write_target(file_path, resolved_path):
 
 
 def _track_recent_file(path, intent="accessed"):
-    """Update recent file tracking without constructing fresh Memory objects.
+    """Update recent file tracking without constructing fresh Memory objects."""
+    _track_recent_files([path], intent=intent)
+
+
+def _track_recent_files(paths, intent="accessed"):
+    """Update recent file tracking for several paths with one memory write.
 
     Only records when the project already opted into project memory
     (a .radsim directory exists) — file operations must never scatter
     .radsim directories as a side effect.
     """
+    if not paths:
+        return
+
     try:
         from pathlib import Path
 
         if not (Path.cwd() / ".radsim").exists():
             return
         memory = get_runtime_context().get_memory()
-        memory.project_mem.update_recent_file(str(path), intent=intent)
+        memory.project_mem.update_recent_files(
+            [str(path) for path in paths],
+            intent=intent,
+        )
     except Exception:
         pass
 
@@ -63,13 +74,15 @@ def _count_changed_lines(old_content, new_content):
     return additions, deletions
 
 
-def read_file(file_path, offset=0, limit=None):
+def read_file(file_path, offset=0, limit=None, track_recent=True):
     """Read contents of a file.
 
     Args:
         file_path: Path to the file
         offset: Line number to start reading from (0-indexed)
         limit: Maximum number of lines to read
+        track_recent: Record the read in project memory. Callers reading a
+            batch turn this off and track the whole batch with one write.
 
     Returns:
         dict with success, content, path, line_count
@@ -108,7 +121,8 @@ def read_file(file_path, offset=0, limit=None):
             content = content[:MAX_TRUNCATED_SIZE]
             content += f"\n... [Truncated at {MAX_TRUNCATED_SIZE} chars, {total_lines} total lines]"
 
-        _track_recent_file(path, intent="read")
+        if track_recent:
+            _track_recent_file(path, intent="read")
 
         return {
             "success": True,
@@ -137,8 +151,12 @@ def read_many_files(file_paths):
         dict with success, files (list of results)
     """
     results = []
+    recent_paths = []
     for file_path in file_paths[:MAX_FILES_TO_READ]:
-        result = read_file(file_path)
+        result = read_file(file_path, track_recent=False)
+        if result["success"]:
+            recent_paths.append(result["path"])
+
         results.append(
             {
                 "path": file_path,
@@ -147,6 +165,8 @@ def read_many_files(file_paths):
                 "error": result.get("error", ""),
             }
         )
+
+    _track_recent_files(recent_paths, intent="read")
 
     return {"success": True, "files": results, "count": len(results)}
 

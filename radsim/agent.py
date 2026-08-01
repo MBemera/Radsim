@@ -109,6 +109,7 @@ class RadSimAgent(
 
         # Flag: True when processing a Telegram-originated message
         self._telegram_mode = False
+        self._telegram_processor_started = False
 
         # Teach mode: track if we've already asked the model to retry with annotations
         self._teach_retry_attempted = False
@@ -161,10 +162,18 @@ class RadSimAgent(
             self.load_initial_context(context_file)
 
     def start_telegram_processor(self):
-        """Start a background thread that auto-processes incoming Telegram messages."""
+        """Start a background thread that auto-processes incoming Telegram messages.
+
+        Started when the listener is turned on rather than at boot, so a
+        session that never uses Telegram never runs the polling thread.
+        """
+        if self._telegram_processor_started:
+            return
+
         from .agent_telegram import start_telegram_processor
 
         start_telegram_processor(self)
+        self._telegram_processor_started = True
 
     def _handle_browser_tool(self, tool_name, tool_input):
         """Handle browser automation tools."""

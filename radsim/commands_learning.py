@@ -1366,6 +1366,7 @@ class LearningCommandHandlersMixin:
             if toggle == "on":
                 result = start_listening()
                 if result["success"]:
+                    agent.start_telegram_processor()
                     lines = (
                         "  ok Telegram listener: ON", "  Receiving messages from your Telegram bot.",
                         "  Messages will appear in your RadSim session.", "  Use /telegram listen off to stop.",

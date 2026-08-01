@@ -13,6 +13,7 @@ RadSim Principle: One Function, One Purpose
 import ast
 import hashlib
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -123,13 +124,21 @@ def _discover_files(root, language_filter=None):
     allowed.update([".json", ".yaml", ".yml", ".toml"])
 
     files = []
-    for path in root.rglob("*"):
-        if any(part in SKIP_DIRS for part in path.parts):
-            continue
-        if path.is_file() and path.suffix in allowed:
-            files.append(path)
+    for current_root, dir_names, file_names in os.walk(root):
+        dir_names[:] = [name for name in dir_names if not _should_skip_dir(name)]
+
+        current_path = Path(current_root)
+        for file_name in file_names:
+            path = current_path / file_name
+            if path.suffix in allowed:
+                files.append(path)
 
     return sorted(files)
+
+
+def _should_skip_dir(name):
+    """Return True when directory discovery should skip a name."""
+    return name in SKIP_DIRS or name.endswith(".egg-info")
 
 
 def _extract_symbols(filepath):
