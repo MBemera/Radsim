@@ -19,6 +19,11 @@ DEFAULT_BASE_DELAY = 1.0  # seconds
 DEFAULT_MAX_DELAY = 60.0  # seconds
 DEFAULT_EXPONENTIAL_BASE = 2
 
+# Output ceiling used when a caller asks for no specific limit. Anthropic
+# requires the field, so this is the value the primary agent has always sent;
+# the OpenAI-compatible clients omit the field entirely in that case.
+DEFAULT_MAX_OUTPUT_TOKENS = 16000
+
 logger = logging.getLogger(__name__)
 
 
@@ -225,11 +230,17 @@ class BaseAPIClient(ABC):
     """Base class for API clients."""
 
     @abstractmethod
-    def chat(self, messages, system_prompt=None, tools=None):
-        """Send a chat request and return the response."""
+    def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+        """Send a chat request and return the response.
+
+        Args:
+            max_tokens: Optional output ceiling for this one request. None
+                keeps each provider's existing default, so the primary agent
+                sends exactly what it always has.
+        """
         pass
 
-    def stream_chat(self, messages, system_prompt=None, tools=None):
+    def stream_chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
         """Stream a chat request, yielding deltas and final response.
 
         Yields:
@@ -237,7 +248,7 @@ class BaseAPIClient(ABC):
             {"type": "final_response", "response": dict}
         """
         # Default implementation falls back to non-streaming
-        response = self.chat(messages, system_prompt, tools)
+        response = self.chat(messages, system_prompt, tools, max_tokens)
 
         for block in response["content"]:
             if block["type"] == "text":
@@ -270,9 +281,14 @@ class ClaudeClient(BaseAPIClient):
         tools: list[dict[str, Any]] | None = None,
         *,
         stream: bool = False,
+        max_tokens: int | None = None,
     ) -> dict[str, Any]:
         """Build one Claude request without performing network I/O."""
-        kwargs = {"model": self.model, "max_tokens": 16000, "messages": messages}
+        kwargs = {
+            "model": self.model,
+            "max_tokens": max_tokens or DEFAULT_MAX_OUTPUT_TOKENS,
+            "messages": messages,
+        }
         if stream:
             kwargs["stream"] = True
         if system_prompt:
@@ -281,9 +297,9 @@ class ClaudeClient(BaseAPIClient):
             kwargs["tools"] = tools
         return kwargs
 
-    def chat(self, messages, system_prompt=None, tools=None):
+    def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
         """Send a chat request to Claude with retry logic."""
-        kwargs = self._build_request_kwargs(messages, system_prompt, tools)
+        kwargs = self._build_request_kwargs(messages, system_prompt, tools, max_tokens=max_tokens)
         return self._chat_with_retry(**kwargs)
 
     @with_retry(max_retries=DEFAULT_MAX_RETRIES)
@@ -298,9 +314,11 @@ class ClaudeClient(BaseAPIClient):
                 raise RetryableError(e, is_rate_limit=is_rate_limit) from e
             raise
 
-    def stream_chat(self, messages, system_prompt=None, tools=None):
+    def stream_chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
         """Stream a chat request to Claude."""
-        kwargs = self._build_request_kwargs(messages, system_prompt, tools, stream=True)
+        kwargs = self._build_request_kwargs(
+            messages, system_prompt, tools, stream=True, max_tokens=max_tokens
+        )
         final_content = []
         current_tool_use = None
         input_tokens = 0
@@ -389,6 +407,11 @@ class ClaudeClient(BaseAPIClient):
 class OpenAIClient(BaseAPIClient):
     """OpenAI API client."""
 
+    # OpenAI's chat completions API rejects `max_tokens` on its reasoning
+    # models and wants `max_completion_tokens`, which counts reasoning tokens
+    # as well as visible output.
+    MAX_OUTPUT_TOKENS_PARAM = "max_completion_tokens"
+
     def __init__(
         self,
         api_key,
@@ -440,6 +463,7 @@ class OpenAIClient(BaseAPIClient):
         tools: list[dict[str, Any]] | None = None,
         *,
         stream: bool = False,
+        max_tokens: int | None = None,
     ) -> dict[str, Any]:
         """Build one OpenAI request without performing network I/O."""
         kwargs = {"model": self.model, "messages": self._build_messages(messages, system_prompt)}
@@ -447,11 +471,13 @@ class OpenAIClient(BaseAPIClient):
             kwargs.update(stream=True, stream_options={"include_usage": True})
         if tools:
             kwargs["tools"] = self._convert_tools(tools)
+        if max_tokens:
+            kwargs[self.MAX_OUTPUT_TOKENS_PARAM] = max_tokens
         return self._apply_reasoning(kwargs)
 
-    def chat(self, messages, system_prompt=None, tools=None):
+    def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
         """Send a chat request to OpenAI with retry logic."""
-        kwargs = self._build_request_kwargs(messages, system_prompt, tools)
+        kwargs = self._build_request_kwargs(messages, system_prompt, tools, max_tokens=max_tokens)
         return self._chat_with_retry(**kwargs)
 
     @with_retry(max_retries=DEFAULT_MAX_RETRIES)
@@ -466,14 +492,17 @@ class OpenAIClient(BaseAPIClient):
                 raise RetryableError(e, is_rate_limit=is_rate_limit) from e
             raise
 
-    def stream_chat(self, messages, system_prompt=None, tools=None):
+    def stream_chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
         """Stream a chat request to OpenAI."""
-        kwargs = self._build_request_kwargs(messages, system_prompt, tools, stream=True)
+        kwargs = self._build_request_kwargs(
+            messages, system_prompt, tools, stream=True, max_tokens=max_tokens
+        )
         stream = self.client.chat.completions.create(**kwargs)
 
         final_text = ""
         tool_calls_map = {}  # index -> tool_call
         usage = {"input_tokens": 0, "output_tokens": 0}
+        finish_reason = "stop"
 
         for chunk in stream:
             # Usage may arrive on a dedicated final chunk (OpenAI) or on a
@@ -485,6 +514,12 @@ class OpenAIClient(BaseAPIClient):
 
             if not chunk.choices:
                 continue
+
+            # The final chunk carries why generation stopped. Keeping it means
+            # a response cut off at the output ceiling is reported as such
+            # instead of reading as a complete answer.
+            if chunk.choices[0].finish_reason:
+                finish_reason = chunk.choices[0].finish_reason
 
             delta = chunk.choices[0].delta
 
@@ -527,7 +562,7 @@ class OpenAIClient(BaseAPIClient):
                 }
             )
 
-        response = {"content": content, "stop_reason": "stop", "usage": usage}
+        response = {"content": content, "stop_reason": finish_reason, "usage": usage}
         yield {"type": "final_response", "response": response}
 
     def _format_message(self, msg):
@@ -664,6 +699,10 @@ class OpenRouterClient(OpenAIClient):
     - HTTP-Referer header for identification
     - X-Title header (optional, for analytics)
     """
+
+    # OpenRouter normalises `max_tokens` across every upstream provider it
+    # routes to, so it is the portable field here.
+    MAX_OUTPUT_TOKENS_PARAM = "max_tokens"
 
     def __init__(
         self,

@@ -122,11 +122,76 @@ def is_self_modification(file_path):
         return False, None
 
 
+# Source files that carry RadSim's own policy. A runtime tool call may never
+# write to these: a content sentinel only proves some text survived the edit,
+# while the real risk is a rewrite that keeps the opening line and guts the
+# rules below it. The boundary is the path, so no proposed content can argue
+# its way past it.
+CORE_POLICY_FILENAMES = frozenset(
+    {
+        "prompts.py",
+        "safety.py",
+        "agent_policy.py",
+        "sub_agent_policy.py",
+        "sub_agent_profiles.py",
+        "agent_constants.py",
+        "access_control.py",
+    }
+)
+
+# Checked-in prompt text the user may change through an explicit request.
+# These shape behaviour; they do not define permissions.
+EDITABLE_PROMPT_FRAGMENTS = frozenset(
+    {
+        "personality.md",
+        "tool_use.md",
+        "response_style.md",
+        "subagents.md",
+    }
+)
+
+
+def is_core_policy_path(file_path):
+    """Check whether a path is a protected core policy file.
+
+    Only files inside RadSim's own package count: a project file that happens
+    to be named ``safety.py`` is ordinary user code and stays editable.
+
+    Returns:
+        (is_core: bool, reason: str)
+    """
+    is_selfmod, _package_dir = is_self_modification(file_path)
+    if not is_selfmod:
+        return False, ""
+
+    try:
+        target = Path(file_path).resolve()
+    except (OSError, ValueError):
+        return False, ""
+
+    if target.parent.name == "prompt_fragments":
+        if target.name in EDITABLE_PROMPT_FRAGMENTS:
+            return False, ""
+        return True, (
+            f"BLOCKED: '{target.name}' is not an editable prompt fragment. "
+            f"Editable fragments: {', '.join(sorted(EDITABLE_PROMPT_FRAGMENTS))}."
+        )
+
+    if target.name in CORE_POLICY_FILENAMES:
+        return True, (
+            f"BLOCKED: '{target.name}' is a RadSim core policy file and cannot be "
+            "edited by a runtime tool call. Change it through a reviewed source edit."
+        )
+
+    return False, ""
+
+
 def is_core_prompt_intact(new_content):
     """Check that the core system prompt is preserved in proposed content.
 
-    The RADSIM_SYSTEM_PROMPT must never be deleted from prompts.py.
-    Checks that the sentinel (first 100 chars) is still present.
+    Retained as a defence in depth behind :func:`is_core_policy_path`, which
+    already blocks runtime writes to ``prompts.py`` outright. Checks that the
+    sentinel (first 100 chars) is still present.
 
     Returns:
         (intact: bool, reason: str)

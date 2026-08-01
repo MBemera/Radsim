@@ -1,0 +1,50 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /subagent  (/sub)                          │
+  │  Sub-agent Settings                         │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Manage the sub-agent model and instruction profiles.
+
+  Usage:
+    /subagent
+    /subagent model
+    /subagent profiles
+    /subagent create
+    /subagent status
+    /subagent show [id]
+    /subagent edit [id]
+    /subagent delete [id]
+    /subagent run [profile] [task]
+
+  Details:
+    Sub-agents use their own saved provider and model, separate from
+    your main model. The selection survives /clear, restarts, and
+    /switch, and only you can change it — the agent cannot.
+    
+      • (no args)   — Open the sub-agent menu
+      • status      — Show the saved model and available profiles
+      • model       — Choose and save the sub-agent provider/model
+      • profiles    — List capability profiles and their limits
+      • create      — Add instructions on top of a locked profile
+      • show/edit/delete — Manage one custom profile
+      • run         — Run one task under a profile
+    
+    Every action works with no arguments: leaving an id or profile
+    out opens a picker instead of printing usage.
+    
+    Capability profiles decide what a sub-agent may do. Custom
+    instructions refine behaviour but can never add tools or
+    widen permissions.
+
+  Examples:
+    $ /subagent
+    $ /subagent model
+    $ /subagent run review check auth.py for missing validation
+
+  Tips:
+    Tip: Sub-agents never get delegate_task, so they cannot spawn more sub-agents.
+
+  Related: /background  /settings
+

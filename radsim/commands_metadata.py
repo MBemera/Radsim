@@ -639,6 +639,44 @@ DEFAULT_COMMAND_SPECS = [
         ],
         related=["/plan"],
     ),
+    _command(["/subagent", "/sub"], "_cmd_subagent", "Set the sub-agent model and profiles", "background",
+        accepts_args=True, telegram_safe=False,
+        title="Sub-agent Settings",
+        summary="Manage the sub-agent model and instruction profiles.",
+        usage=[
+            "/subagent",
+            "/subagent model",
+            "/subagent profiles",
+            "/subagent create",
+            "/subagent status",
+            "/subagent show [id]",
+            "/subagent edit [id]",
+            "/subagent delete [id]",
+            "/subagent run [profile] [task]",
+        ],
+        details="Sub-agents use their own saved provider and model, separate from\n"
+            "your main model. The selection survives /clear, restarts, and\n"
+            "/switch, and only you can change it — the agent cannot.\n\n"
+            "  • (no args)   — Open the sub-agent menu\n"
+            "  • status      — Show the saved model and available profiles\n"
+            "  • model       — Choose and save the sub-agent provider/model\n"
+            "  • profiles    — List capability profiles and their limits\n"
+            "  • create      — Add instructions on top of a locked profile\n"
+            "  • show/edit/delete — Manage one custom profile\n"
+            "  • run         — Run one task under a profile\n\n"
+            "Every action works with no arguments: leaving an id or profile\n"
+            "out opens a picker instead of printing usage.\n\n"
+            "Capability profiles decide what a sub-agent may do. Custom\n"
+            "instructions refine behaviour but can never add tools or\n"
+            "widen permissions.",
+        examples=[
+            "/subagent",
+            "/subagent model",
+            "/subagent run review check auth.py for missing validation",
+        ],
+        related=["/background", "/settings"],
+        tips=["Sub-agents never get delegate_task, so they cannot spawn more sub-agents."],
+    ),
     _command(["/background", "/bg"], "_cmd_background", "View/manage background sub-agent jobs", "background",
         accepts_args=True, telegram_safe=True,
         title="Background Jobs",

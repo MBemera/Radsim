@@ -597,6 +597,48 @@ def load_settings_file():
         return {}
 
 
+def is_supported_provider_model(provider, model):
+    """Check a provider/model pair against the shipped catalogue.
+
+    Shared by the primary and subagent selection paths so both reject a
+    model that was removed from the catalogue instead of quietly running
+    something the user did not choose.
+
+    Returns:
+        (supported: bool, reason: str)
+    """
+    if not provider or not isinstance(provider, str):
+        return False, "No provider selected"
+    if not model or not isinstance(model, str):
+        return False, "No model selected"
+
+    catalogue = PROVIDER_MODELS.get(provider)
+    if catalogue is None:
+        return False, f"Unknown provider '{provider}'"
+
+    if model in {model_id for model_id, _description in catalogue}:
+        return True, ""
+
+    return False, f"Model '{model}' is not available for provider '{provider}'"
+
+
+def get_provider_api_key(provider):
+    """Resolve one provider's API key from the environment or credential store.
+
+    Reads at call time and never caches: credentials belong in the existing
+    store, not copied into other config files.
+    """
+    env_var = PROVIDER_ENV_VARS.get(provider)
+    if not env_var:
+        return None
+
+    key = os.getenv(env_var)
+    if key:
+        return key
+
+    return load_env_file().get("keys", {}).get(env_var)
+
+
 def save_config(api_key, provider, model):
     """Save config to .env file with secure permissions.
 

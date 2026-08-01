@@ -54,7 +54,9 @@ class CoreCommandHandlersMixin:
         agent.reset()
         reset_tracker()
         reset_job_manager()
-        agent._session_capable_model = None
+        # The subagent provider/model selection is user configuration, not
+        # session state, so /clear leaves it alone.
+        agent._injected_job_ids = set()
         if hasattr(agent, "protection"):
             agent.protection.rate_limiter.reset()
             agent.protection.budget_guard.reset()

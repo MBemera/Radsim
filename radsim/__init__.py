@@ -45,13 +45,23 @@ _MODULE_EXPORTS = {
         "load_skill_for_tool",
     ],
     ".sub_agent": [
+        "SubAgentModelError",
         "SubAgentResult",
         "SubAgentTask",
         "delegate_task",
         "execute_subagent_task",
-        "list_available_models",
-        "quick_task",
-        "resolve_model_name",
+        "get_available_models",
+        "resolve_subagent_model",
+    ],
+    ".sub_agent_policy": [
+        "SubAgentPolicyBroker",
+    ],
+    ".sub_agent_profiles": [
+        "CAPABILITY_PROFILES",
+        "ProfileError",
+        "compose_subagent_prompt",
+        "get_tools_for_profile",
+        "resolve_profile_name",
     ],
     ".task_logger": [
         "TaskLogger",

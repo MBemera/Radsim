@@ -18,6 +18,11 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+# Stored job output is displayed in a terminal and injected back into the
+# conversation, so it is bounded and escaped at the point it is stored.
+MAX_STORED_RESULT_CHARS = 20_000
+MAX_STORED_ERROR_CHARS = 2_000
+
 
 class JobStatus(str, Enum):
     RUNNING = "running"
@@ -34,13 +39,15 @@ class BackgroundJob:
     description: str
     status: JobStatus = JobStatus.RUNNING
     model: str = ""
-    tier: str = "fast"
+    provider: str = ""
+    profile: str = ""
     started_at: float = 0.0
     finished_at: float = 0.0
     result_content: str = ""
     error: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
+    tool_calls: int = 0
     sub_tasks: list = field(default_factory=list)  # Individual task descriptions for parallel jobs
     _thread: threading.Thread = field(default=None, repr=False)
     _cancel_event: threading.Event = field(default=None, repr=False)
@@ -54,6 +61,10 @@ class BackgroundJob:
             return time.time() - self.started_at
         return 0.0
 
+    def is_cancelled(self):
+        """Return True once cancellation has been signalled."""
+        return bool(self._cancel_event and self._cancel_event.is_set())
+
 
 class BackgroundJobManager:
     """Manages background sub-agent jobs."""
@@ -64,15 +75,28 @@ class BackgroundJobManager:
         self._lock = threading.Lock()
         self._completion_callback = None
 
-    def start_job(self, description, run_function, model="", tier="fast", sub_tasks=None):
+    def start_job(
+        self,
+        description,
+        run_function,
+        model="",
+        provider="",
+        profile="",
+        sub_tasks=None,
+    ):
         """Start a background job in a daemon thread.
+
+        The job's cancel event is passed into ``run_function`` when it accepts
+        an argument, so cancelling a job stops the work rather than only
+        relabelling its status.
 
         Args:
             description: Human-readable task description
-            run_function: Callable that returns a SubAgentResult. It may
-                accept one threading.Event for cooperative cancellation.
-            model: Model ID being used
-            tier: Task tier (fast, capable, review)
+            run_function: Callable returning a SubAgentResult. It may accept
+                the job's ``threading.Event`` as its single argument.
+            model: Model ID snapshotted at launch
+            provider: Provider snapshotted at launch
+            profile: Capability profile the sub-agent runs under
             sub_tasks: List of individual task descriptions (for parallel jobs)
 
         Returns:
@@ -89,7 +113,8 @@ class BackgroundJobManager:
             description=description,
             status=JobStatus.RUNNING,
             model=model,
-            tier=tier,
+            provider=provider,
+            profile=profile,
             started_at=time.time(),
             sub_tasks=sub_tasks or [],
             _cancel_event=cancel_event,
@@ -97,31 +122,16 @@ class BackgroundJobManager:
 
         def worker():
             try:
-                if cancel_event.is_set():
-                    return
-                result = self._invoke_run_function(run_function, cancel_event)
-                with self._lock:
-                    if job.status == JobStatus.CANCELLED:
-                        return
-                    job.status = JobStatus.COMPLETED
-                    job.result_content = result.content if result else ""
-                    job.input_tokens = result.input_tokens if result else 0
-                    job.output_tokens = result.output_tokens if result else 0
-                    job.finished_at = time.time()
-            except Exception as e:
-                with self._lock:
-                    if job.status == JobStatus.CANCELLED:
-                        return
-                    job.status = JobStatus.FAILED
-                    job.error = str(e)
-                    job.finished_at = time.time()
-                logger.error("Background job #%d failed: %s", job_id, e)
+                result = _call_with_optional_cancel(run_function, cancel_event)
+                self._record_success(job, result)
+            except Exception as error:
+                self._record_failure(job, error)
 
             if self._completion_callback:
                 try:
                     self._completion_callback(job)
                 except Exception:
-                    pass
+                    logger.debug("Background job completion callback failed", exc_info=True)
 
         thread = threading.Thread(target=worker, daemon=True)
         job._thread = thread
@@ -132,15 +142,39 @@ class BackgroundJobManager:
         thread.start()
         return job
 
-    @staticmethod
-    def _invoke_run_function(run_function, cancel_event):
-        """Pass the cancellation token only when the callable accepts it."""
-        try:
-            signature = inspect.signature(run_function)
-            signature.bind(cancel_event)
-        except (TypeError, ValueError):
-            return run_function()
-        return run_function(cancel_event)
+    def _record_success(self, job, result):
+        """Store a finished job's bounded, terminal-safe output."""
+        from .terminal import escape_terminal_controls
+
+        with self._lock:
+            if job.status == JobStatus.CANCELLED:
+                return
+            if result is not None and getattr(result, "cancelled", False):
+                job.status = JobStatus.CANCELLED
+                job.finished_at = time.time()
+                return
+
+            job.status = JobStatus.COMPLETED
+            content = getattr(result, "content", "") if result else ""
+            job.result_content = escape_terminal_controls(
+                content[:MAX_STORED_RESULT_CHARS], preserve_layout=True
+            )
+            job.input_tokens = getattr(result, "input_tokens", 0) if result else 0
+            job.output_tokens = getattr(result, "output_tokens", 0) if result else 0
+            job.tool_calls = getattr(result, "tool_calls", 0) if result else 0
+            job.finished_at = time.time()
+
+    def _record_failure(self, job, error):
+        """Store a failed job's bounded, terminal-safe error."""
+        from .terminal import escape_terminal_controls
+
+        with self._lock:
+            if job.status == JobStatus.CANCELLED:
+                return
+            job.status = JobStatus.FAILED
+            job.error = escape_terminal_controls(str(error))[:MAX_STORED_ERROR_CHARS]
+            job.finished_at = time.time()
+        logger.error("Background job #%d failed: %s", job.job_id, error)
 
     def get_job(self, job_id):
         """Get a job by ID. Returns None if not found."""
@@ -184,6 +218,22 @@ class BackgroundJobManager:
             callback: Function that takes a BackgroundJob argument
         """
         self._completion_callback = callback
+
+
+def _call_with_optional_cancel(run_function, cancel_event):
+    """Call a job function, passing the cancel event when it accepts one.
+
+    Older call sites take no arguments; the subagent runner takes the event so
+    it can stop between API and tool calls.
+    """
+    try:
+        signature = inspect.signature(run_function)
+    except (TypeError, ValueError):
+        return run_function()
+
+    if not signature.parameters:
+        return run_function()
+    return run_function(cancel_event)
 
 
 # Module-level singleton (session-scoped)
