@@ -8,6 +8,8 @@ a bad action.
 
 ```bash
 python -m tests.evals.run_evals --dry-run --provider openrouter --model z-ai/glm-5.2
+python -m tests.evals.run_evals --profile release --max-cost-usd 3.00   # full evidence
+python -m tests.evals.run_evals --profile commit --max-cost-usd 1.25    # routine signal
 python -m tests.evals.run_evals --max-cost-usd 3.00                    # both candidates
 python -m tests.evals.run_evals --max-cost-usd 1.25 --candidates B     # current prompt
 python -m tests.evals.run_evals --max-cost-usd 0.25 --cases S01,S03    # a few ids
@@ -15,6 +17,31 @@ python -m tests.evals.run_evals --max-cost-usd 1.25 --result-dir /private/path
 python -m tests.evals.run_evals --max-cost-usd 1.25 --case-set development
 python -m tests.evals.run_evals --dry-run --temperature 0 --top-p 1 --sampling-seed 20260804
 ```
+
+## Profiles
+
+Two documented shapes. Both fix repetitions at 3; passing `--candidates` or
+`--reps` alongside `--profile` is refused rather than silently overridden, so a
+manifest reader can always tell what ran.
+
+| Profile | Candidates | Runs | Baseline | Evidence |
+|---|---|---|---|---|
+| `release` | A and B, interleaved | 174 | measured live, reuse refused | release evidence |
+| `commit` | B only | 87 | reused from the latest compatible stored result | provisional signal |
+
+`--profile release` additionally requires an explicit `--max-cost-usd` even on a
+dry run, because the dry run exists to validate the shape of the paid run.
+
+`--profile commit` reuses candidate A only when the stored result's complete
+artifact digest matches the current one and it is at most 14 days old.
+Compatibility is the digest check from §0.3, so any change to a candidate, case,
+tool schema, scorer, grader, provider, model, route, effort, sampling option or
+harness file invalidates reuse by changing the digest. When reuse applies, the
+run prints where the baseline came from and its age, labels the comparison
+`PROVISIONAL`, prints `Provisional gates` rather than `Release gates`, and marks
+the reused samples in the summary line and the stored result. When no compatible
+baseline exists, the run says so and reports candidate B alone rather than
+comparing against stale data.
 
 Live model calls are made against the saved primary provider and model unless
 `--provider`/`--model` say otherwise. A full run is 29 cases × 2 candidates ×

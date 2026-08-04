@@ -23,6 +23,13 @@ from .cache_observability import (
 from .candidates import CANDIDATE_NAMES
 from .harness import DEFAULT_MAX_ITERATIONS, run_case
 from .preflight import EvalPreflight, prepare_preflight, print_preflight
+from .profiles import (
+    PROFILE_NAMES,
+    ReusedBaseline,
+    apply_profile,
+    describe_profile,
+    load_reused_baseline,
+)
 from .results import write_eval_result
 from .scoring import (
     evaluate_gates,
@@ -33,6 +40,7 @@ from .scoring import (
 )
 from .tool_choice_analysis import analyse_tool_choice_failures, print_tool_choice_analysis
 
+DEFAULT_CANDIDATES = ",".join(CANDIDATE_NAMES)
 DEFAULT_REPETITIONS = 3
 DEFAULT_WORKERS = 4
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
@@ -46,7 +54,7 @@ def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description="Run the RadSim behavioural eval matrix")
     parser.add_argument(
         "--candidates",
-        default=",".join(CANDIDATE_NAMES),
+        default=DEFAULT_CANDIDATES,
         help="Comma-separated candidates to run: A (pinned baseline), B (current)",
     )
     parser.add_argument("--reps", type=int, default=DEFAULT_REPETITIONS, help="Repetitions per case")
@@ -111,7 +119,19 @@ def parse_arguments(argv=None):
         default="eval_results",
         help="Private directory for unique result artifacts",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--profile",
+        choices=PROFILE_NAMES,
+        default=None,
+        help=(
+            "release: both candidates measured live, full gates. "
+            "commit: candidate B only against a stored compatible baseline; "
+            "cheaper, provisional, not release evidence."
+        ),
+    )
+    arguments = parser.parse_args(argv)
+    apply_profile(arguments, DEFAULT_CANDIDATES, DEFAULT_REPETITIONS)
+    return arguments
 
 
 def resolve_model_selection(provider, model):
@@ -244,13 +264,17 @@ def _print_progress(candidate, case, repetition, score):
     print(f"  [{candidate}] {case.id} rep{repetition}  {verdict}")
 
 
-def report(scores, records, result_directory, manifest):
+def report(scores, records, result_directory, manifest, baseline=None):
     """Print the gate table and write the full results.
 
     The written file keeps each run's answer and tool arguments, because a
     failed case is only actionable once you can see what the model actually
-    asked for.
+    asked for. A reused candidate A is folded in here, never re-measured, and
+    every line that depends on it says so.
     """
+    baseline = baseline or ReusedBaseline()
+    scores = list(scores) + list(baseline.scores)
+
     by_candidate = {}
     for score in scores:
         by_candidate.setdefault(score.candidate, []).append(score)
@@ -284,9 +308,17 @@ def report(scores, records, result_directory, manifest):
         return summaries, []
 
     paired_completion = paired_completion_difference(scores)
-    comparisons = {"paired_completion": paired_completion}
+    comparisons = {
+        "paired_completion": paired_completion,
+        "baseline_reused": baseline.available,
+        "baseline_provenance": baseline.provenance,
+        "provisional": baseline.available,
+    }
     gates = evaluate_gates(summaries.get("A"), summaries["B"], paired_completion)
-    print("\nRelease gates (candidate B)")
+    heading = "Release gates (candidate B)"
+    if baseline.available:
+        heading = "Provisional gates (candidate B vs reused baseline A)"
+    print(f"\n{heading}")
     for gate in gates:
         print(f"  [{'PASS' if gate['passed'] else 'FAIL'}] {gate['name']} — {gate['detail']}")
 
@@ -366,8 +398,22 @@ def main(argv=None):
     arguments = parse_arguments(argv)
     provider, model = resolve_model_selection(arguments.provider, arguments.model)
     preflight = prepare_preflight(arguments, provider, model)
+    preflight.manifest["execution"]["profile"] = arguments.profile
     print(f"Provider: {provider}  Model: {model}")
     print_preflight(preflight)
+
+    baseline = load_reused_baseline(
+        arguments.profile,
+        arguments.result_dir,
+        preflight.manifest,
+    )
+    preflight.manifest["execution"]["reused_baseline"] = {
+        "used": baseline.available,
+        "provenance": baseline.provenance,
+        "unavailable_reason": baseline.unavailable_reason,
+    }
+    for line in describe_profile(arguments.profile, baseline):
+        print(line)
 
     if arguments.dry_run:
         return 0
@@ -439,7 +485,13 @@ def main(argv=None):
         f"logical_requests={budget_result['requests_started']} "
         f"provider_attempts={budget_result['provider_attempts']}"
     )
-    _summaries, gates = report(scores, records, arguments.result_dir, preflight.manifest)
+    _summaries, gates = report(
+        scores,
+        records,
+        arguments.result_dir,
+        preflight.manifest,
+        baseline,
+    )
 
     return 0 if gates and all(gate["passed"] for gate in gates) else 1
 

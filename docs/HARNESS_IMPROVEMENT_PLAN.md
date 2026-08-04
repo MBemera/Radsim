@@ -60,6 +60,12 @@ the instrumented baseline is captured
   into uncached/cached/output spend with pricing provenance, and prints
   `not reported` rather than a negative figure when a provider's cached counts
   exceed its own input total.
+- 2026-08-04: completed §7.3, the last plan section. `--profile release` and
+  `--profile commit` are implemented and dry-run verified at 174 and 87 runs.
+  Reuse is gated on the §0.3 artifact digest plus a 14-day maximum age, and
+  every reusing run labels its comparison provisional with the baseline's
+  provenance. All of §§0–7 are now either implemented or explicitly deferred
+  with a recorded reason.
 - No paid live eval or credential-bearing action has been run. The empirical
   cache target and release baseline remain intentionally unset pending explicit
   spend authorization. §5.4's live quality/latency sweep is deferred with it;
@@ -748,6 +754,33 @@ calls its comparison provisional. `--profile release` refuses a reused baseline
 and a missing explicit cost cap.
 
 **Effort:** ~half day.
+
+**Resolved 2026-08-04 — implemented** in `tests/evals/profiles.py`, wired into
+`run_evals.py`. Dry runs confirm the shapes: `release` is 174 runs, `commit` is
+87, both at 3 repetitions.
+
+`release` refuses a reused baseline unconditionally — `load_reused_baseline()`
+returns nothing for it, so release evidence is always measured — and refuses a
+missing `--max-cost-usd` even on a dry run, since the dry run's purpose is to
+validate the paid run's shape.
+
+`commit` reuses candidate A through the §0.3 `load_latest_compatible()` digest
+check plus a 14-day maximum age. Because compatibility is the complete artifact
+digest, any change to a candidate, case, tool schema, scorer, grader, provider,
+model, route, effort, sampling option or harness file invalidates reuse
+automatically rather than through a hand-maintained field list. Reused samples
+are rebuilt with `sample_source="reused"`, so the existing summary line reports
+`live=… reused=…` without new plumbing; the gate heading becomes `Provisional
+gates (candidate B vs reused baseline A)`, the run prints the baseline's digest,
+commit, age and sample count, and the stored result records
+`comparisons.provisional` and `execution.reused_baseline`.
+
+Passing `--candidates` or `--reps` alongside `--profile` is refused rather than
+silently overridden: a profile whose shape can be edited is not a profile, and a
+manifest reader could not tell which value won. Every refusal path — stale
+baseline, digest mismatch, missing timestamp, no candidate A samples — is a
+named reason rather than a silent fallback, covered by
+`tests/test_eval_profiles.py` (20 tests).
 
 ---
 
