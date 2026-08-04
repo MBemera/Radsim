@@ -15,6 +15,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from .budget import BudgetedEvalClient, EvalCostBudget
 from .candidates import CANDIDATE_NAMES
 from .harness import DEFAULT_MAX_ITERATIONS, run_case
 from .preflight import EvalPreflight, prepare_preflight, print_preflight
@@ -47,7 +48,11 @@ def parse_arguments(argv=None):
     parser.add_argument("--grader-effort", default=None, help="Optional grader reasoning effort")
     parser.add_argument("--no-rubric", action="store_true", help="Skip model-graded clarity")
     parser.add_argument("--dry-run", action="store_true", help="Validate and print bounds without API access")
-    parser.add_argument("--max-cost-usd", default=None, help="Required hard spend cap for paid runs")
+    parser.add_argument(
+        "--max-cost-usd",
+        default=None,
+        help="Required provider-spend stop threshold; in-flight calls may exceed it",
+    )
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="Parallel runs")
     parser.add_argument(
         "--request-timeout-seconds",
@@ -221,30 +226,44 @@ def main(argv=None):
         return 0
 
     api_key = resolve_api_key(provider)
-    client = build_client(
+    budget = EvalCostBudget(preflight.manifest["execution"]["max_cost_usd"])
+    raw_client = build_client(
         provider,
         api_key,
         model,
         preflight.reasoning_effort,
         arguments.request_timeout_seconds,
     )
+    client = BudgetedEvalClient(raw_client, budget)
     grader_model = arguments.grader_model or model
     needs_grader_client = (
         grader_model != model or preflight.grader_effort != preflight.reasoning_effort
     )
     grader_client = (
-        build_client(
-            provider,
-            api_key,
-            grader_model,
-            preflight.grader_effort,
-            arguments.request_timeout_seconds,
+        BudgetedEvalClient(
+            build_client(
+                provider,
+                api_key,
+                grader_model,
+                preflight.grader_effort,
+                arguments.request_timeout_seconds,
+            ),
+            budget,
         )
         if needs_grader_client
         else client
     )
 
     records, scores = run_matrix(arguments, client, grader_client, preflight)
+    budget_result = budget.snapshot()
+    preflight.manifest["execution"]["budget_result"] = budget_result
+    print(
+        "Budget: "
+        f"reported=${budget_result['provider_reported_cost_usd']} "
+        f"cap=${budget_result['configured_cap_usd']} "
+        f"cost_coverage={budget_result['responses_with_reported_cost']}/"
+        f"{budget_result['responses_received']}"
+    )
     _summaries, gates = report(scores, records, arguments.output, preflight.manifest)
 
     return 0 if gates and all(gate["passed"] for gate in gates) else 1

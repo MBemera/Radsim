@@ -14,6 +14,9 @@ import logging
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
+
+from radsim.usage import TOKEN_FIELDS, accumulate_usage
 
 from .fake_tools import FakeToolRunner
 
@@ -41,6 +44,17 @@ class RunRecord:
     iterations: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    cache_write_input_tokens: int = 0
+    reasoning_output_tokens: int = 0
+    reported_cost_usd: float = 0.0
+    reported_cost_requests: int = 0
+    estimated_cost_usd: float = 0.0
+    estimated_cost_requests: int = 0
+    request_count: int = 0
+    latency_ms: float = 0.0
+    request_ids: list[str] = field(default_factory=list)
+    reported_cost_complete: bool = False
     error: str = ""
 
     def called(self, tool_name):
@@ -121,8 +135,7 @@ def _drive_model(record, case, system_prompt, client, runner, messages, max_iter
         )
 
         usage = response.get("usage", {})
-        record.input_tokens += usage.get("input_tokens", 0)
-        record.output_tokens += usage.get("output_tokens", 0)
+        _record_usage(record, usage)
 
         text = extract_text(response)
         if text:
@@ -134,6 +147,30 @@ def _drive_model(record, case, system_prompt, client, runner, messages, max_iter
 
         messages.append({"role": "assistant", "content": response.get("content", [])})
         messages.append({"role": "user", "content": _tool_results(runner, tool_uses)})
+
+
+def _record_usage(record: RunRecord, usage: dict[str, Any]) -> None:
+    """Add one normalized provider usage object to an eval record."""
+    fields = (
+        *TOKEN_FIELDS,
+        "reported_cost_usd",
+        "reported_cost_requests",
+        "estimated_cost_usd",
+        "estimated_cost_requests",
+        "request_count",
+        "latency_ms",
+    )
+    totals = {name: getattr(record, name) for name in fields}
+    accumulate_usage(totals, usage)
+    for name in fields:
+        setattr(record, name, totals[name])
+
+    request_id = usage.get("request_id")
+    if isinstance(request_id, str) and request_id:
+        record.request_ids.append(request_id[:256])
+    record.reported_cost_complete = (
+        record.request_count > 0 and record.reported_cost_requests == record.request_count
+    )
 
 
 def _tool_results(runner, tool_uses):

@@ -163,6 +163,31 @@ class TestHarness:
         record = run_case(_case("T02"), "B", "system", ExplodingClient())
         assert "provider down" in record.error
 
+    def test_normalized_usage_is_preserved_in_run_record(self):
+        response = _text_response("done")
+        response["usage"] = {
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "cache_read_input_tokens": 75,
+            "cache_write_input_tokens": 5,
+            "reasoning_output_tokens": 8,
+            "reported_cost_usd": 0.004,
+            "request_id": "eval-request-1",
+            "latency_ms": 30,
+        }
+
+        record = run_case(_case("T02"), "B", "system", StubClient([response]))
+
+        assert record.input_tokens == 100
+        assert record.output_tokens == 20
+        assert record.cache_read_input_tokens == 75
+        assert record.cache_write_input_tokens == 5
+        assert record.reasoning_output_tokens == 8
+        assert record.reported_cost_usd == 0.004
+        assert record.request_ids == ["eval-request-1"]
+        assert record.latency_ms == 30
+        assert record.reported_cost_complete is True
+
 
 class TestScoring:
     """Security verdicts stay separate from quality rates."""

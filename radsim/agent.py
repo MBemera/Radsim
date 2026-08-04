@@ -37,6 +37,7 @@ from .safety import ask_confirmation, confirm_action, confirm_write, is_path_saf
 from .tools import DESTRUCTIVE_COMMANDS, execute_tool
 from .tools.command_analysis import is_destructive_command
 from .tools.validation import has_terminal_control_character, validate_shell_command
+from .usage import empty_usage_totals
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ class RadSimAgent(
         )
         self.messages = []
         self.system_prompt = get_system_prompt()
-        self.usage_stats = {"input_tokens": 0, "output_tokens": 0}
+        self.usage_stats = empty_usage_totals()
 
         # Learning system attributes
         self._last_response = ""  # For feedback commands (/good, /improve)

@@ -114,6 +114,9 @@ class TestSingleTurn:
 
         assert result == "Hello Matt"
         assert [m["role"] for m in agent.messages] == ["user", "assistant"]
+        assert agent.usage_stats["input_tokens"] == 10
+        assert agent.usage_stats["output_tokens"] == 5
+        assert agent.usage_stats["request_count"] == 1
 
     def test_streaming_response(self, agent_factory):
         agent = agent_factory(

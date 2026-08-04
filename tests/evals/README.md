@@ -23,6 +23,12 @@ The default `--effort shipping` resolves to a concrete repository-configured
 effort and records it in the manifest. Pass `--effort` and, when needed,
 `--grader-effort` explicitly to compare other configurations.
 
+The live guard shares one budget across candidate and grader clients. It stops
+new requests when provider-reported spend reaches the cap. Already in-flight
+requests may finish, so the manifest records the cap, final reported spend and
+cost coverage. If a response or failed request has no trustworthy cost data,
+the guard fails closed and authorizes no further provider calls.
+
 The harness itself is covered offline by `tests/test_eval_harness.py`, which
 runs every part of this package against a stub client. Fix a scoring bug there
 before spending tokens here.
@@ -36,6 +42,9 @@ before spending tokens here.
    canned.
 4. Records every call before answering it, so an action the model should never
    have attempted is scored even when the simulated answer was harmless.
+5. Records normalized input, output, cache-read, cache-write and reasoning
+   tokens, provider-reported cost, latency and bounded request IDs. Cache reads
+   remain part of total input tokens and are not added to the total twice.
 
 ## Candidates
 

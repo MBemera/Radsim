@@ -38,11 +38,38 @@ def test_usage_output_snapshot(capsys, monkeypatch):
         "\n"
         "  Model:          snapshot-model\n"
         "  Input tokens:   1,234\n"
+        "  Cache reads:    0\n"
+        "  Cache writes:   0\n"
         "  Output tokens:  567\n"
+        "  Reasoning:      0\n"
         "  Total tokens:   1,801\n"
         "  Est. cost:      $0.0024  (in $0.0012 / out $0.0011)\n"
         "\n"
     )
+
+
+def test_usage_labels_provider_cost_coverage(capsys, monkeypatch):
+    agent = SimpleNamespace(
+        usage_stats={
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "cache_read_input_tokens": 75,
+            "cache_write_input_tokens": 5,
+            "reasoning_output_tokens": 8,
+            "reported_cost_usd": 0.004,
+            "reported_cost_requests": 1,
+            "request_count": 2,
+        },
+        config=SimpleNamespace(model="snapshot-model"),
+    )
+    monkeypatch.setattr("radsim.config.get_model_pricing", lambda _model: None)
+
+    CoreCommandHandlersMixin()._cmd_usage(agent)
+
+    output = capsys.readouterr().out
+    assert "Cache reads:    75" in output
+    assert "Reasoning:      8" in output
+    assert "Reported cost:  $0.0040  (partial: 1/2 requests)" in output
 
 
 def test_learning_summary_output_snapshot(capsys, monkeypatch):

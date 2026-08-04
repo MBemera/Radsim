@@ -1,6 +1,7 @@
 """Core slash-command handlers."""
 
 import sys
+from typing import Any
 
 from .config import setup_config
 from .output import (
@@ -11,6 +12,22 @@ from .output import (
     print_numbered_options,
     print_titled_block,
 )
+
+
+def _append_reported_cost(rows: list[tuple[str, str]], usage: dict[str, Any]) -> None:
+    """Append provider spend without presenting partial data as exact."""
+    reported_requests = usage.get("reported_cost_requests", 0)
+    if not reported_requests:
+        return
+
+    request_count = usage.get("request_count", 0)
+    reported_cost = usage.get("reported_cost_usd", 0.0)
+    if reported_requests == request_count:
+        rows.append(("Actual cost:", f"${reported_cost:.4f}  (provider reported)"))
+        return
+
+    coverage = f"{reported_requests}/{request_count} requests"
+    rows.append(("Reported cost:", f"${reported_cost:.4f}  (partial: {coverage})"))
 
 
 class CoreCommandHandlersMixin:
@@ -555,15 +572,24 @@ class CoreCommandHandlersMixin:
         """Show session token usage and estimated cost."""
         from .config import get_model_pricing
 
-        input_tokens = agent.usage_stats.get("input_tokens", 0)
-        output_tokens = agent.usage_stats.get("output_tokens", 0)
+        usage = agent.usage_stats
+        input_tokens = usage.get("input_tokens", 0)
+        output_tokens = usage.get("output_tokens", 0)
         model = agent.config.model
 
-        rows = [("Model:", model), ("Input tokens:", f"{input_tokens:,}")]
-        rows += [("Output tokens:", f"{output_tokens:,}"), ("Total tokens:", f"{input_tokens + output_tokens:,}")]
+        rows = [
+            ("Model:", model),
+            ("Input tokens:", f"{input_tokens:,}"),
+            ("Cache reads:", f"{usage.get('cache_read_input_tokens', 0):,}"),
+            ("Cache writes:", f"{usage.get('cache_write_input_tokens', 0):,}"),
+            ("Output tokens:", f"{output_tokens:,}"),
+            ("Reasoning:", f"{usage.get('reasoning_output_tokens', 0):,}"),
+            ("Total tokens:", f"{input_tokens + output_tokens:,}"),
+        ]
+        _append_reported_cost(rows, usage)
         pricing = get_model_pricing(model)
         if pricing is None:
-            rows.append(("Cost:", "n/a (no pricing data for this model)"))
+            rows.append(("Est. cost:", "n/a (no pricing data for this model)"))
         else:
             input_cost = (input_tokens / 1_000_000) * pricing[0]
             output_cost = (output_tokens / 1_000_000) * pricing[1]

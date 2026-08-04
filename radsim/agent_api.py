@@ -19,6 +19,7 @@ from .output import (
 from .prompts import get_system_prompt
 from .rate_limiter import BudgetExceeded, CircuitBreakerOpen, RateLimitExceeded
 from .tools import TOOL_DEFINITIONS
+from .usage import accumulate_usage
 
 logger = logging.getLogger(__name__)
 
@@ -127,8 +128,7 @@ class AgentApiMixin:
             if "usage" in response:
                 input_tokens = response["usage"].get("input_tokens", 0)
                 output_tokens = response["usage"].get("output_tokens", 0)
-                self.usage_stats["input_tokens"] += input_tokens
-                self.usage_stats["output_tokens"] += output_tokens
+                accumulate_usage(self.usage_stats, response["usage"])
 
                 budget_warning = self.protection.record_api_success(input_tokens, output_tokens)
                 if budget_warning:
