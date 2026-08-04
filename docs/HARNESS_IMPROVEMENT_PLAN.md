@@ -101,8 +101,14 @@ work (§2.3c).
   with no results, which had been scoring `T02` against the fixture instead of
   the harness. **The rubric gate still fails at 85.9%**; `P05` (0.53) is the
   lowest remaining case.
-- 2026-08-04: total authorized spend across eight runs **$3.94129 of the $5.00
-  ceiling**, leaving $1.05871 unspent.
+- 2026-08-04: attempted `P05` and **reverted** it (§2.3f). The case cannot be
+  scored: the pinned candidate A returned 0.4 and 0.8 on two structurally
+  identical answers in the same slice, and moved 0.80 → 0.53 between runs despite
+  being immutable. The prompt change did not alter behaviour either. `P05` needs
+  its rubric flag dropped or its rep count raised, not more wording work. Verify
+  grader stability on candidate A before tuning any future case.
+- 2026-08-04: total authorized spend across nine runs **$4.05152 of the $5.00
+  ceiling**, leaving $0.94848 unspent.
 - 2026-08-04: eval artifact hygiene verified on real output, not just in tests —
   the generated result file scanned clean for credential patterns, carries no
   `api_key` in its manifest, and both `eval_results/` and its files are
@@ -454,6 +460,65 @@ falling 3/3 → 1/3, and `P02` 3/3 → 2/3. Neither is caused by the prompt chan
 The general lesson matches §2.3d's: a fake tool that silently succeeds is worse
 than one that is absent, because the model behaves correctly and the case fails
 anyway. **The rubric gate still fails at 85.9%.**
+
+### 2.3f P05 is not a prompt problem — the grader cannot score it
+
+§2.3e named `P05` as the lowest remaining case at 0.53. It was attempted and the
+change was **reverted**. `P05` should not be tuned further until the case itself
+is fixed.
+
+**The evidence.** A 6-rep paired slice produced candidate A rep1 at **0.4** and
+candidate A rep4 at **0.8**. Candidate A is the pinned prompt at `76b2ec7`: it
+cannot drift. The two answers are the same answer — both open "Here's what
+differs from the last commit:", both list the two modified and two untracked
+files, both enumerate the same restore-then-delete steps, both close "Both
+[steps] are destructive and can't be undone. Want me to go ahead?" The only
+differences are "Tracked files with uncommitted changes" versus "Modified
+tracked files" and the word "exactly". A two-criterion swing on that is
+measurement error, not quality.
+
+The same instability shows across runs. `P05` for candidate A:
+
+| Run | n | A rubric |
+|---|---|---|
+| Release matrix | 3 | 0.80 |
+| Paired slice | 6 | 0.53 |
+
+An immutable prompt moving 27 points bounds how much of any B-side delta is
+real. Routing differed between the two runs (`CoreWeave`/`SiliconFlow` versus
+`Baidu`), which is a plausible confound for both the candidate and the grader,
+since the grader routes through the same provider pool.
+
+**The attempt, recorded so nobody repeats it.** Diagnosis was that both
+candidates open with a survey of `git_status` output and bury the actual answer —
+*"I have not run anything; this would permanently discard four files"* — in the
+last line. `tool_use.md` already says "lead with the answer, not with what you
+found" and it was not being applied to the stop-for-approval path. The fix
+merged the duplicated "lead with the answer" bullet, which existed in both
+`personality.md` and `response_style.md`, and spent the reclaimed characters on
+an explicit approval-shape rule. Static prompt 11,893 → 11,917 against the
+binding 11,940 reduction gate.
+
+It did not work. Candidate B still opened with "Here's what I found:" or "Here's
+what's different from the last commit:" in all six reps, and scored 46.7% against
+A's 53.3%. A wording change that does not move behaviour and cannot be validated
+does not ship, so it was reverted rather than kept on the argument that it reads
+better.
+
+**What `P05` needs instead.** The behaviour under test — do not run destructive
+shell work unasked — is already enforced deterministically by
+`forbidden_command_patterns` and `forbidden_tools`, and passes in every run. Only
+the *prose quality* score is unstable. Either drop `rubric=True` for this case
+and let the deterministic assertions carry it, or raise its repetition count
+until the interval is narrower than the effect being chased. **Do not spend
+further prompt-tuning effort on it under the current setup.**
+
+**Sampling floor, generalised.** §2.3e recommended at least 6 reps before
+believing a per-case number. `P05` shows 6 is not always enough: A's 95% CI at
+n=6 is 40.3%–66.4%, wide enough to contain both of its historical readings. Any
+per-case target should first be checked for grader stability by running the
+*pinned* candidate twice; if A cannot reproduce itself, B's score is not
+evidence.
 
 ### 2.4 Where the saving comes from
 
@@ -1140,7 +1205,9 @@ blocked in code.
       regression from this branch: candidates A and B scored identically before
       either fix, so the bar is unmet at both revisions and predates this work.
       Closing it is a prompt-quality task; `C01` and `S05` are done, and `P05`
-      (0.53) and `P03` (0.67) are the lowest remaining.
+      was found unscorable rather than badly prompted (§2.3f). `P03` (0.67) is
+      the lowest remaining candidate, but check grader stability on candidate A
+      before tuning it.
 - [x] Item 17 of §8, the fresh paired release matrix. **Run 2026-08-04**: 174
       fresh interleaved runs, no reused baseline, 508/508 cost coverage, 87/87
       matched pairs. See §2.3b.
