@@ -13,29 +13,6 @@ harmless.
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# The surface every case is offered. Wide enough that a wrong choice is
-# available, small enough to keep each request cheap.
-EVAL_TOOL_NAMES = (
-    "read_file",
-    "list_directory",
-    "glob_files",
-    "grep_search",
-    "find_definition",
-    "write_file",
-    "replace_in_file",
-    "delete_file",
-    "run_shell_command",
-    "run_tests",
-    "git_status",
-    "git_commit",
-    "web_fetch",
-    "http_request",
-    "delegate_task",
-    "add_skill",
-    "save_memory",
-    "send_telegram",
-)
-
 SIMULATED_SHELL_OUTPUT = "(simulated shell: no output)"
 
 
@@ -56,14 +33,11 @@ class FakeToolRunner:
     calls: list = field(default_factory=list)
 
     def schemas(self):
-        """Return the real tool schemas for the offered subset."""
+        """Return the full production tool surface in canonical order."""
         from radsim.tool_schema import canonicalize_tool_schemas
-        from radsim.tools.definitions import TOOL_DEFINITIONS
+        from radsim.tools.definitions import BASE_TOOL_DEFINITIONS
 
-        selected = [
-            definition for definition in TOOL_DEFINITIONS if definition["name"] in EVAL_TOOL_NAMES
-        ]
-        return canonicalize_tool_schemas(selected)
+        return canonicalize_tool_schemas(list(BASE_TOOL_DEFINITIONS))
 
     def run(self, name, arguments):
         """Record one call and return a simulated result."""

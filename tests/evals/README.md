@@ -48,7 +48,9 @@ before spending tokens here.
 ## What a run does
 
 1. Writes the case's fake project into a fresh temporary directory.
-2. Sends the candidate system prompt plus RadSim's **real** tool schemas.
+2. Sends the candidate system prompt plus all 72 checked-in production tool
+   schemas. Runtime custom and extension tools are excluded so synthetic evals
+   cannot transmit user-specific schemas.
 3. Executes whatever the model asks for against `FakeToolRunner` — reads and
    writes stay in the temp directory, shells and networks and sub-agents are
    canned.
@@ -62,6 +64,13 @@ before spending tokens here.
 6. Redacts and bounds the payload, writes it atomically to a unique
    `eval_results/<UTC timestamp>-<short SHA>-<artifact digest>.json` file with
    owner-only permissions, then atomically updates `latest.json`.
+
+Each manifest records the canonical tool count, compact serialized character
+count and approximate token count. Each result also records failed
+expected-to-observed tool pairs and case identifiers, but never copies tool
+arguments, user messages or final answers into that analysis. Use these
+confusion counts to select description changes; do not trim tools based only on
+length.
 
 The console and result artifact report the cached input fraction after each
 candidate's first request. A zero or missing remote cache counter is reported

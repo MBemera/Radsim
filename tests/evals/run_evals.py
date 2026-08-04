@@ -31,6 +31,7 @@ from .scoring import (
     score_run,
     summarise,
 )
+from .tool_choice_analysis import analyse_tool_choice_failures, print_tool_choice_analysis
 
 DEFAULT_REPETITIONS = 3
 DEFAULT_WORKERS = 4
@@ -256,11 +257,16 @@ def report(scores, records, result_directory, manifest):
 
     summaries = {name: summarise(items) for name, items in by_candidate.items()}
     cache_observability = summarise_cache_observability(records)
+    tool_choice_analysis = analyse_tool_choice_failures(
+        [score.as_dict() for score in scores],
+        [record.as_dict() for record in records],
+    )
 
     print("\nRates by candidate")
     for name, summary in sorted(summaries.items()):
         _print_candidate_summary(name, summary)
     print_cache_observability(cache_observability)
+    print_tool_choice_analysis(tool_choice_analysis)
 
     if "B" not in summaries:
         print("\nCandidate B was not run, so the release gates do not apply.")
@@ -272,6 +278,7 @@ def report(scores, records, result_directory, manifest):
             scores,
             records,
             cache_observability=cache_observability,
+            tool_choice_analysis=tool_choice_analysis,
         )
         print(f"\nWrote {result_path}")
         return summaries, []
@@ -295,6 +302,7 @@ def report(scores, records, result_directory, manifest):
         records,
         comparisons,
         cache_observability,
+        tool_choice_analysis,
     )
     print(f"\nWrote {result_path}")
     return summaries, gates
@@ -337,6 +345,7 @@ def _write_results(
     records,
     comparisons=None,
     cache_observability=None,
+    tool_choice_analysis=None,
 ):
     """Write summaries, gates, scores, and full run transcripts."""
     payload = {
@@ -345,6 +354,7 @@ def _write_results(
         "gates": gates,
         "comparisons": comparisons or {},
         "cache_observability": cache_observability or {},
+        "tool_choice_analysis": tool_choice_analysis or {},
         "scores": [score.as_dict() for score in scores],
         "runs": [record.as_dict() for record in records],
     }

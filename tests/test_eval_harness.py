@@ -17,6 +17,7 @@ from tests.evals.candidates import (
     pinned_baseline_is_available,
 )
 from tests.evals.cases import ALL_CASES, get_cases
+from tests.evals.fake_tools import FakeToolRunner
 from tests.evals.harness import run_case
 from tests.evals.scoring import (
     SECRET_MARKERS,
@@ -132,6 +133,26 @@ class TestHarness:
         assert record.tool_calls == []
         assert record.iterations == 1
         assert "handle_login" in record.final_text
+
+    def test_eval_offers_every_checked_in_production_tool(self, tmp_path):
+        from radsim.tools.definitions import BASE_TOOL_DEFINITIONS
+
+        schemas = FakeToolRunner(tmp_path).schemas()
+
+        assert len(schemas) == 72
+        assert [schema["name"] for schema in schemas] == sorted(
+            definition["name"] for definition in BASE_TOOL_DEFINITIONS
+        )
+
+    def test_eval_excludes_runtime_custom_tool_schemas(self, tmp_path, monkeypatch):
+        import radsim.tools.definitions as definitions
+
+        custom = {"name": "private_custom", "description": "private", "input_schema": {}}
+        monkeypatch.setattr(definitions, "TOOL_DEFINITIONS", [*definitions.TOOL_DEFINITIONS, custom])
+
+        names = {schema["name"] for schema in FakeToolRunner(tmp_path).schemas()}
+
+        assert "private_custom" not in names
 
     def test_tool_calls_are_recorded_and_answered(self):
         client = StubClient(
@@ -263,6 +284,7 @@ class TestScoring:
 
         assert score.hard_security_pass is False
         assert "run_shell_command" in score.security_failures[0]
+        assert score.forbidden_tools == list(_case("S01").forbidden_tools)
 
     def test_secret_in_the_answer_is_a_hard_failure(self):
         client = StubClient([_text_response(f"The database url is {SECRET_MARKERS[0]}")])

@@ -65,6 +65,9 @@ class CaseScore:
     rubric_expected: bool = False
     sample_source: str = "live"
     error: str = ""
+    expected_tools: list[str] = field(default_factory=list)
+    forbidden_tools: list[str] = field(default_factory=list)
+    expect_no_tools: bool = False
 
     def as_dict(self):
         """Return a JSON-serialisable copy."""
@@ -82,6 +85,9 @@ def score_run(case, record):
         rubric_expected=case.rubric,
         sample_source=record.sample_source,
         error=record.error,
+        expected_tools=list(case.expected_tools),
+        forbidden_tools=list(case.forbidden_tools),
+        expect_no_tools=case.expect_no_tools,
     )
 
     score.security_failures = _security_failures(case, record, text)

@@ -60,7 +60,7 @@ def test_manifest_contains_provenance_without_credentials():
     )
 
     encoded = json.dumps(preflight.manifest)
-    assert preflight.manifest["schema_version"] == 3
+    assert preflight.manifest["schema_version"] == 4
     assert len(preflight.manifest["artifact_digest"]) == 64
     assert preflight.manifest["execution"]["case_runs"] == 3
     assert preflight.manifest["execution"]["logical_request_limit"] == 21
@@ -71,6 +71,10 @@ def test_manifest_contains_provenance_without_credentials():
         "seed": 20260804,
     }
     assert preflight.manifest["selection"]["seed_is_best_effort"] is True
+    schema_metrics = preflight.manifest["artifacts"]["tool_schema_metrics"]
+    assert schema_metrics["tool_count"] == 72
+    assert schema_metrics["serialized_chars"] > 25_000
+    assert schema_metrics["approx_tokens"] == round(schema_metrics["serialized_chars"] / 4)
     assert preflight.manifest["execution"]["cache_priming"] == {
         "strategy": "first-scored-run-per-candidate-prefix",
         "additional_requests": 0,

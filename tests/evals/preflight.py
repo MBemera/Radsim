@@ -18,7 +18,7 @@ from .candidates import CANDIDATE_NAMES, get_candidate
 from .cases import get_cases
 from .fake_tools import FakeToolRunner
 
-MANIFEST_SCHEMA_VERSION = 3
+MANIFEST_SCHEMA_VERSION = 4
 MAX_REPETITIONS = 20
 MAX_WORKERS = 32
 MAX_ITERATIONS = 50
@@ -40,6 +40,7 @@ EVAL_SOURCE_FILES = (
     "results.py",
     "run_evals.py",
     "scoring.py",
+    "tool_choice_analysis.py",
 )
 
 
@@ -280,7 +281,18 @@ def _artifact_inputs(
         "prompt_digests": {name: _digest_text(prompts[name]) for name in candidate_names},
         "case_set_digest": _digest_json([asdict(case) for case in cases]),
         "tool_schema_digest": _digest_json(schemas),
+        "tool_schema_metrics": _tool_schema_metrics(schemas),
         "harness_digest": _digest_files(EVAL_SOURCE_FILES),
+    }
+
+
+def _tool_schema_metrics(schemas: list[dict[str, Any]]) -> dict[str, int]:
+    """Measure the canonical compact payload used for future diet comparisons."""
+    encoded = json.dumps(schemas, separators=(",", ":"), ensure_ascii=False)
+    return {
+        "tool_count": len(schemas),
+        "serialized_chars": len(encoded),
+        "approx_tokens": max(1, round(len(encoded) / 4)),
     }
 
 

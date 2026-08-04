@@ -23,6 +23,11 @@ the instrumented baseline is captured
   schemas, active prompt modes are ordered deterministically, the first scored
   run per candidate primes the natural prefix before fan-out, and results
   record cache, provider/route/model and latency evidence.
+- 2026-08-04: began §5.3 by correcting eval parity from 18 offered tools to all
+  72 checked-in production schemas and recording schema-size and privacy-safe
+  confusion evidence. No stored eval artifacts were present, so descriptions
+  remain unchanged until bounded development and holdout runs can justify a
+  measured edit.
 - No paid live eval or credential-bearing action has been run. The empirical
   cache target and release baseline remain intentionally unset pending explicit
   spend authorization.

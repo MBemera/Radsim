@@ -112,7 +112,26 @@ def test_report_prints_sample_provenance_and_confidence(tmp_path, capsys):
     assert "live=1 reused=0 failed=0 ungraded=0" in output
     assert "95% CI" in output
     assert "matched=1/1" in output
+    assert "Tool-choice confusions: none observed" in output
     assert all(gate["passed"] for gate in gates)
+
+
+def test_result_writer_persists_tool_choice_analysis(tmp_path):
+    score = SimpleNamespace(as_dict=lambda: {"case_id": "T01"})
+    run = SimpleNamespace(as_dict=lambda: {"case_id": "T01"})
+    analysis = {"failed_runs": 1, "confusions": []}
+
+    result_path = _write_results(
+        tmp_path,
+        _manifest(),
+        {"B": {}},
+        [],
+        [score],
+        [run],
+        tool_choice_analysis=analysis,
+    )
+
+    assert json.loads(result_path.read_text())["tool_choice_analysis"] == analysis
 
 
 def test_same_name_never_clobbers_an_existing_result(tmp_path):

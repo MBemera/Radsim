@@ -893,3 +893,7 @@ TOOL_DEFINITIONS = [
         },
         ["name"]),
 ]
+
+# Preserve the checked-in surface for hermetic evals. Runtime custom and
+# extension tools append to TOOL_DEFINITIONS after this module loads.
+BASE_TOOL_DEFINITIONS = tuple(TOOL_DEFINITIONS)
