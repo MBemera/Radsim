@@ -41,6 +41,11 @@ the instrumented baseline is captured
   Python-import compatibility promise at beta. The latent unsanitized
   `~/.radsim/logs/` sink is gone; hardened redaction stays in
   `radsim/learning/store.py`.
+- 2026-08-04: completed §6.2. The legacy `Scheduler` class and its parallel
+  `schedules.json` store are removed; `radsim/scheduler.py` is now just the
+  `schedule_task` / `list_schedules` tool wrappers over `jobs.py`. The security
+  abuse cases were migrated onto the live `add_job` path before deletion, not
+  dropped.
 - No paid live eval or credential-bearing action has been run. The empirical
   cache target and release baseline remain intentionally unset pending explicit
   spend authorization. §5.4's live quality/latency sweep is deferred with it;
@@ -101,6 +106,7 @@ Everything in this section was measured or fetched, not recalled.
   outright rather than deprecated. See §6.1.
 - `Scheduler` is used by `tests/test_security_injection.py` as well as its own
   tests. Removal must migrate the security cases to the live `jobs.py` path.
+  **Done (2026-08-04):** migrated then removed. See §6.2.
 - `tests/evals/README.md` still says four request/tool rounds while the code uses
   seven. Documentation and executable defaults must use one source of truth.
 - `get_model_pricing(model)` currently has no provider or billing-mode argument.
@@ -575,6 +581,35 @@ fail-closed tests to `jobs.py`, then deprecate/remove the legacy storage path in
 a separately reviewable change. Do not combine this with eval telemetry work.
 
 **Effort:** separate half-day compatibility/security task.
+
+**Resolved 2026-08-04 — removed.** The import inventory found no production
+caller: nothing under `radsim/` imported `Scheduler`, and it is not in
+`radsim.__all__`. The live path is `jobs.py`, reached through `/job`
+(`commands_workflow.py`) and the `schedule_task` / `list_schedules` tools —
+which already delegated to `jobs.py`. `radsim/scheduler.py` is now only those
+two tool wrappers; the class, its `~/.radsim/schedules.json` store, its cron and
+Windows install/uninstall path, and the validators only it used are gone, along
+with `config.SCHEDULES_FILE`.
+
+Security coverage was migrated, not dropped. `tests/test_scheduler.py` is
+deleted and its abuse cases now run against `add_job` in
+`tests/test_jobs_security.py::TestCronScheduleInjection`: shell-metacharacter,
+backtick and `$()` schedules, embedded and trailing newlines and tabs, wrong
+field counts, out-of-range values, non-string schedules, newline in description
+and command, corrupt non-list storage, and an explicit assertion that a chained
+command stays exactly one crontab line.
+`tests/test_security_injection.py::TestSchedulerInjection` now exercises the
+model-facing `schedule_task` entry point. `jobs.py` already covered the
+rollback and fail-closed cases the legacy class had (`sync` failure rollback,
+crontab read failure, duplicate IDs, terminal controls).
+
+**Upgrade caveat for review:** the two crontab markers never overlapped — the
+legacy path appended `# RADSIM:{name}` to the command line, while `jobs.py`
+matches a leading `# radsim-job-{id}:` comment. Legacy entries are therefore
+neither deleted nor adopted by `sync_crontab`. Any user who installed jobs
+through `Scheduler` directly keeps working cron entries that RadSim can no
+longer list or remove; they must be edited with `crontab -e`. No migration is
+shipped because the class was never on the command or tool path.
 
 ### 6.3 Split the known long functions
 

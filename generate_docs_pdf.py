@@ -278,12 +278,11 @@ def build_pdf():
         "18.  Model Router and Failover",
         "19.  Skills System",
         "20.  Scheduler",
-        "21.  Task Logging and Audit",
-        "22.  Health Checks",
-        "23.  Output and Display",
-        "24.  Testing (685 Tests)",
-        "25.  File Paths Reference",
-        "26.  Public API Exports",
+        "21.  Health Checks",
+        "22.  Output and Display",
+        "23.  Testing (685 Tests)",
+        "24.  File Paths Reference",
+        "25.  Public API Exports",
     ]
 
     pdf.set_font("Helvetica", "", 11)
@@ -422,7 +421,7 @@ def build_pdf():
         "  memory.py            Simple JSON memory\n"
         "  vector_memory.py     Semantic memory (ChromaDB)\n"
         "  health.py            Startup health checks\n"
-        "  scheduler.py         Cron-style task scheduling\n"
+        "  jobs.py              Cron-style task scheduling\n"
         "  skills.py            User-configurable instructions\n"
         "  onboarding.py        First-time setup wizard"
     )
@@ -801,25 +800,13 @@ def build_pdf():
     ])
 
     # ════════════════════════════════════════
-    # 14. SCHEDULER & LOGGING
+    # 14. SCHEDULER
     # ════════════════════════════════════════
-    pdf.section(14, "Scheduler & Logging")
+    pdf.section(14, "Scheduler")
 
     pdf.subsection("Scheduler")
-    pdf.para("Cron-style task scheduling stored in ~/.radsim/schedules.json.")
+    pdf.para("Cron-style task scheduling stored in ~/.radsim/jobs.json.")
     pdf.code('{"schedule": "0 9 * * *", "command": "pytest tests/"}')
-
-    pdf.subsection("Task Logging")
-    pdf.para("Structured audit logging in JSON and SQLite formats.")
-    pdf.table(
-        ["Event Type", "Data Captured"],
-        [
-            ["api_call", "Model, provider, tokens, duration"],
-            ["tool_execution", "Tool name, inputs, outputs"],
-            ["error", "Error type, message, context"],
-        ],
-        [40, 130],
-    )
 
     # ════════════════════════════════════════
     # 15. FILE PATHS

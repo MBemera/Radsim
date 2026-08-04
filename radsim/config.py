@@ -500,7 +500,6 @@ CONFIG_DIR = Path.home() / ".radsim"
 ENV_FILE = CONFIG_DIR / ".env"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 MEMORY_DIR = CONFIG_DIR / "memory"
-SCHEDULES_FILE = CONFIG_DIR / "schedules.json"
 PACKAGE_DIR = Path(__file__).parent  # The radsim source directory
 CUSTOM_PROMPT_FILE = CONFIG_DIR / "custom_prompt.txt"
 PROJECT_ENV_FILE = PACKAGE_DIR.parent / ".env"
