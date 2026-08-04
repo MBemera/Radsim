@@ -54,6 +54,7 @@ class FakeToolRunner:
             "glob_files": self._glob_files,
             "grep_search": self._grep_search,
             "find_definition": self._grep_search,
+            "search_files": self._grep_search,
             "write_file": self._write_file,
             "replace_in_file": self._write_file,
             "delete_file": self._delete_file,
