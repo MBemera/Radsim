@@ -370,6 +370,33 @@ def test_sensitive_tier_one_variant_is_high_impact():
     assert is_high_impact_action("write_file", {"file_path": "src/app.py"}) is False
 
 
+@pytest.mark.parametrize(
+    "file_path",
+    [
+        ".env.local",
+        ".env.production",
+        ".env.development",
+        "config/.env.staging",
+        "app.env",
+        "id_dsa",
+        "id_ecdsa",
+        "id_ecdsa_sk",
+        "id_ed25519_sk",
+    ],
+)
+def test_secret_file_variants_cannot_gain_learned_approval(file_path):
+    """A dotted suffix must not turn a secret file into an auto-approvable one."""
+    assert is_high_impact_action("write_file", {"file_path": file_path}) is True
+
+
+@pytest.mark.parametrize(
+    "file_path",
+    ["src/main.py", "README.md", "tests/test_env.py", "environment.py"],
+)
+def test_ordinary_source_files_stay_auto_eligible(file_path):
+    assert is_high_impact_action("write_file", {"file_path": file_path}) is False
+
+
 def test_symlinked_secret_and_external_write_fail_closed(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("SECRET=value")

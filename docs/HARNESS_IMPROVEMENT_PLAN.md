@@ -67,6 +67,13 @@ authorized paid baseline run is captured; no paid run has been made.
   every reusing run labels its comparison provisional with the baseline's
   provenance. All of §§0–7 are now either implemented or explicitly deferred
   with a recorded reason.
+- 2026-08-04: review finding against §4.2's own work, fixed. `is_high_impact_action`
+  matched the exact name `.env` but not `.env.local`, `.env.production` or
+  `.env.staging`, and covered only `id_rsa`/`id_ed25519` among SSH key types.
+  A sufficiently trusted `write_file` arm could therefore have auto-confirmed
+  writing those secret files with no prompt. Now the whole `.env.*` family, the
+  `.env` suffix, and the remaining key types are high-impact; ordinary files
+  such as `tests/test_env.py` and `environment.py` stay auto-eligible.
 - No paid live eval or credential-bearing action has been run. The empirical
   cache target and release baseline remain intentionally unset pending explicit
   spend authorization. §5.4's live quality/latency sweep is deferred with it;

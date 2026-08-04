@@ -36,12 +36,20 @@ SENSITIVE_FILE_NAMES = {
     ".npmrc",
     ".pypirc",
     "credentials.json",
-    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ecdsa_sk",
     "id_ed25519",
+    "id_ed25519_sk",
+    "id_rsa",
     "secrets.json",
 }
 SENSITIVE_PATH_PARTS = {".git", ".ssh", "credentials", "secrets"}
-SENSITIVE_FILE_SUFFIXES = {".key", ".p12", ".pem", ".pfx"}
+SENSITIVE_FILE_SUFFIXES = {".env", ".key", ".p12", ".pem", ".pfx"}
+
+# `.env.local`, `.env.production` and friends hold the same secrets as `.env`,
+# so match the whole family rather than the one exact name.
+SENSITIVE_NAME_PREFIXES = (".env.",)
 
 TIER_ONE_TOOLS = {
     "write_file",
@@ -677,7 +685,10 @@ def _path_is_sensitive(path: Path) -> bool:
         return True
     for candidate in (path, resolved_path):
         lowered_parts = {part.lower() for part in candidate.parts}
-        if candidate.name.lower() in SENSITIVE_FILE_NAMES:
+        lowered_name = candidate.name.lower()
+        if lowered_name in SENSITIVE_FILE_NAMES:
+            return True
+        if lowered_name.startswith(SENSITIVE_NAME_PREFIXES):
             return True
         if candidate.suffix.lower() in SENSITIVE_FILE_SUFFIXES:
             return True
