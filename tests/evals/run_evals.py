@@ -39,6 +39,12 @@ def parse_arguments(argv=None):
     parser.add_argument("--provider", default=None, help="Provider override")
     parser.add_argument("--model", default=None, help="Model override")
     parser.add_argument("--grader-model", default=None, help="Model used for rubric grading")
+    parser.add_argument(
+        "--effort",
+        default="shipping",
+        help="Reasoning effort or 'shipping' for the configured model default",
+    )
+    parser.add_argument("--grader-effort", default=None, help="Optional grader reasoning effort")
     parser.add_argument("--no-rubric", action="store_true", help="Skip model-graded clarity")
     parser.add_argument("--dry-run", action="store_true", help="Validate and print bounds without API access")
     parser.add_argument("--max-cost-usd", default=None, help="Required hard spend cap for paid runs")
@@ -82,11 +88,17 @@ def resolve_api_key(provider):
     return api_key
 
 
-def build_client(provider, api_key, model, request_timeout_seconds):
+def build_client(provider, api_key, model, reasoning_effort, request_timeout_seconds):
     """Create one API client for the whole run."""
     from radsim.api_client import create_client
 
-    return create_client(provider, api_key, model, timeout=request_timeout_seconds)
+    return create_client(
+        provider,
+        api_key,
+        model,
+        reasoning_effort=reasoning_effort,
+        timeout=request_timeout_seconds,
+    )
 
 
 def run_matrix(arguments, client, grader_client, preflight: EvalPreflight):
@@ -209,15 +221,26 @@ def main(argv=None):
         return 0
 
     api_key = resolve_api_key(provider)
-    client = build_client(provider, api_key, model, arguments.request_timeout_seconds)
+    client = build_client(
+        provider,
+        api_key,
+        model,
+        preflight.reasoning_effort,
+        arguments.request_timeout_seconds,
+    )
+    grader_model = arguments.grader_model or model
+    needs_grader_client = (
+        grader_model != model or preflight.grader_effort != preflight.reasoning_effort
+    )
     grader_client = (
         build_client(
             provider,
             api_key,
-            arguments.grader_model,
+            grader_model,
+            preflight.grader_effort,
             arguments.request_timeout_seconds,
         )
-        if arguments.grader_model
+        if needs_grader_client
         else client
     )
 

@@ -42,6 +42,8 @@ class EvalPreflight:
     cases: tuple[Any, ...]
     prompts: dict[str, str]
     manifest: dict[str, Any]
+    reasoning_effort: str | None
+    grader_effort: str | None
 
 
 def prepare_preflight(arguments: Any, provider: str, model: str) -> EvalPreflight:
@@ -50,6 +52,12 @@ def prepare_preflight(arguments: Any, provider: str, model: str) -> EvalPrefligh
     candidate_names = _parse_candidate_names(arguments.candidates)
     cases = _select_cases(arguments)
     cost_limit = _validate_limits(arguments)
+    reasoning_effort = _resolve_effort(model, arguments.effort)
+    grader_model = arguments.grader_model or model
+    grader_request = arguments.grader_effort or (
+        "shipping" if arguments.grader_model else arguments.effort
+    )
+    grader_effort = _resolve_effort(grader_model, grader_request)
     prompts = {name: get_candidate(name)[1] for name in candidate_names}
     manifest = _build_manifest(
         arguments,
@@ -59,13 +67,23 @@ def prepare_preflight(arguments: Any, provider: str, model: str) -> EvalPrefligh
         cases,
         prompts,
         cost_limit,
+        reasoning_effort,
+        grader_effort,
     )
-    return EvalPreflight(candidate_names, cases, prompts, manifest)
+    return EvalPreflight(
+        candidate_names,
+        cases,
+        prompts,
+        manifest,
+        reasoning_effort,
+        grader_effort,
+    )
 
 
 def print_preflight(preflight: EvalPreflight) -> None:
     """Print bounded execution details without sensitive configuration."""
     execution = preflight.manifest["execution"]
+    selection = preflight.manifest["selection"]
     print(
         "Preflight: "
         f"runs={execution['case_runs']} "
@@ -74,6 +92,10 @@ def print_preflight(preflight: EvalPreflight) -> None:
         f"workers={execution['workers']} "
         f"timeout={execution['request_timeout_seconds']}s "
         f"cost_cap=${execution['max_cost_usd'] or 'dry-run'}"
+    )
+    print(
+        f"Effort: candidate={selection['reasoning_effort']} "
+        f"grader={selection['grader_effort'] or 'disabled'}"
     )
     print(f"Artifact: {preflight.manifest['artifact_digest']}")
 
@@ -97,6 +119,31 @@ def _validate_selection(arguments: Any, provider: str, model: str) -> None:
         raise SystemExit("A non-empty model identifier is required.")
     if arguments.no_rubric and arguments.grader_model:
         raise SystemExit("--grader-model cannot be combined with --no-rubric.")
+    if arguments.no_rubric and arguments.grader_effort:
+        raise SystemExit("--grader-effort cannot be combined with --no-rubric.")
+
+
+def _resolve_effort(model: str, requested: str) -> str | None:
+    from radsim.config import (
+        DEFAULT_REASONING_EFFORT,
+        MODEL_CAPABILITIES,
+        REASONING_EFFORT_LEVELS,
+    )
+
+    capabilities = MODEL_CAPABILITIES.get(model, {})
+    supported = tuple(capabilities.get("reasoning_efforts", ()))
+    if requested == "shipping":
+        if not capabilities.get("supports_reasoning"):
+            return None
+        return capabilities.get("default_reasoning_effort", DEFAULT_REASONING_EFFORT)
+    if requested not in REASONING_EFFORT_LEVELS:
+        raise SystemExit(f"Unsupported reasoning effort: {requested}")
+    if supported and requested not in supported:
+        allowed = ", ".join(supported)
+        raise SystemExit(f"Model {model} accepts reasoning efforts: {allowed}")
+    if capabilities and not capabilities.get("supports_reasoning"):
+        raise SystemExit(f"Model {model} does not support reasoning effort.")
+    return requested
 
 
 def _select_cases(arguments: Any) -> tuple[Any, ...]:
@@ -153,6 +200,8 @@ def _build_manifest(
     cases: tuple[Any, ...],
     prompts: dict[str, str],
     cost_limit: str | None,
+    reasoning_effort: str | None,
+    grader_effort: str | None,
 ) -> dict[str, Any]:
     artifact_inputs = _artifact_inputs(candidate_names, cases, prompts)
     logical_requests = _logical_request_limit(arguments, candidate_names, cases)
@@ -163,7 +212,14 @@ def _build_manifest(
         "artifacts": artifact_inputs,
         "repository": _repository_state(),
         "runtime": {"python": sys.version.split()[0]},
-        "selection": _selection(arguments, provider, model, candidate_names),
+        "selection": _selection(
+            arguments,
+            provider,
+            model,
+            candidate_names,
+            reasoning_effort,
+            grader_effort,
+        ),
         "execution": _execution(
             arguments,
             candidate_names,
@@ -193,12 +249,16 @@ def _selection(
     provider: str,
     model: str,
     candidate_names: tuple[str, ...],
+    reasoning_effort: str | None,
+    grader_effort: str | None,
 ) -> dict[str, Any]:
     return {
         "provider": provider,
         "model": model,
         "grader_model": None if arguments.no_rubric else arguments.grader_model or model,
         "candidates": list(candidate_names),
+        "reasoning_effort": reasoning_effort or "provider-default",
+        "grader_effort": None if arguments.no_rubric else grader_effort or "provider-default",
     }
 
 

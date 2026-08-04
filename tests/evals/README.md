@@ -19,6 +19,9 @@ Live model calls are made against the saved primary provider and model unless
 rubric case. Every paid run requires an explicit `--max-cost-usd`; use
 `--dry-run` first to validate the selection and print the maximum logical
 requests, retry attempts, concurrency and timeout without reading an API key.
+The default `--effort shipping` resolves to a concrete repository-configured
+effort and records it in the manifest. Pass `--effort` and, when needed,
+`--grader-effort` explicitly to compare other configurations.
 
 The harness itself is covered offline by `tests/test_eval_harness.py`, which
 runs every part of this package against a stub client. Fix a scoring bug there
