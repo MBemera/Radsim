@@ -98,6 +98,10 @@ def test_context_limit_never_fetches_for_malformed_cache(
             "fetched_at": time.time(),
             "models": [{"id": "vendor/model", "cache_read_price": float("inf")}],
         },
+        {
+            "fetched_at": time.time(),
+            "models": [{"id": "vendor/model", "request_parameters": ["unknown"]}],
+        },
     ],
 )
 def test_invalid_cache_payloads_fail_validation(payload):

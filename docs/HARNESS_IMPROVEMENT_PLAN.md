@@ -677,7 +677,7 @@ rate limiting as not applicable unless this work introduces those surfaces.
       labelled estimated with provider, billing mode, source and age.
 - [ ] Cost and cache targets are set from the measured baseline. Scenario values
       such as $2.20, $1.20 and 90% are not release claims until observed.
-- [ ] Evals pin and report the concrete reasoning/sampling configuration; `seed`
+- [x] Evals pin and report the concrete reasoning/sampling configuration; `seed`
       is documented as best-effort.
 - [ ] Release runs compare fresh interleaved A/B samples, report coverage and
       confidence intervals, and never substitute a cached baseline.

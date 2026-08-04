@@ -31,6 +31,8 @@ DEFAULT_REPETITIONS = 3
 DEFAULT_WORKERS = 4
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
 DEFAULT_HARNESS_SEED = 20260804
+DEFAULT_TEMPERATURE = 0.0
+DEFAULT_TOP_P = 1.0
 
 
 def parse_arguments(argv=None):
@@ -68,6 +70,24 @@ def parse_arguments(argv=None):
     )
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="Parallel runs")
     parser.add_argument("--seed", type=int, default=DEFAULT_HARNESS_SEED, help="Job-order seed")
+    parser.add_argument(
+        "--sampling-seed",
+        type=int,
+        default=DEFAULT_HARNESS_SEED,
+        help="Best-effort provider sampling seed",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=DEFAULT_TEMPERATURE,
+        help="Candidate and grader sampling temperature",
+    )
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        default=DEFAULT_TOP_P,
+        help="Candidate and grader nucleus-sampling threshold",
+    )
     parser.add_argument(
         "--request-timeout-seconds",
         type=float,
@@ -327,21 +347,36 @@ def main(argv=None):
         "candidate": candidate_pricing.as_dict() if candidate_pricing else None,
         "grader": grader_pricing.as_dict() if grader_pricing else None,
     }
-    client = BudgetedEvalClient(raw_client, budget, candidate_pricing)
     needs_grader_client = (
         grader_model != model or preflight.grader_effort != preflight.reasoning_effort
     )
+    raw_grader_client = (
+        build_client(
+            provider,
+            api_key,
+            grader_model,
+            preflight.grader_effort,
+            arguments.request_timeout_seconds,
+        )
+        if needs_grader_client
+        else raw_client
+    )
+    preflight.manifest["request_option_snapshots"] = {
+        "candidate": raw_client.request_options_snapshot(preflight.request_options),
+        "grader": raw_grader_client.request_options_snapshot(preflight.request_options),
+    }
+    client = BudgetedEvalClient(
+        raw_client,
+        budget,
+        candidate_pricing,
+        preflight.request_options,
+    )
     grader_client = (
         BudgetedEvalClient(
-            build_client(
-                provider,
-                api_key,
-                grader_model,
-                preflight.grader_effort,
-                arguments.request_timeout_seconds,
-            ),
+            raw_grader_client,
             budget,
             grader_pricing,
+            preflight.request_options,
         )
         if needs_grader_client
         else client

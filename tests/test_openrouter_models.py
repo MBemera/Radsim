@@ -94,7 +94,14 @@ def test_normalize_model_extracts_supported_params():
             "input_cache_read": "0.0000003",
             "input_cache_write": "0.00000375",
         },
-        "supported_parameters": ["tools", "reasoning", "reasoning_effort"],
+        "supported_parameters": [
+            "tools",
+            "reasoning",
+            "reasoning_effort",
+            "temperature",
+            "top_p",
+            "seed",
+        ],
         "reasoning": {
             "mandatory": True,
             "default_effort": "high",
@@ -109,6 +116,7 @@ def test_normalize_model_extracts_supported_params():
     assert normalized["input_price"] == pytest.approx(0.000003)
     assert normalized["cache_read_price"] == pytest.approx(0.0000003)
     assert normalized["cache_write_price"] == pytest.approx(0.00000375)
+    assert normalized["request_parameters"] == ["temperature", "top_p", "seed"]
     assert normalized["reasoning_efforts"] == ["low", "high", "max"]
     assert normalized["default_reasoning_effort"] == "high"
     assert normalized["reasoning_mandatory"] is True
@@ -215,3 +223,11 @@ def test_malformed_catalogue_price_fails_to_labelled_static_fallback(fake_home):
 
     assert pricing.source == "static-fallback"
     assert pricing.stale is True
+
+
+def test_static_glm_capabilities_cover_verified_sampling_parameters(fake_home):
+    assert openrouter_models.get_model_request_parameters("z-ai/glm-5.2") == (
+        "temperature",
+        "top_p",
+        "seed",
+    )

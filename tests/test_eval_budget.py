@@ -3,6 +3,7 @@
 import pytest
 
 from radsim.pricing import ModelPricing
+from radsim.request_options import RequestOptions
 from tests.evals.budget import BudgetedEvalClient, EvalBudgetExceeded, EvalCostBudget
 
 
@@ -11,9 +12,11 @@ class StubClient:
         self.responses = list(responses or [])
         self.error = error
         self.calls = 0
+        self.call_kwargs = []
 
-    def chat(self, **_kwargs):
+    def chat(self, **kwargs):
         self.calls += 1
+        self.call_kwargs.append(kwargs)
         if self.error:
             raise self.error
         return self.responses.pop(0)
@@ -107,6 +110,31 @@ def test_eval_response_uses_one_immutable_pricing_snapshot_for_estimate():
 
     assert result["usage"]["estimated_cost_usd"] == pytest.approx(0.002)
     assert result["usage"]["pricing_source"] == "catalogue-cache"
+
+
+def test_eval_client_pins_request_options_for_every_call():
+    budget = EvalCostBudget("1")
+    raw_client = StubClient([_response(0.1)])
+    options = RequestOptions(temperature=0.0, top_p=1.0, seed=42)
+    client = BudgetedEvalClient(raw_client, budget, request_options=options)
+
+    client.chat()
+
+    assert raw_client.calls == 1
+    assert raw_client.call_kwargs == [{"request_options": options}]
+
+
+def test_eval_client_rejects_request_option_drift_before_provider_io():
+    budget = EvalCostBudget("1")
+    raw_client = StubClient([_response(0.1)])
+    options = RequestOptions(temperature=0.0, top_p=1.0, seed=42)
+    client = BudgetedEvalClient(raw_client, budget, request_options=options)
+
+    with pytest.raises(ValueError, match="cannot change"):
+        client.chat(request_options=RequestOptions(seed=43))
+
+    assert raw_client.calls == 0
+    assert budget.snapshot()["requests_started"] == 0
 
 
 @pytest.mark.parametrize("cost", [None, -1, float("inf"), "invalid", True])

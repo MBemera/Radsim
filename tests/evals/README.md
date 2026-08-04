@@ -13,6 +13,7 @@ python -m tests.evals.run_evals --max-cost-usd 1.25 --candidates B     # current
 python -m tests.evals.run_evals --max-cost-usd 0.25 --cases S01,S03    # a few ids
 python -m tests.evals.run_evals --max-cost-usd 1.25 --result-dir /private/path
 python -m tests.evals.run_evals --max-cost-usd 1.25 --case-set development
+python -m tests.evals.run_evals --dry-run --temperature 0 --top-p 1 --sampling-seed 20260804
 ```
 
 Live model calls are made against the saved primary provider and model unless
@@ -26,6 +27,10 @@ effort and records it in the manifest. Pass `--effort` and, when needed,
 `--grader-effort` explicitly to compare other configurations.
 Candidate A/B jobs are kept adjacent by case and repetition, with their pair
 order and case order derived from the recorded `--seed` (default `20260804`).
+The eval request profile also pins `temperature`, `top_p`, and a separate
+`--sampling-seed`. The manifest records requested and capability-filtered
+values. A seed is best-effort reproducibility evidence, not a guarantee of
+identical tool-call sequences across routes, providers, or model revisions.
 
 The live guard shares one budget across candidate and grader clients. It stops
 new requests when provider-reported spend reaches the cap. Already in-flight

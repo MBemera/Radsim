@@ -7,6 +7,7 @@ from threading import Lock
 from typing import Any
 
 from radsim.pricing import ModelPricing, estimate_usage_cost
+from radsim.request_options import RequestOptions
 
 
 class EvalBudgetExceeded(RuntimeError):
@@ -88,12 +89,19 @@ class BudgetedEvalClient:
         client: Any,
         budget: EvalCostBudget,
         pricing: ModelPricing | None = None,
+        request_options: RequestOptions | None = None,
     ) -> None:
         self.client = client
         self.budget = budget
         self.pricing = pricing
+        self.request_options = request_options
 
     def chat(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        if self.request_options is not None:
+            supplied_options = kwargs.get("request_options")
+            if supplied_options is not None and supplied_options != self.request_options:
+                raise ValueError("Eval request options cannot change during a run")
+            kwargs["request_options"] = self.request_options
         self.budget.before_request()
         try:
             response = self.client.chat(*args, **kwargs)

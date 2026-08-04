@@ -49,11 +49,17 @@ def test_manifest_contains_provenance_without_credentials():
     )
 
     encoded = json.dumps(preflight.manifest)
-    assert preflight.manifest["schema_version"] == 1
+    assert preflight.manifest["schema_version"] == 2
     assert len(preflight.manifest["artifact_digest"]) == 64
     assert preflight.manifest["execution"]["case_runs"] == 3
     assert preflight.manifest["execution"]["logical_request_limit"] == 21
     assert preflight.manifest["selection"]["reasoning_effort"] == "high"
+    assert preflight.manifest["selection"]["request_options"] == {
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "seed": 20260804,
+    }
+    assert preflight.manifest["selection"]["seed_is_best_effort"] is True
     assert preflight.manifest["runtime"]["radsim"]
     assert "api_key" not in encoded.lower()
     assert "OPENROUTER_API_KEY" not in encoded
@@ -74,6 +80,25 @@ def test_seed_is_recorded_and_bounded():
     with pytest.raises(SystemExit, match="Seed"):
         prepare_preflight(
             _arguments("--dry-run", "--seed", "-1"),
+            "openrouter",
+            "z-ai/glm-5.2",
+        )
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ("--temperature", "nan"),
+        ("--temperature", "2.1"),
+        ("--top-p", "-0.1"),
+        ("--top-p", "1.1"),
+        ("--sampling-seed", "-1"),
+    ],
+)
+def test_invalid_sampling_configuration_fails_preflight(options):
+    with pytest.raises(SystemExit, match="Invalid request options"):
+        prepare_preflight(
+            _arguments("--dry-run", *options),
             "openrouter",
             "z-ai/glm-5.2",
         )

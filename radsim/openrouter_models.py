@@ -34,6 +34,11 @@ REASONING_EFFORT_ORDER = (
     "max",
 )
 REASONING_EFFORT_LEVELS = set(REASONING_EFFORT_ORDER)
+REQUEST_PARAMETER_ORDER = ("temperature", "top_p", "seed")
+REQUEST_PARAMETER_NAMES = set(REQUEST_PARAMETER_ORDER)
+STATIC_REQUEST_PARAMETERS = {
+    "z-ai/glm-5.2": REQUEST_PARAMETER_ORDER,
+}
 
 _catalogue = None
 _catalogue_key = None
@@ -122,6 +127,8 @@ def _is_valid_model(model) -> bool:
         return False
     if not _is_optional_number(model.get("cache_write_price"), 0, 1):
         return False
+    if not _is_valid_request_parameters(model.get("request_parameters")):
+        return False
     if not _is_valid_reasoning_metadata(model):
         return False
     return all(
@@ -142,6 +149,16 @@ def _is_valid_reasoning_metadata(model) -> bool:
             return False
     default_effort = model.get("default_reasoning_effort")
     return default_effort is None or default_effort in REASONING_EFFORT_LEVELS
+
+
+def _is_valid_request_parameters(value) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, list) or len(value) > len(REQUEST_PARAMETER_NAMES):
+        return False
+    return len(value) == len(set(value)) and all(
+        parameter in REQUEST_PARAMETER_NAMES for parameter in value
+    )
 
 
 def _is_bounded_string(value, required: bool) -> bool:
@@ -241,6 +258,11 @@ def _normalize_model(entry: dict) -> dict:
     default_reasoning_effort = reasoning.get("default_effort")
     if default_reasoning_effort not in REASONING_EFFORT_LEVELS:
         default_reasoning_effort = None
+    request_parameters = [
+        parameter
+        for parameter in REQUEST_PARAMETER_ORDER
+        if parameter in supported_params
+    ]
     return {
         "id": entry.get("id", ""),
         "name": entry.get("name") or entry.get("id", ""),
@@ -251,6 +273,7 @@ def _normalize_model(entry: dict) -> dict:
         "output_price": _safe_float(pricing.get("completion")),
         "cache_read_price": _safe_float(pricing.get("input_cache_read")),
         "cache_write_price": _safe_float(pricing.get("input_cache_write")),
+        "request_parameters": request_parameters,
         "supports_reasoning": "reasoning" in supported_params
             or "reasoning_effort" in supported_params,
         "supports_tools": "tools" in supported_params,
@@ -351,6 +374,7 @@ def _static_fallback() -> list[dict]:
             "cache_write_price": _price_per_token(
                 pricing, "cache_write_per_million_usd"
             ),
+            "request_parameters": list(STATIC_REQUEST_PARAMETERS.get(model_id, ())),
             "supports_reasoning": capabilities.get("supports_reasoning", False)
                 or capabilities.get("supports_extended_thinking", False),
             "supports_tools": capabilities.get("supports_tools", True),
@@ -407,3 +431,15 @@ def get_model_default_reasoning_effort(model_id: str) -> str | None:
     if not model:
         return None
     return model.get("default_reasoning_effort")
+
+
+def get_model_request_parameters(
+    model_id: str,
+    *,
+    allow_network: bool = False,
+) -> tuple[str, ...]:
+    """Return validated sampling parameters from the cached model catalogue."""
+    model = find_model(model_id, allow_network=allow_network)
+    if model and isinstance(model.get("request_parameters"), list):
+        return tuple(model["request_parameters"])
+    return tuple(STATIC_REQUEST_PARAMETERS.get(model_id, ()))

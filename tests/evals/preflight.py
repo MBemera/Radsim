@@ -12,11 +12,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from radsim.request_options import RequestOptions
+
 from .candidates import CANDIDATE_NAMES, get_candidate
 from .cases import get_cases
 from .fake_tools import FakeToolRunner
 
-MANIFEST_SCHEMA_VERSION = 1
+MANIFEST_SCHEMA_VERSION = 2
 MAX_REPETITIONS = 20
 MAX_WORKERS = 32
 MAX_ITERATIONS = 50
@@ -25,6 +27,7 @@ SUPPORTED_PROVIDERS = ("claude", "openai", "openrouter")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 EVAL_SOURCE_FILES = (
     "../../radsim/api_client.py",
+    "../../radsim/request_options.py",
     "../../radsim/usage.py",
     "budget.py",
     "candidates.py",
@@ -48,6 +51,7 @@ class EvalPreflight:
     manifest: dict[str, Any]
     reasoning_effort: str | None
     grader_effort: str | None
+    request_options: RequestOptions
 
 
 def prepare_preflight(arguments: Any, provider: str, model: str) -> EvalPreflight:
@@ -62,6 +66,7 @@ def prepare_preflight(arguments: Any, provider: str, model: str) -> EvalPrefligh
         "shipping" if arguments.grader_model else arguments.effort
     )
     grader_effort = _resolve_effort(grader_model, grader_request)
+    request_options = _request_options(arguments)
     prompts = {name: get_candidate(name)[1] for name in candidate_names}
     manifest = _build_manifest(
         arguments,
@@ -73,6 +78,7 @@ def prepare_preflight(arguments: Any, provider: str, model: str) -> EvalPrefligh
         cost_limit,
         reasoning_effort,
         grader_effort,
+        request_options,
     )
     return EvalPreflight(
         candidate_names,
@@ -81,6 +87,7 @@ def prepare_preflight(arguments: Any, provider: str, model: str) -> EvalPrefligh
         manifest,
         reasoning_effort,
         grader_effort,
+        request_options,
     )
 
 
@@ -102,6 +109,11 @@ def print_preflight(preflight: EvalPreflight) -> None:
     print(
         f"Effort: candidate={selection['reasoning_effort']} "
         f"grader={selection['grader_effort'] or 'disabled'}"
+    )
+    sampling = selection["request_options"]
+    print(
+        f"Sampling: temperature={sampling['temperature']} top_p={sampling['top_p']} "
+        f"seed={sampling['seed']} (best effort)"
     )
     print(f"Artifact: {preflight.manifest['artifact_digest']}")
 
@@ -183,6 +195,17 @@ def _validate_limits(arguments: Any) -> str | None:
     return _required_cost_limit(arguments.max_cost_usd)
 
 
+def _request_options(arguments: Any) -> RequestOptions:
+    try:
+        return RequestOptions(
+            temperature=arguments.temperature,
+            top_p=arguments.top_p,
+            seed=arguments.sampling_seed,
+        )
+    except ValueError as error:
+        raise SystemExit(f"Invalid request options: {error}") from None
+
+
 def _validate_integer(name: str, value: int, minimum: int, maximum: int) -> None:
     if minimum <= value <= maximum:
         return
@@ -215,6 +238,7 @@ def _build_manifest(
     cost_limit: str | None,
     reasoning_effort: str | None,
     grader_effort: str | None,
+    request_options: RequestOptions,
 ) -> dict[str, Any]:
     artifact_inputs = _artifact_inputs(candidate_names, cases, prompts)
     logical_requests = _logical_request_limit(arguments, candidate_names, cases)
@@ -232,6 +256,7 @@ def _build_manifest(
             candidate_names,
             reasoning_effort,
             grader_effort,
+            request_options,
         ),
         "execution": _execution(
             arguments,
@@ -264,6 +289,7 @@ def _selection(
     candidate_names: tuple[str, ...],
     reasoning_effort: str | None,
     grader_effort: str | None,
+    request_options: RequestOptions,
 ) -> dict[str, Any]:
     return {
         "provider": provider,
@@ -273,6 +299,8 @@ def _selection(
         "case_set": arguments.case_set,
         "reasoning_effort": reasoning_effort or "provider-default",
         "grader_effort": None if arguments.no_rubric else grader_effort or "provider-default",
+        "request_options": request_options.as_dict(),
+        "seed_is_best_effort": True,
     }
 
 

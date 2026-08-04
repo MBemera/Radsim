@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from functools import wraps
 from typing import Any
 
+from .request_options import RequestOptions
 from .usage import merge_usage_snapshots, normalize_usage
 
 # Production Readiness: Explicit timeouts prevent hung connections
@@ -252,7 +253,14 @@ class BaseAPIClient(ABC):
     """Base class for API clients."""
 
     @abstractmethod
-    def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+    def chat(
+        self,
+        messages,
+        system_prompt=None,
+        tools=None,
+        max_tokens=None,
+        request_options=None,
+    ):
         """Send a chat request and return the response.
 
         Args:
@@ -262,7 +270,14 @@ class BaseAPIClient(ABC):
         """
         pass
 
-    def stream_chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+    def stream_chat(
+        self,
+        messages,
+        system_prompt=None,
+        tools=None,
+        max_tokens=None,
+        request_options=None,
+    ):
         """Stream a chat request, yielding deltas and final response.
 
         Yields:
@@ -270,13 +285,31 @@ class BaseAPIClient(ABC):
             {"type": "final_response", "response": dict}
         """
         # Default implementation falls back to non-streaming
-        response = self.chat(messages, system_prompt, tools, max_tokens)
+        response = self.chat(
+            messages,
+            system_prompt,
+            tools,
+            max_tokens,
+            request_options=request_options,
+        )
 
         for block in response["content"]:
             if block["type"] == "text":
                 yield {"type": "text_delta", "text": block["text"]}
 
         yield {"type": "final_response", "response": response}
+
+    def _supported_request_parameters(self) -> frozenset[str]:
+        """Return conservative request capabilities for this client."""
+        return frozenset()
+
+    def request_options_snapshot(self, options: RequestOptions) -> dict[str, Any]:
+        """Return the immutable requested-to-applied capability resolution."""
+        supported = self._supported_request_parameters()
+        return {
+            "supported_parameters": sorted(supported),
+            "applied": options.for_supported(supported),
+        }
 
 
 class ClaudeClient(BaseAPIClient):
@@ -304,6 +337,7 @@ class ClaudeClient(BaseAPIClient):
         *,
         stream: bool = False,
         max_tokens: int | None = None,
+        request_options: RequestOptions | None = None,
     ) -> dict[str, Any]:
         """Build one Claude request without performing network I/O."""
         kwargs = {
@@ -317,11 +351,29 @@ class ClaudeClient(BaseAPIClient):
             kwargs["system"] = system_prompt
         if tools:
             kwargs["tools"] = tools
+        if request_options is not None:
+            kwargs.update(request_options.for_supported(self._supported_request_parameters()))
         return kwargs
 
-    def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+    def _supported_request_parameters(self) -> frozenset[str]:
+        return frozenset({"temperature", "top_p"})
+
+    def chat(
+        self,
+        messages,
+        system_prompt=None,
+        tools=None,
+        max_tokens=None,
+        request_options=None,
+    ):
         """Send a chat request to Claude with retry logic."""
-        kwargs = self._build_request_kwargs(messages, system_prompt, tools, max_tokens=max_tokens)
+        kwargs = self._build_request_kwargs(
+            messages,
+            system_prompt,
+            tools,
+            max_tokens=max_tokens,
+            request_options=request_options,
+        )
         return self._chat_with_retry(**kwargs)
 
     @with_retry(max_retries=DEFAULT_MAX_RETRIES)
@@ -338,10 +390,22 @@ class ClaudeClient(BaseAPIClient):
                 raise RetryableError(e, is_rate_limit=is_rate_limit) from e
             raise
 
-    def stream_chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+    def stream_chat(
+        self,
+        messages,
+        system_prompt=None,
+        tools=None,
+        max_tokens=None,
+        request_options=None,
+    ):
         """Stream a chat request to Claude."""
         kwargs = self._build_request_kwargs(
-            messages, system_prompt, tools, stream=True, max_tokens=max_tokens
+            messages,
+            system_prompt,
+            tools,
+            stream=True,
+            max_tokens=max_tokens,
+            request_options=request_options,
         )
         final_content = []
         current_tool_use = None
@@ -496,6 +560,7 @@ class OpenAIClient(BaseAPIClient):
         *,
         stream: bool = False,
         max_tokens: int | None = None,
+        request_options: RequestOptions | None = None,
     ) -> dict[str, Any]:
         """Build one OpenAI request without performing network I/O."""
         kwargs = {"model": self.model, "messages": self._build_messages(messages, system_prompt)}
@@ -505,11 +570,30 @@ class OpenAIClient(BaseAPIClient):
             kwargs["tools"] = self._convert_tools(tools)
         if max_tokens:
             kwargs[self.MAX_OUTPUT_TOKENS_PARAM] = max_tokens
+        if request_options is not None:
+            kwargs.update(request_options.for_supported(self._supported_request_parameters()))
         return self._apply_reasoning(kwargs)
 
-    def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+    def _supported_request_parameters(self) -> frozenset[str]:
+        """Return conservative model-specific request support."""
+        return frozenset()
+
+    def chat(
+        self,
+        messages,
+        system_prompt=None,
+        tools=None,
+        max_tokens=None,
+        request_options=None,
+    ):
         """Send a chat request to OpenAI with retry logic."""
-        kwargs = self._build_request_kwargs(messages, system_prompt, tools, max_tokens=max_tokens)
+        kwargs = self._build_request_kwargs(
+            messages,
+            system_prompt,
+            tools,
+            max_tokens=max_tokens,
+            request_options=request_options,
+        )
         return self._chat_with_retry(**kwargs)
 
     @with_retry(max_retries=DEFAULT_MAX_RETRIES)
@@ -526,10 +610,22 @@ class OpenAIClient(BaseAPIClient):
                 raise RetryableError(e, is_rate_limit=is_rate_limit) from e
             raise
 
-    def stream_chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+    def stream_chat(
+        self,
+        messages,
+        system_prompt=None,
+        tools=None,
+        max_tokens=None,
+        request_options=None,
+    ):
         """Stream a chat request to OpenAI."""
         kwargs = self._build_request_kwargs(
-            messages, system_prompt, tools, stream=True, max_tokens=max_tokens
+            messages,
+            system_prompt,
+            tools,
+            stream=True,
+            max_tokens=max_tokens,
+            request_options=request_options,
         )
         started_at = time.perf_counter()
         stream = self.client.chat.completions.create(**kwargs)
@@ -776,6 +872,17 @@ class OpenRouterClient(OpenAIClient):
             "reasoning": {"effort": self.reasoning_effort},
         }
         return kwargs
+
+    def _supported_request_parameters(self) -> frozenset[str]:
+        """Cache validated model capability metadata for this client."""
+        cached = getattr(self, "_request_parameter_support", None)
+        if cached is not None:
+            return cached
+        from .openrouter_models import get_model_request_parameters
+
+        supported = frozenset(get_model_request_parameters(self.model))
+        self._request_parameter_support = supported
+        return supported
 
 
 def create_client(
