@@ -5,20 +5,19 @@
     python -m tests.evals.run_evals --cases S01,S03     # one group of ids
 
 Live model calls are made against the provider and model given on the command
-line, defaulting to the saved primary selection. Nothing here writes outside
-the temporary project directory each run creates.
+line, defaulting to the saved primary selection. Case tools stay inside a
+temporary project; sanitized run artifacts go to the private result directory.
 """
 
 import argparse
-import json
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 from .budget import BudgetedEvalClient, EvalCostBudget
 from .candidates import CANDIDATE_NAMES
 from .harness import DEFAULT_MAX_ITERATIONS, run_case
 from .preflight import EvalPreflight, prepare_preflight, print_preflight
+from .results import write_eval_result
 from .scoring import evaluate_gates, grade_clarity, score_run, summarise
 
 DEFAULT_REPETITIONS = 3
@@ -66,7 +65,11 @@ def parse_arguments(argv=None):
         default=DEFAULT_MAX_ITERATIONS,
         help="Tool loop iterations per run",
     )
-    parser.add_argument("--output", default="eval_results.json", help="Where to write results")
+    parser.add_argument(
+        "--result-dir",
+        default="eval_results",
+        help="Private directory for unique result artifacts",
+    )
     return parser.parse_args(argv)
 
 
@@ -154,7 +157,7 @@ def _print_progress(candidate, case, repetition, score):
     print(f"  [{candidate}] {case.id} rep{repetition}  {verdict}")
 
 
-def report(scores, records, output_path, manifest):
+def report(scores, records, result_directory, manifest):
     """Print the gate table and write the full results.
 
     The written file keeps each run's answer and tool arguments, because a
@@ -181,7 +184,10 @@ def report(scores, records, output_path, manifest):
 
     if "B" not in summaries:
         print("\nCandidate B was not run, so the release gates do not apply.")
-        _write_results(output_path, manifest, summaries, [], scores, records)
+        result_path = _write_results(
+            result_directory, manifest, summaries, [], scores, records
+        )
+        print(f"\nWrote {result_path}")
         return summaries, []
 
     gates = evaluate_gates(summaries.get("A"), summaries["B"])
@@ -192,26 +198,23 @@ def report(scores, records, output_path, manifest):
     for failure in summaries["B"]["security_failures"]:
         print(f"  ! {failure['case']} rep{failure['repetition']}: {'; '.join(failure['failures'])}")
 
-    _write_results(output_path, manifest, summaries, gates, scores, records)
-    print(f"\nWrote {output_path}")
+    result_path = _write_results(
+        result_directory, manifest, summaries, gates, scores, records
+    )
+    print(f"\nWrote {result_path}")
     return summaries, gates
 
 
-def _write_results(output_path, manifest, summaries, gates, scores, records):
+def _write_results(result_directory, manifest, summaries, gates, scores, records):
     """Write summaries, gates, scores, and full run transcripts."""
-    Path(output_path).write_text(
-        json.dumps(
-            {
-                "manifest": manifest,
-                "summaries": summaries,
-                "gates": gates,
-                "scores": [score.as_dict() for score in scores],
-                "runs": [record.as_dict() for record in records],
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+    payload = {
+        "manifest": manifest,
+        "summaries": summaries,
+        "gates": gates,
+        "scores": [score.as_dict() for score in scores],
+        "runs": [record.as_dict() for record in records],
+    }
+    return write_eval_result(result_directory, payload)
 
 
 def main(argv=None):
@@ -264,7 +267,7 @@ def main(argv=None):
         f"cost_coverage={budget_result['responses_with_reported_cost']}/"
         f"{budget_result['responses_received']}"
     )
-    _summaries, gates = report(scores, records, arguments.output, preflight.manifest)
+    _summaries, gates = report(scores, records, arguments.result_dir, preflight.manifest)
 
     return 0 if gates and all(gate["passed"] for gate in gates) else 1
 

@@ -24,11 +24,15 @@ MAX_REQUEST_TIMEOUT_SECONDS = 600.0
 SUPPORTED_PROVIDERS = ("claude", "openai", "openrouter")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 EVAL_SOURCE_FILES = (
+    "../../radsim/api_client.py",
+    "../../radsim/usage.py",
+    "budget.py",
     "candidates.py",
     "cases.py",
     "fake_tools.py",
     "harness.py",
     "preflight.py",
+    "results.py",
     "run_evals.py",
     "scoring.py",
 )
@@ -211,7 +215,7 @@ def _build_manifest(
         "artifact_digest": _digest_json(artifact_inputs),
         "artifacts": artifact_inputs,
         "repository": _repository_state(),
-        "runtime": {"python": sys.version.split()[0]},
+        "runtime": _runtime_versions(),
         "selection": _selection(
             arguments,
             provider,
@@ -260,6 +264,12 @@ def _selection(
         "reasoning_effort": reasoning_effort or "provider-default",
         "grader_effort": None if arguments.no_rubric else grader_effort or "provider-default",
     }
+
+
+def _runtime_versions() -> dict[str, str]:
+    from radsim import __version__
+
+    return {"python": sys.version.split()[0], "radsim": __version__}
 
 
 def _execution(

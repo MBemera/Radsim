@@ -53,8 +53,13 @@ def test_manifest_contains_provenance_without_credentials():
     assert preflight.manifest["execution"]["case_runs"] == 3
     assert preflight.manifest["execution"]["logical_request_limit"] == 21
     assert preflight.manifest["selection"]["reasoning_effort"] == "high"
+    assert preflight.manifest["runtime"]["radsim"]
     assert "api_key" not in encoded.lower()
     assert "OPENROUTER_API_KEY" not in encoded
+
+
+def test_result_directory_defaults_to_gitignored_location():
+    assert _arguments("--dry-run").result_dir == "eval_results"
 
 
 def test_manifest_digest_changes_with_candidate_prompt(monkeypatch):

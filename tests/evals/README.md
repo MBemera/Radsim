@@ -11,6 +11,7 @@ python -m tests.evals.run_evals --dry-run --provider openrouter --model z-ai/glm
 python -m tests.evals.run_evals --max-cost-usd 3.00                    # both candidates
 python -m tests.evals.run_evals --max-cost-usd 1.25 --candidates B     # current prompt
 python -m tests.evals.run_evals --max-cost-usd 0.25 --cases S01,S03    # a few ids
+python -m tests.evals.run_evals --max-cost-usd 1.25 --result-dir /private/path
 ```
 
 Live model calls are made against the saved primary provider and model unless
@@ -45,6 +46,16 @@ before spending tokens here.
 5. Records normalized input, output, cache-read, cache-write and reasoning
    tokens, provider-reported cost, latency and bounded request IDs. Cache reads
    remain part of total input tokens and are not added to the total twice.
+6. Redacts and bounds the payload, writes it atomically to a unique
+   `eval_results/<UTC timestamp>-<short SHA>-<artifact digest>.json` file with
+   owner-only permissions, then atomically updates `latest.json`.
+
+`eval_results/` is gitignored. Generated results are retained for 30 days with
+a maximum of 50 result files. Cleanup only matches the generated filename
+format and ignores symlinks and unrelated files. Baseline loading fails closed
+unless the artifact digests, model/grader selection, reasoning settings and
+iteration limit match; a Git commit change alone is allowed when those actual
+artifacts are byte-for-byte compatible.
 
 ## Candidates
 

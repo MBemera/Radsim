@@ -56,6 +56,7 @@ coverage.xml
 
 # Generated files
 *.pdf
+eval_results/
 
 # Logs
 *.log
