@@ -231,6 +231,40 @@ compatible stored run):**
 | Rubric grading | $0.02 |
 | **Total** | **≈ $1.06** |
 
+### 2.3a Measured bounded baseline (2026-08-04, item 7 of §8)
+
+The tables above are scenario arithmetic. These figures are measured, from an
+authorized run under a user-set $5 total ceiling.
+
+**Slice:** cases `S01,C01,A01,P01`, 1 repetition, both candidates — 8 runs.
+
+| Quantity | Measured |
+|---|---|
+| Provider-reported spend | **$0.16054** |
+| Logical requests | 29 (of a 60-request preflight bound) |
+| Provider attempts | 29 — no retries |
+| Cost coverage | 29/29 responses carried trustworthy cost data |
+| Cost per case run | **$0.02007** |
+| Cost per request | **$0.005536** |
+
+**Prefix caching is real, and this is the first observation of it.** §5.2 shipped
+deliberately reporting `not observed`; it can now be replaced with data:
+
+| Candidate | Cached fraction | Input tokens | Cached reads | Mean latency |
+|---|---|---|---|---|
+| A | **45.5%** | 121,823 | 55,488 | 4,714 ms |
+| B | **35.9%** | 133,646 | 47,936 | 3,335 ms |
+
+Routing was spread across Ambient, CoreWeave and Novita, which is the most
+likely explanation for the cached fraction sitting well below the ~90% the
+scenario assumed: a request routed to a provider that did not serve the previous
+one cannot hit its cache. **The 90% figure in §2.4 should not be adopted as a
+gate.** On this evidence a defensible cache target is 35–45% under multi-provider
+routing, and any higher target needs provider pinning first.
+
+Actual per-run cost ($0.02007) is close to the Profile A scenario's implied
+$0.0123/run but higher, consistent with caching landing at ~40% rather than 90%.
+
 ### 2.4 Where the saving comes from
 
 | Lever | Saving | Confidence |
