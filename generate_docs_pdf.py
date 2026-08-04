@@ -423,7 +423,6 @@ def build_pdf():
         "  vector_memory.py     Semantic memory (ChromaDB)\n"
         "  health.py            Startup health checks\n"
         "  scheduler.py         Cron-style task scheduling\n"
-        "  task_logger.py       Structured audit logging\n"
         "  skills.py            User-configurable instructions\n"
         "  onboarding.py        First-time setup wizard"
     )

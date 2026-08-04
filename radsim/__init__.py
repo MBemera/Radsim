@@ -63,13 +63,6 @@ _MODULE_EXPORTS = {
         "get_tools_for_profile",
         "resolve_profile_name",
     ],
-    ".task_logger": [
-        "TaskLogger",
-        "get_logger",
-        "log_api",
-        "log_error",
-        "log_tool",
-    ],
     ".tool_result": [
         "ToolResult",
         "wrap_tool_call",

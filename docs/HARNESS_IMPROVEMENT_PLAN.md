@@ -36,6 +36,11 @@ the instrumented baseline is captured
   tool-schema prefix, pruning runs before every provider request rather than
   only on user turns, the same reserve is sent as `max_tokens`, and a request
   that still cannot fit fails closed with `BudgetExceeded` before provider I/O.
+- 2026-08-04: completed §6.1. `radsim/task_logger.py` is removed together with
+  its package exports, tests and doc references after the owner confirmed no
+  Python-import compatibility promise at beta. The latent unsanitized
+  `~/.radsim/logs/` sink is gone; hardened redaction stays in
+  `radsim/learning/store.py`.
 - No paid live eval or credential-bearing action has been run. The empirical
   cache target and release baseline remain intentionally unset pending explicit
   spend authorization. §5.4's live quality/latency sweep is deferred with it;
@@ -91,7 +96,9 @@ Everything in this section was measured or fetched, not recalled.
   routing, model snapshots and scoring code can drift; `seed` is best-effort.
 - `radsim.task_logger` is exported through `radsim.__all__` and has direct tests.
   Removing it without deprecation is a public API change, not routine dead-code
-  deletion.
+  deletion. **Decision (2026-08-04, owner):** no compatibility promise is made
+  for Python-level imports at this beta stage, so the module was removed
+  outright rather than deprecated. See §6.1.
 - `Scheduler` is used by `tests/test_security_injection.py` as well as its own
   tests. Removal must migrate the security cases to the live `jobs.py` path.
 - `tests/evals/README.md` still says four request/tool rounds while the code uses
@@ -542,6 +549,19 @@ reachable; removal, if chosen, leaves no package export, docs or tests referring
 to the module and the suite remains green.
 
 **Effort:** ~30 minutes.
+
+**Resolved 2026-08-04 — removed.** The owner confirmed no compatibility promise
+is owed on `from radsim import log_tool`: `pyproject.toml` declares
+`Development Status :: 4 - Beta`, and the only stability commitment in
+`CONTRIBUTING.md` covers the tool interface, not Python imports. Deleted
+`radsim/task_logger.py`, its five `_MODULE_EXPORTS` entries, its
+`tests/test_task_logger.py` suite, and the `radsim.task_logger` references in
+`tests/test_lazy_loading.py` and `generate_docs_pdf.py`. This removes the
+unsanitized `~/.radsim/logs/` sink and the O(n²) whole-file JSON rewrite.
+Redaction and bounded retention remain covered by `radsim/learning/store.py`
+(`_sanitize_metadata`) under
+`tests/test_evolve_architecture.py::test_learning_store_is_idempotent_bounded_and_redacted`,
+so no unique security coverage was lost.
 
 ### 6.2 Retire the legacy `Scheduler` class
 
