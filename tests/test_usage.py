@@ -33,6 +33,7 @@ def test_normalizes_complete_openrouter_usage():
         "reasoning_output_tokens": 12,
         "reported_cost_usd": 0.0042,
         "estimated_cost_usd": None,
+        "retry_attempts": 0,
         "request_id": "request-123",
         "latency_ms": 14.5,
     }
@@ -108,6 +109,7 @@ def test_session_totals_track_cost_coverage_separately():
                 "output_tokens": 5,
                 "cost": 0.001,
                 "estimated_cost_usd": 0.0012,
+                "retry_attempts": 2,
             }
         ),
     )
@@ -119,4 +121,5 @@ def test_session_totals_track_cost_coverage_separately():
     assert totals["reported_cost_requests"] == 1
     assert totals["estimated_cost_usd"] == 0.0012
     assert totals["estimated_cost_requests"] == 1
+    assert totals["retry_attempts"] == 2
     assert totals["request_count"] == 2

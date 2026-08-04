@@ -10,6 +10,7 @@ temporary project; sanitized run artifacts go to the private result directory.
 """
 
 import argparse
+import random
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
@@ -18,11 +19,18 @@ from .candidates import CANDIDATE_NAMES
 from .harness import DEFAULT_MAX_ITERATIONS, run_case
 from .preflight import EvalPreflight, prepare_preflight, print_preflight
 from .results import write_eval_result
-from .scoring import evaluate_gates, grade_clarity, score_run, summarise
+from .scoring import (
+    evaluate_gates,
+    grade_clarity,
+    paired_completion_difference,
+    score_run,
+    summarise,
+)
 
 DEFAULT_REPETITIONS = 3
 DEFAULT_WORKERS = 4
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
+DEFAULT_HARNESS_SEED = 20260804
 
 
 def parse_arguments(argv=None):
@@ -36,6 +44,12 @@ def parse_arguments(argv=None):
     parser.add_argument("--reps", type=int, default=DEFAULT_REPETITIONS, help="Repetitions per case")
     parser.add_argument("--group", default=None, help="Run one group only")
     parser.add_argument("--cases", default=None, help="Comma-separated case ids")
+    parser.add_argument(
+        "--case-set",
+        choices=("development", "holdout", "release"),
+        default="release",
+        help="Case profile; development excludes the tuning holdout",
+    )
     parser.add_argument("--provider", default=None, help="Provider override")
     parser.add_argument("--model", default=None, help="Model override")
     parser.add_argument("--grader-model", default=None, help="Model used for rubric grading")
@@ -53,6 +67,7 @@ def parse_arguments(argv=None):
         help="Required provider-spend stop threshold; in-flight calls may exceed it",
     )
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="Parallel runs")
+    parser.add_argument("--seed", type=int, default=DEFAULT_HARNESS_SEED, help="Job-order seed")
     parser.add_argument(
         "--request-timeout-seconds",
         type=float,
@@ -111,11 +126,14 @@ def build_client(provider, api_key, model, reasoning_effort, request_timeout_sec
 
 def run_matrix(arguments, client, grader_client, preflight: EvalPreflight):
     """Run every candidate, case, and repetition. Returns (records, scores)."""
-    jobs = [
-        (candidate, case, repetition)
-        for candidate in preflight.candidate_names
-        for case in preflight.cases
-        for repetition in range(1, arguments.reps + 1)
+    jobs = build_jobs(
+        preflight.candidate_names,
+        preflight.cases,
+        arguments.reps,
+        arguments.seed,
+    )
+    preflight.manifest["execution"]["job_order"] = [
+        f"{case.id}:rep{repetition}:{candidate}" for candidate, case, repetition in jobs
     ]
 
     print(f"Running {len(jobs)} case runs ({len(preflight.cases)} cases)\n")
@@ -140,6 +158,23 @@ def run_matrix(arguments, client, grader_client, preflight: EvalPreflight):
         results = list(executor.map(run_one, jobs))
 
     return [record for record, _score in results], [score for _record, score in results]
+
+
+def build_jobs(candidate_names, cases, repetitions, seed):
+    """Build deterministic adjacent candidate pairs in seeded case order."""
+    random_generator = random.Random(seed)
+    case_repetitions = [
+        (case, repetition)
+        for case in cases
+        for repetition in range(1, repetitions + 1)
+    ]
+    random_generator.shuffle(case_repetitions)
+    jobs = []
+    for case, repetition in case_repetitions:
+        pair_order = list(candidate_names)
+        random_generator.shuffle(pair_order)
+        jobs.extend((candidate, case, repetition) for candidate in pair_order)
+    return jobs
 
 
 def _print_progress(candidate, case, repetition, score):
@@ -172,15 +207,7 @@ def report(scores, records, result_directory, manifest):
 
     print("\nRates by candidate")
     for name, summary in sorted(summaries.items()):
-        rubric = summary["rubric_average"]
-        print(
-            f"  {name}: runs={summary['runs']} "
-            f"tool_choice={summary['tool_choice_rate']:.1%} "
-            f"completion={summary['completion_rate']:.1%} "
-            f"honesty={summary['honesty_rate']:.1%} "
-            f"rubric={'n/a' if rubric is None else f'{rubric:.1%}'} "
-            f"security_failures={len(summary['security_failures'])}"
-        )
+        _print_candidate_summary(name, summary)
 
     if "B" not in summaries:
         print("\nCandidate B was not run, so the release gates do not apply.")
@@ -190,7 +217,9 @@ def report(scores, records, result_directory, manifest):
         print(f"\nWrote {result_path}")
         return summaries, []
 
-    gates = evaluate_gates(summaries.get("A"), summaries["B"])
+    paired_completion = paired_completion_difference(scores)
+    comparisons = {"paired_completion": paired_completion}
+    gates = evaluate_gates(summaries.get("A"), summaries["B"], paired_completion)
     print("\nRelease gates (candidate B)")
     for gate in gates:
         print(f"  [{'PASS' if gate['passed'] else 'FAIL'}] {gate['name']} — {gate['detail']}")
@@ -199,18 +228,61 @@ def report(scores, records, result_directory, manifest):
         print(f"  ! {failure['case']} rep{failure['repetition']}: {'; '.join(failure['failures'])}")
 
     result_path = _write_results(
-        result_directory, manifest, summaries, gates, scores, records
+        result_directory,
+        manifest,
+        summaries,
+        gates,
+        scores,
+        records,
+        comparisons,
     )
     print(f"\nWrote {result_path}")
     return summaries, gates
 
 
-def _write_results(result_directory, manifest, summaries, gates, scores, records):
+def _print_candidate_summary(name, summary):
+    """Print sample provenance, failures, rates and confidence intervals."""
+    print(
+        f"  {name}: samples={summary['quality_samples']}/{summary['runs']} "
+        f"live={summary['live_samples']} reused={summary['reused_samples']} "
+        f"failed={summary['failed_samples']} ungraded={summary['ungraded_samples']} "
+        f"security_failures={len(summary['security_failures'])}"
+    )
+    intervals = summary["confidence_intervals"]
+    rubric = summary["rubric_average"]
+    print(
+        f"     tool_choice={summary['tool_choice_rate']:.1%} "
+        f"{_format_interval(intervals['tool_choice_correct'])} "
+        f"completion={summary['completion_rate']:.1%} "
+        f"{_format_interval(intervals['completed'])} "
+        f"honesty={summary['honesty_rate']:.1%} "
+        f"{_format_interval(intervals['honest'])} "
+        f"rubric={'n/a' if rubric is None else f'{rubric:.1%}'} "
+        f"{_format_interval(intervals['rubric_average'])}"
+    )
+
+
+def _format_interval(interval):
+    if not interval:
+        return "[95% CI n/a]"
+    return f"[95% CI {interval['low']:.1%}-{interval['high']:.1%}]"
+
+
+def _write_results(
+    result_directory,
+    manifest,
+    summaries,
+    gates,
+    scores,
+    records,
+    comparisons=None,
+):
     """Write summaries, gates, scores, and full run transcripts."""
     payload = {
         "manifest": manifest,
         "summaries": summaries,
         "gates": gates,
+        "comparisons": comparisons or {},
         "scores": [score.as_dict() for score in scores],
         "runs": [record.as_dict() for record in records],
     }
@@ -265,7 +337,9 @@ def main(argv=None):
         f"reported=${budget_result['provider_reported_cost_usd']} "
         f"cap=${budget_result['configured_cap_usd']} "
         f"cost_coverage={budget_result['responses_with_reported_cost']}/"
-        f"{budget_result['responses_received']}"
+        f"{budget_result['responses_received']} "
+        f"logical_requests={budget_result['requests_started']} "
+        f"provider_attempts={budget_result['provider_attempts']}"
     )
     _summaries, gates = report(scores, records, arguments.result_dir, preflight.manifest)
 

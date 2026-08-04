@@ -5,8 +5,9 @@ import json
 
 import pytest
 
+from tests.evals.cases import get_cases
 from tests.evals.preflight import prepare_preflight
-from tests.evals.run_evals import build_client, main, parse_arguments
+from tests.evals.run_evals import build_client, build_jobs, main, parse_arguments
 
 
 def _arguments(*extra: str) -> argparse.Namespace:
@@ -60,6 +61,54 @@ def test_manifest_contains_provenance_without_credentials():
 
 def test_result_directory_defaults_to_gitignored_location():
     assert _arguments("--dry-run").result_dir == "eval_results"
+
+
+def test_seed_is_recorded_and_bounded():
+    preflight = prepare_preflight(
+        _arguments("--dry-run", "--seed", "42"),
+        "openrouter",
+        "z-ai/glm-5.2",
+    )
+
+    assert preflight.manifest["execution"]["seed"] == 42
+    with pytest.raises(SystemExit, match="Seed"):
+        prepare_preflight(
+            _arguments("--dry-run", "--seed", "-1"),
+            "openrouter",
+            "z-ai/glm-5.2",
+        )
+
+
+def test_case_profile_is_recorded_in_manifest():
+    preflight = prepare_preflight(
+        _arguments("--dry-run", "--case-set", "development"),
+        "openrouter",
+        "z-ai/glm-5.2",
+    )
+
+    assert preflight.manifest["selection"]["case_set"] == "development"
+    assert all(not case.holdout for case in preflight.cases)
+
+
+def test_seeded_jobs_keep_candidate_pairs_adjacent():
+    cases = get_cases(case_ids=["S01", "T02"])
+    jobs = build_jobs(("A", "B"), cases, repetitions=2, seed=42)
+
+    for index in range(0, len(jobs), 2):
+        pair = jobs[index : index + 2]
+        assert {job[0] for job in pair} == {"A", "B"}
+        assert pair[0][1:] == pair[1][1:]
+
+
+def test_seeded_job_order_is_reproducible_and_seed_sensitive():
+    cases = get_cases(case_ids=["S01", "T02", "C04"])
+
+    first = build_jobs(("A", "B"), cases, repetitions=2, seed=42)
+    repeated = build_jobs(("A", "B"), cases, repetitions=2, seed=42)
+    changed = build_jobs(("A", "B"), cases, repetitions=2, seed=43)
+
+    assert first == repeated
+    assert first != changed
 
 
 def test_manifest_digest_changes_with_candidate_prompt(monkeypatch):

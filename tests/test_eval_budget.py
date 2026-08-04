@@ -74,6 +74,19 @@ def test_provider_error_blocks_later_requests():
     assert raw_client.calls == 1
 
 
+def test_budget_snapshot_counts_provider_retry_attempts():
+    budget = EvalCostBudget("1")
+    response = _response(0.1)
+    response["usage"]["retry_attempts"] = 2
+    client = BudgetedEvalClient(StubClient([response]), budget)
+
+    client.chat()
+
+    snapshot = budget.snapshot()
+    assert snapshot["requests_started"] == 1
+    assert snapshot["provider_attempts"] == 3
+
+
 @pytest.mark.parametrize("cost", [None, -1, float("inf"), "invalid", True])
 def test_invalid_cost_values_fail_closed(cost):
     budget = EvalCostBudget("1")

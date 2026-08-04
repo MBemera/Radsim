@@ -127,7 +127,11 @@ def manifests_compatible(stored: Any, current: Any) -> bool:
         return False
     stored_execution = stored.get("execution", {})
     current_execution = current.get("execution", {})
-    return stored_execution.get("max_iterations") == current_execution.get("max_iterations")
+    compatibility_fields = ("max_iterations", "seed")
+    return all(
+        stored_execution.get(field) == current_execution.get(field)
+        for field in compatibility_fields
+    )
 
 
 def prune_results(result_directory: str | Path, *, now: datetime | None = None) -> None:

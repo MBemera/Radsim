@@ -29,6 +29,7 @@ def normalize_usage(
         "estimated_cost_usd": _nonnegative_number(
             _read_field(provider_usage, "estimated_cost_usd")
         ),
+        "retry_attempts": _token_count(provider_usage, "retry_attempts"),
         "request_id": _request_id(response),
         "latency_ms": _nonnegative_number(latency_ms),
     }
@@ -69,6 +70,7 @@ def empty_usage_totals() -> dict[str, Any]:
         "reported_cost_requests": 0,
         "estimated_cost_usd": 0.0,
         "estimated_cost_requests": 0,
+        "retry_attempts": 0,
         "request_count": 0,
         "latency_ms": 0.0,
     }
@@ -79,6 +81,9 @@ def accumulate_usage(totals: dict[str, Any], usage: dict[str, Any]) -> None:
     for field in TOKEN_FIELDS:
         totals[field] = totals.get(field, 0) + _token_count(usage, field)
     totals["request_count"] = totals.get("request_count", 0) + 1
+    totals["retry_attempts"] = totals.get("retry_attempts", 0) + _token_count(
+        usage, "retry_attempts"
+    )
     totals["latency_ms"] = totals.get("latency_ms", 0.0) + (
         _nonnegative_number(usage.get("latency_ms")) or 0.0
     )
@@ -97,6 +102,10 @@ def merge_usage_snapshots(
     for field in ("reported_cost_usd", "estimated_cost_usd", "latency_ms"):
         if latest.get(field) is not None:
             merged[field] = latest[field]
+    merged["retry_attempts"] = max(
+        _token_count(current, "retry_attempts"),
+        _token_count(latest, "retry_attempts"),
+    )
     if latest.get("request_id"):
         merged["request_id"] = latest["request_id"]
     return merged

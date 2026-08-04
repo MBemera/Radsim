@@ -98,7 +98,8 @@ def with_retry(
 
             for attempt in range(max_retries + 1):
                 try:
-                    return func(*args, **kwargs)
+                    result = func(*args, **kwargs)
+                    return _attach_retry_count(result, attempt)
 
                 except retryable_exceptions as e:
                     last_exception = e
@@ -123,6 +124,7 @@ def with_retry(
                         time.sleep(delay)
                     else:
                         logger.error(f"All {max_retries} retries exhausted: {e}")
+                        _attach_error_retry_count(e, attempt)
                         raise
 
                 except Exception:
@@ -136,6 +138,24 @@ def with_retry(
         return wrapper
 
     return decorator
+
+
+def _attach_retry_count(result: Any, retry_attempts: int) -> Any:
+    """Attach retry evidence to normalized API responses when possible."""
+    if not isinstance(result, dict):
+        return result
+    usage = result.get("usage")
+    if isinstance(usage, dict):
+        usage["retry_attempts"] = retry_attempts
+    return result
+
+
+def _attach_error_retry_count(error: Exception, retry_attempts: int) -> None:
+    """Preserve exhausted retry evidence without replacing the original error."""
+    try:
+        error.retry_attempts = retry_attempts
+    except (AttributeError, TypeError):
+        pass
 
 
 def is_retryable_error(error) -> tuple[bool, bool]:

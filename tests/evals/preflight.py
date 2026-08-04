@@ -94,6 +94,8 @@ def print_preflight(preflight: EvalPreflight) -> None:
         f"logical_requests<={execution['logical_request_limit']} "
         f"provider_attempts<={execution['provider_attempt_limit']} "
         f"workers={execution['workers']} "
+        f"seed={execution['seed']} "
+        f"case_set={selection['case_set']} "
         f"timeout={execution['request_timeout_seconds']}s "
         f"cost_cap=${execution['max_cost_usd'] or 'dry-run'}"
     )
@@ -152,7 +154,13 @@ def _resolve_effort(model: str, requested: str) -> str | None:
 
 def _select_cases(arguments: Any) -> tuple[Any, ...]:
     case_ids = arguments.cases.split(",") if arguments.cases else None
-    cases = tuple(get_cases(group=arguments.group, case_ids=case_ids))
+    cases = tuple(
+        get_cases(
+            group=arguments.group,
+            case_ids=case_ids,
+            case_set=arguments.case_set,
+        )
+    )
     if not cases:
         raise SystemExit("No cases matched the filter.")
     return cases
@@ -162,6 +170,7 @@ def _validate_limits(arguments: Any) -> str | None:
     _validate_integer("repetitions", arguments.reps, 1, MAX_REPETITIONS)
     _validate_integer("workers", arguments.workers, 1, MAX_WORKERS)
     _validate_integer("max iterations", arguments.max_iterations, 1, MAX_ITERATIONS)
+    _validate_integer("seed", arguments.seed, 0, 2**32 - 1)
     timeout = arguments.request_timeout_seconds
     if not math.isfinite(timeout) or not 0 < timeout <= MAX_REQUEST_TIMEOUT_SECONDS:
         raise SystemExit(
@@ -261,6 +270,7 @@ def _selection(
         "model": model,
         "grader_model": None if arguments.no_rubric else arguments.grader_model or model,
         "candidates": list(candidate_names),
+        "case_set": arguments.case_set,
         "reasoning_effort": reasoning_effort or "provider-default",
         "grader_effort": None if arguments.no_rubric else grader_effort or "provider-default",
     }
@@ -284,6 +294,7 @@ def _execution(
         "case_runs": case_runs,
         "repetitions": arguments.reps,
         "workers": arguments.workers,
+        "seed": arguments.seed,
         "max_iterations": arguments.max_iterations,
         "request_timeout_seconds": arguments.request_timeout_seconds,
         "logical_request_limit": logical_requests,

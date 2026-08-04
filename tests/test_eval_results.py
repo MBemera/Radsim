@@ -18,7 +18,8 @@ from tests.evals.results import (
     prune_results,
     write_eval_result,
 )
-from tests.evals.run_evals import _write_results
+from tests.evals.run_evals import _write_results, report
+from tests.evals.scoring import CaseScore
 
 posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX permission semantics")
 
@@ -43,7 +44,7 @@ def _manifest(artifact_digest="a" * 64):
             "reasoning_effort": "high",
             "grader_effort": "high",
         },
-        "execution": {"max_iterations": 7},
+        "execution": {"max_iterations": 7, "seed": 20260804},
     }
 
 
@@ -84,6 +85,30 @@ def test_report_writer_serializes_score_and_run_records(tmp_path):
 
     assert stored["scores"] == [{"case_id": "S01", "passed": True}]
     assert stored["runs"] == [{"case_id": "S01", "final_text": "safe"}]
+
+
+def test_report_prints_sample_provenance_and_confidence(tmp_path, capsys):
+    scores = [
+        CaseScore(
+            "C01",
+            "communication",
+            candidate,
+            1,
+            completed=True,
+            rubric_score=1.0,
+            rubric_expected=True,
+        )
+        for candidate in ("A", "B")
+    ]
+    records = [SimpleNamespace(as_dict=lambda: {}) for _score in scores]
+
+    _summaries, gates = report(scores, records, tmp_path, _manifest())
+
+    output = capsys.readouterr().out
+    assert "live=1 reused=0 failed=0 ungraded=0" in output
+    assert "95% CI" in output
+    assert "matched=1/1" in output
+    assert all(gate["passed"] for gate in gates)
 
 
 def test_same_name_never_clobbers_an_existing_result(tmp_path):
@@ -183,9 +208,12 @@ def test_model_or_iteration_change_invalidates_baseline():
     changed_model["selection"]["model"] = "different/model"
     changed_iterations = copy.deepcopy(stored)
     changed_iterations["execution"]["max_iterations"] = 8
+    changed_seed = copy.deepcopy(stored)
+    changed_seed["execution"]["seed"] = 42
 
     assert manifests_compatible(stored, changed_model) is False
     assert manifests_compatible(stored, changed_iterations) is False
+    assert manifests_compatible(stored, changed_seed) is False
 
 
 def test_latest_pointer_rejects_path_traversal(tmp_path):

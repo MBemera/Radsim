@@ -39,6 +39,7 @@ class RunRecord:
     group: str
     candidate: str
     repetition: int
+    sample_source: str = "live"
     final_text: str = ""
     tool_calls: list = field(default_factory=list)
     iterations: int = 0
@@ -52,6 +53,7 @@ class RunRecord:
     estimated_cost_usd: float = 0.0
     estimated_cost_requests: int = 0
     request_count: int = 0
+    retry_attempts: int = 0
     latency_ms: float = 0.0
     request_ids: list[str] = field(default_factory=list)
     reported_cost_complete: bool = False
@@ -113,6 +115,7 @@ def run_case(case, candidate, system_prompt, client, max_iterations=DEFAULT_MAX_
         try:
             _drive_model(record, case, system_prompt, client, runner, messages, max_iterations)
         except Exception as error:  # one failed request must not lose the matrix
+            record.retry_attempts += _error_retry_attempts(error)
             record.error = str(error)
             logger.warning("Case %s (%s) failed: %s", case.id, candidate, error)
 
@@ -158,6 +161,7 @@ def _record_usage(record: RunRecord, usage: dict[str, Any]) -> None:
         "estimated_cost_usd",
         "estimated_cost_requests",
         "request_count",
+        "retry_attempts",
         "latency_ms",
     )
     totals = {name: getattr(record, name) for name in fields}
@@ -171,6 +175,11 @@ def _record_usage(record: RunRecord, usage: dict[str, Any]) -> None:
     record.reported_cost_complete = (
         record.request_count > 0 and record.reported_cost_requests == record.request_count
     )
+
+
+def _error_retry_attempts(error: Exception) -> int:
+    value = getattr(error, "retry_attempts", 0)
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
 def _tool_results(runner, tool_uses):

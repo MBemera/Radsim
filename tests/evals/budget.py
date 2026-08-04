@@ -18,6 +18,7 @@ class EvalCostBudget:
         self.max_cost_usd = Decimal(max_cost_usd)
         self.reported_cost_usd = Decimal("0")
         self.requests_started = 0
+        self.provider_attempts = 0
         self.responses_received = 0
         self.responses_with_cost = 0
         self.unknown_cost_events = 0
@@ -40,6 +41,7 @@ class EvalCostBudget:
         reported_cost = _cost_decimal(usage.get("reported_cost_usd"))
         with self._lock:
             self.responses_received += 1
+            self.provider_attempts += 1 + _retry_attempts(usage)
             if reported_cost is None:
                 self.unknown_cost_events += 1
                 self.blocked_reason = (
@@ -51,9 +53,10 @@ class EvalCostBudget:
             if self.reported_cost_usd >= self.max_cost_usd:
                 self.blocked_reason = "Eval cost cap reached; no new requests are authorized."
 
-    def record_error(self) -> None:
+    def record_error(self, error: Exception) -> None:
         """Fail closed when a request may have incurred unreported spend."""
         with self._lock:
+            self.provider_attempts += 1 + _retry_attempts(error)
             self.unknown_cost_events += 1
             self.blocked_reason = (
                 "A provider request failed without cost data; no new requests are authorized."
@@ -66,6 +69,7 @@ class EvalCostBudget:
                 "configured_cap_usd": str(self.max_cost_usd),
                 "provider_reported_cost_usd": str(self.reported_cost_usd),
                 "requests_started": self.requests_started,
+                "provider_attempts": self.provider_attempts,
                 "responses_received": self.responses_received,
                 "responses_with_reported_cost": self.responses_with_cost,
                 "unknown_cost_events": self.unknown_cost_events,
@@ -85,8 +89,8 @@ class BudgetedEvalClient:
         self.budget.before_request()
         try:
             response = self.client.chat(*args, **kwargs)
-        except Exception:
-            self.budget.record_error()
+        except Exception as error:
+            self.budget.record_error(error)
             raise
         self.budget.record_response(response)
         return response
@@ -102,3 +106,13 @@ def _cost_decimal(value: Any) -> Decimal | None:
     if not cost.is_finite() or cost < 0:
         return None
     return cost
+
+
+def _retry_attempts(value: Any) -> int:
+    if isinstance(value, dict):
+        raw_value = value.get("retry_attempts", 0)
+    else:
+        raw_value = getattr(value, "retry_attempts", 0)
+    if not isinstance(raw_value, int) or isinstance(raw_value, bool) or raw_value < 0:
+        return 0
+    return raw_value
