@@ -46,6 +46,11 @@ the instrumented baseline is captured
   `schedule_task` / `list_schedules` tool wrappers over `jobs.py`. The security
   abuse cases were migrated onto the live `add_job` path before deletion, not
   dropped.
+- 2026-08-04: §6.3 deferred with no code change, per the plan's own rule against
+  opportunistic refactors on this branch. Re-measured the five functions;
+  `_handle_delegate_task` is already down to 53 lines and is no longer a
+  finding. The other four are recorded with current locations for a dedicated
+  refactor branch.
 - No paid live eval or credential-bearing action has been run. The empirical
   cache target and release baseline remain intentionally unset pending explicit
   spend authorization. §5.4's live quality/latency sweep is deferred with it;
@@ -620,6 +625,23 @@ lines), `_cmd_job` (191), `_cmd_plan` (181), `step_user_profile` (183),
 Keep these out of the harness branch unless a touched function must be split to
 make the requested change testable. Broad opportunistic refactors obscure
 regression attribution and should use separate branches.
+
+**Deferred 2026-08-04 — no code change on this branch, by the rule above.**
+Re-measured with `ast` at `247d2b1` so the follow-up branch starts from facts
+rather than the stale figures above:
+
+| Function | Location | Lines |
+|---|---|---|
+| `_handle_delegate_task` | `radsim/agent_subagents.py:217` | 53 |
+| `_cmd_job` | `radsim/commands_workflow.py:999` | 169 |
+| `_cmd_plan` | `radsim/commands_workflow.py:223` | 183 |
+| `step_user_profile` | `radsim/onboarding.py:224` | 183 |
+| `_handle_write_file` | `radsim/agent.py:243` | 171 |
+
+`_handle_delegate_task` was already split by earlier work and is no longer a
+finding at 53 lines. The remaining four are unchanged in substance and none of
+them had to be split to land §§0–6.2, so none were touched. This item stays open
+for a dedicated refactor branch.
 
 ---
 
