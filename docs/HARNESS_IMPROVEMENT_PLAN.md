@@ -4,9 +4,11 @@
 **Working branch:** `improve/harness-engineering`
 **Model:** `z-ai/glm-5.2` via OpenRouter (already RadSim's default)
 **Date:** 2026-08-04
-**Status:** all offline sections implemented or explicitly deferred with a
-recorded reason (see §11). Cost and cache targets remain provisional until an
-authorized paid baseline run is captured; no paid run has been made.
+**Status:** all sections implemented or explicitly deferred with a recorded
+reason (see §11). Cost and cache targets are now measured, not scenario values
+(§2.3a–§2.3b). One release gate — the ≥90% clarity rubric — fails at 82.7%; it
+is pre-existing and identical across both candidates, not a regression from this
+work (§2.3c).
 
 ## Progress
 
@@ -74,10 +76,22 @@ authorized paid baseline run is captured; no paid run has been made.
   writing those secret files with no prompt. Now the whole `.env.*` family, the
   `.env` suffix, and the remaining key types are high-impact; ordinary files
   such as `tests/test_env.py` and `environment.py` stay auto-eligible.
-- No paid live eval or credential-bearing action has been run. The empirical
-  cache target and release baseline remain intentionally unset pending explicit
-  spend authorization. §5.4's live quality/latency sweep is deferred with it;
-  the offline boundary contracts are proven by tests.
+- 2026-08-04: paid runs executed under an explicit $5 user ceiling. Two runs
+  totalling **$1.81682** (36% of the ceiling): a $0.16054 bounded measurement
+  slice first to establish real per-run cost, then the $1.65628 full release
+  matrix. Measure-before-committing was deliberate — the worst-case bound was
+  ~$11 with no caching, so launching the matrix blind risked hitting the cap
+  mid-run and buying incomplete coverage. Results in §2.3a–§2.3c.
+- 2026-08-04: **the release matrix fails the rubric gate at 82.7% against ≥90%.**
+  Six of seven gates pass, including zero hard-security failures across 174 runs.
+  The failure predates this branch: candidates A and B score identically on every
+  rate, so the bar is unmet at both revisions. Case `C01` regresses in all three
+  reps under candidate B and is the lead for whoever takes the prompt work.
+- 2026-08-04: eval artifact hygiene verified on real output, not just in tests —
+  the generated result file scanned clean for credential patterns, carries no
+  `api_key` in its manifest, and both `eval_results/` and its files are
+  owner-only (`drwx------`, `-rw-------`). `eval_results/` is gitignored, so no
+  live transcript is committed.
 
 ## Scope
 
@@ -264,6 +278,64 @@ routing, and any higher target needs provider pinning first.
 
 Actual per-run cost ($0.02007) is close to the Profile A scenario's implied
 $0.0123/run but higher, consistent with caching landing at ~40% rather than 90%.
+
+### 2.3b Measured full release matrix (2026-08-04, item 17 of §8)
+
+`--profile release --max-cost-usd 4.50`, 29 cases × 2 candidates × 3 reps.
+
+| Quantity | Measured | Scenario said |
+|---|---|---|
+| Provider-reported spend | **$1.65628** | ≈ $2.14 |
+| Case runs | 174 | 174 |
+| Logical requests | 508 (bound was 1,320) | — |
+| Provider attempts | 508 — no retries | — |
+| Cost coverage | 508/508 | — |
+| Cost per case run | $0.00952 | ≈ $0.0123 |
+
+The release matrix came in **23% under the scenario estimate**, and per-run cost
+is less than half the small slice's $0.02007 because a 174-run matrix reuses the
+cached prefix far more than an 8-run one.
+
+**Cache, measured at scale:**
+
+| Candidate | Cached fraction | Requests | Mean latency |
+|---|---|---|---|
+| A | **77.8%** | 201 | 4,303 ms |
+| B | **75.7%** | 203 | 4,162 ms |
+
+This supersedes §2.3a's 35–45% figure: caching improves with matrix size. At
+scale it lands at **~76–78%**, still short of the 90% §2.4 assumed. Routing
+spanned CoreWeave, Fireworks, Novita, SiliconFlow, Together and Inceptron.
+**A defensible cache gate is 70%; 90% remains unjustified without provider
+pinning.**
+
+### 2.3c Release gate outcome — one gate FAILED
+
+Exit code **1**. Six of seven gates passed; the rubric gate did not.
+
+| Gate | Result |
+|---|---|
+| No hard security failure | **PASS** — 0 of 174 runs |
+| Correct tool or no-tool choice ≥95% | **PASS** — 100.0% |
+| Personality and clarity rubric ≥90% | **FAIL — 82.7%** |
+| Quality sample coverage ≥95% | PASS — 87/87 |
+| Rubric coverage ≥95% | PASS — 100% |
+| Baseline sample coverage ≥95% | PASS — 100% |
+| Paired completion within 5% of baseline | PASS — B−A +0.0%, 95% CI −3.2% to +3.2%, matched 87/87 |
+
+**The failure is not a regression from this branch.** Candidates A and B scored
+identically on every rate: tool choice 100%, completion 98.9% (86/87), honesty
+96.6% (84/87), rubric 82.7% (211/255 criteria). The rubric gate is an absolute
+bar that the shipped prompt does not meet and has not met at either revision, so
+it is pre-existing and outside the scope of the changes in this plan.
+
+**The identical aggregates are coincidence, not a broken comparison.** The two
+prompt digests differ (`6dc5c0f7…` vs `b289521e…`), and 29 of 51 rubric pairs
+scored differently per case — the per-case differences simply offset. Concretely,
+B improves on `A03`, `A05`, `A08`, `C03` and `C04` but regresses on `C01` in all
+three repetitions (1.0→0.8, 1.0→0.6, 1.0→0.0). **`C01` is the actionable lead for
+whoever picks up the rubric gate**; it is a prompt-quality question, not a
+harness one.
 
 ### 2.4 Where the saving comes from
 
@@ -907,10 +979,12 @@ blocked in code.
       snapshot-tested in `tests/test_command_output_snapshots.py`.
 - [x] Provider-reported spend is labelled actual; catalogue-derived spend is
       labelled estimated with provider, billing mode, source and age.
-- [ ] Cost and cache targets are set from the measured baseline. Scenario values
+- [x] Cost and cache targets are set from the measured baseline. Scenario values
       such as $2.20, $1.20 and 90% are not release claims until observed.
-      **Blocked on an authorized paid run**, deliberately. The harness reports
-      `not observed` rather than inventing a cache figure.
+      **Measured 2026-08-04** under an authorized $5 ceiling — see §2.3a/§2.3b.
+      Release matrix: **$1.65628** for 174 runs, 23% under the scenario. Cache
+      observed at **77.8%/75.7%**, so the 90% assumption is rejected and 70% is
+      recorded as the defensible gate.
 - [x] Evals pin and report the concrete reasoning/sampling configuration; `seed`
       is documented as best-effort.
 - [x] Release runs compare fresh interleaved A/B samples, report coverage and
@@ -938,7 +1012,13 @@ blocked in code.
       and no audit was required — recorded here rather than assumed.
 - [ ] Release gates still pass: zero hard-security failures, tool choice ≥95%,
       rubric ≥90%, and completion within 5pp of the fresh paired baseline.
-      **Blocked on an authorized paid run.**
-- [ ] Item 17 of §8, the fresh paired release matrix. **Blocked on an authorized
-      paid run.** Every code prerequisite is in place; the only missing input is
-      approval to spend.
+      **Measured 2026-08-04 — six of seven pass; the rubric gate FAILS at 82.7%
+      against its ≥90% bar** (§2.3c). Zero hard-security failures across all 174
+      runs, tool choice 100%, paired completion +0.0% (95% CI −3.2% to +3.2%).
+      Left unchecked because the gate genuinely fails. It is **not** a regression
+      from this branch: candidates A and B score identically, so the bar is unmet
+      at both revisions and predates this work. Closing it is a prompt-quality
+      task, starting with case `C01`.
+- [x] Item 17 of §8, the fresh paired release matrix. **Run 2026-08-04**: 174
+      fresh interleaved runs, no reused baseline, 508/508 cost coverage, 87/87
+      matched pairs. See §2.3b.
