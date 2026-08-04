@@ -14,6 +14,36 @@ from .output import (
 )
 
 
+def _append_input_token_rows(rows: list[tuple[str, str]], usage: dict[str, Any]) -> None:
+    """Break input tokens into uncached and cached so caching is visible.
+
+    Providers report total input inclusive of cached reads, so a single
+    "input tokens" figure hides whether the prefix cache is working at all.
+    """
+    input_tokens = usage.get("input_tokens", 0)
+    cache_read_tokens = usage.get("cache_read_input_tokens", 0)
+    cache_write_tokens = usage.get("cache_write_input_tokens", 0)
+
+    rows.append(("Input tokens:", f"{input_tokens:,}"))
+    if cache_read_tokens + cache_write_tokens > input_tokens:
+        rows.append(("  Uncached:", "not reported (cached exceeds total input)"))
+        rows.append(("  Cache reads:", f"{cache_read_tokens:,}"))
+        rows.append(("  Cache writes:", f"{cache_write_tokens:,}"))
+        return
+
+    uncached_tokens = input_tokens - cache_read_tokens - cache_write_tokens
+    rows.append(("  Uncached:", f"{uncached_tokens:,}"))
+    rows.append(("  Cache reads:", f"{cache_read_tokens:,}{_cache_share(cache_read_tokens, input_tokens)}"))
+    rows.append(("  Cache writes:", f"{cache_write_tokens:,}"))
+
+
+def _cache_share(cache_read_tokens: int, input_tokens: int) -> str:
+    """Return the cached share of input, or nothing when it is unknowable."""
+    if input_tokens <= 0:
+        return ""
+    return f"  ({cache_read_tokens / input_tokens * 100:.0f}% of input)"
+
+
 def _append_reported_cost(rows: list[tuple[str, str]], usage: dict[str, Any]) -> None:
     """Append provider spend without presenting partial data as exact."""
     reported_requests = usage.get("reported_cost_requests", 0)
@@ -48,16 +78,13 @@ def _append_estimated_cost(
     if estimate.total_usd is None:
         rows.append(("Est. cost:", f"n/a ({estimate.unavailable_reason})"))
         return
-    input_cost = estimate.uncached_input_usd + estimate.cache_read_usd
-    input_cost += estimate.cache_write_usd
+    cache_cost = estimate.cache_read_usd + estimate.cache_write_usd
     source = describe_pricing_source(pricing)
-    rows.append(
-        (
-            "Est. cost:",
-            f"${estimate.total_usd:.4f}  "
-            f"(in ${input_cost:.4f} / out ${estimate.output_usd:.4f}; {source})",
-        )
-    )
+    rows.append(("Est. cost:", f"${estimate.total_usd:.4f}  (catalogue estimate)"))
+    rows.append(("  Uncached in:", f"${estimate.uncached_input_usd:.4f}"))
+    rows.append(("  Cached in:", f"${cache_cost:.4f}"))
+    rows.append(("  Output:", f"${estimate.output_usd:.4f}"))
+    rows.append(("  Pricing:", source))
 
 
 class CoreCommandHandlersMixin:
@@ -608,15 +635,15 @@ class CoreCommandHandlersMixin:
         output_tokens = usage.get("output_tokens", 0)
         model = agent.config.model
 
-        rows = [
-            ("Model:", model),
-            ("Input tokens:", f"{input_tokens:,}"),
-            ("Cache reads:", f"{usage.get('cache_read_input_tokens', 0):,}"),
-            ("Cache writes:", f"{usage.get('cache_write_input_tokens', 0):,}"),
-            ("Output tokens:", f"{output_tokens:,}"),
-            ("Reasoning:", f"{usage.get('reasoning_output_tokens', 0):,}"),
-            ("Total tokens:", f"{input_tokens + output_tokens:,}"),
-        ]
+        rows = [("Model:", model)]
+        _append_input_token_rows(rows, usage)
+        rows.extend(
+            [
+                ("Output tokens:", f"{output_tokens:,}"),
+                ("Reasoning:", f"{usage.get('reasoning_output_tokens', 0):,}"),
+                ("Total tokens:", f"{input_tokens + output_tokens:,}"),
+            ]
+        )
         _append_reported_cost(rows, usage)
         _append_estimated_cost(
             rows,

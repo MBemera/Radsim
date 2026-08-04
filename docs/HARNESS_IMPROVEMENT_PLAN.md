@@ -55,6 +55,11 @@ the instrumented baseline is captured
   with zero typed arguments, shows the active value in the menu, persists to
   settings.json, applies to the live client, and refuses levels the current
   model does not support.
+- 2026-08-04: completed §7.2. `/usage` now separates uncached from cached input
+  tokens with the cached share as a percentage, splits the catalogue estimate
+  into uncached/cached/output spend with pricing provenance, and prints
+  `not reported` rather than a negative figure when a provider's cached counts
+  exceed its own input total.
 - No paid live eval or credential-bearing action has been run. The empirical
   cache target and release baseline remain intentionally unset pending explicit
   spend authorization. §5.4's live quality/latency sweep is deferred with it;
@@ -702,6 +707,27 @@ math as estimated, including source age. Currently these commands under-report
 the known OpenRouter GLM 5.2 rates by ~2.9×, which is worse than showing nothing.
 
 **Effort:** folded into 4.1 and 0.2.
+
+**Resolved 2026-08-04 — implemented.** §4.1 (`1f9908f`) and §0.2 (`2a1a47c`)
+already fixed the arithmetic and the labelling: `/usage` (aliased `/cost`)
+separates `Actual cost` (provider reported) from `Est. cost` (catalogue), marks
+partial reported coverage as `partial: n/m requests`, and prints pricing
+provenance including snapshot age and a stale flag via
+`describe_pricing_source()`.
+
+This section completed the display half. Providers report input inclusive of
+cached reads, so a single input figure hid whether caching worked at all.
+`/usage` now breaks input into `Uncached`, `Cache reads` (with the cached share
+of input as a percentage) and `Cache writes`, and splits the estimate into
+uncached-input, cached-input and output spend with the pricing source on its own
+line.
+
+Fails honest rather than fails pretty: when a provider reports cached tokens
+exceeding total input, the uncached row prints
+`not reported (cached exceeds total input)` instead of a negative number — the
+same condition `estimate_usage_cost()` already refuses to price. Covered by
+`tests/test_command_output_snapshots.py`, including a character-level snapshot
+and a regression test asserting no negative token count can be printed.
 
 ### 7.3 Two documented eval profiles
 
