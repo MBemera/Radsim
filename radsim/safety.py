@@ -278,7 +278,6 @@ def confirm_write(file_path, content, config=None):
         if auto_confirm:
             safe_reason = escape_terminal_controls(reason)
             print(f"  > Auto-writing (trusted): {display_file_path} ({safe_reason})")
-            _record_write_decision(file_path, True, config)
             return True
 
     # Telegram confirmation mode — send summary instead of terminal prompt

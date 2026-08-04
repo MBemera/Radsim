@@ -683,7 +683,7 @@ rate limiting as not applicable unless this work introduces those surfaces.
       confidence intervals, and never substitute a cached baseline.
 - [ ] Hard-security failures remain zero-tolerance; incomplete/errored coverage
       fails closed rather than improving quality rates.
-- [ ] Trust learning records no positive evidence from its own auto-confirms;
+- [x] Trust learning records no positive evidence from its own auto-confirms;
       matched reverts affect only the originating decision; high-impact actions
       cannot gain learned auto-approval.
 - [ ] Eval artifacts contain no credentials or real private project content and

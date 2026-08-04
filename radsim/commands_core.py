@@ -718,6 +718,10 @@ class CoreCommandHandlersMixin:
             print_success(f"Removed (did not exist before): {deleted_path}")
         for skipped in result["skipped"]:
             print_warning(f"Skipped: {skipped}")
+        if result["restored"] or result["deleted"]:
+            from .trust_bandit_integration import record_matched_revert
+
+            record_matched_revert(result.get("trust_decision_id"), config=agent.config)
         try:
             from .agent_config import get_agent_config_manager
             from .learning import record_revert

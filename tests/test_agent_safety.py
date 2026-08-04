@@ -244,6 +244,55 @@ def test_generic_confirmation_uses_trust_bandit(monkeypatch):
     assert confirm_calls[0][0] == "type_check"
 
 
+def test_permission_flow_binds_exact_trust_decision_to_undo_checkpoint(monkeypatch):
+    agent = build_agent(auto_confirm=False)
+    pending_checkpoint = {"files": [{"path": "src/example.py"}]}
+    committed = []
+
+    def dispatch_with_decision(tool_name, tool_input):
+        from radsim.trust_bandit_integration import _remember_decision
+
+        _remember_decision("d" * 32, tool_name, tool_input)
+        return {"success": True}
+
+    monkeypatch.setattr(agent, "_dispatch_tool", dispatch_with_decision)
+    monkeypatch.setattr("radsim.user_hooks.fire_tool_hooks", lambda *args, **kwargs: (True, ""))
+    monkeypatch.setattr("radsim.undo.prepare_checkpoint", lambda *args: pending_checkpoint)
+    monkeypatch.setattr("radsim.undo.commit_checkpoint", committed.append)
+
+    result = agent._execute_with_permission(
+        "write_file", {"file_path": "src/example.py", "content": "example"}
+    )
+
+    assert result["success"] is True
+    assert committed[0]["trust_decision_id"] == "d" * 32
+
+
+def test_explicit_auto_mutation_gets_non_learning_decision_id(monkeypatch):
+    agent = build_agent(auto_confirm=True)
+    pending_checkpoint = {"files": [{"path": "src/example.py"}]}
+    committed = []
+    recorded = []
+    monkeypatch.setattr(agent, "_dispatch_tool", lambda *_args: {"success": True})
+    monkeypatch.setattr("radsim.user_hooks.fire_tool_hooks", lambda *args, **kwargs: (True, ""))
+    monkeypatch.setattr("radsim.undo.prepare_checkpoint", lambda *args: pending_checkpoint)
+    monkeypatch.setattr("radsim.undo.commit_checkpoint", committed.append)
+    monkeypatch.setattr(
+        "radsim.trust_bandit_integration.record_execution_decision",
+        lambda tool_name, tool_input, accepted, config=None: (
+            recorded.append((tool_name, accepted, config.auto_confirm)) or "e" * 32
+        ),
+    )
+
+    result = agent._execute_with_permission(
+        "write_file", {"file_path": "src/example.py", "content": "example"}
+    )
+
+    assert result["success"] is True
+    assert recorded == [("write_file", True, True)]
+    assert committed[0]["trust_decision_id"] == "e" * 32
+
+
 def test_tool_policy_failure_blocks_execution(monkeypatch):
     agent = build_agent(auto_confirm=True)
 

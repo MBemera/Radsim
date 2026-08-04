@@ -222,6 +222,7 @@ def undo_last():
         "success": True,
         "tool": entry.get("tool", ""),
         "time": entry.get("time", ""),
+        "trust_decision_id": entry.get("trust_decision_id"),
         "restored": restored,
         "deleted": deleted,
         "skipped": skipped,

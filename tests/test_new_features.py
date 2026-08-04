@@ -21,7 +21,7 @@ def isolated_env(tmp_path, monkeypatch):
 
 def build_agent():
     agent = SimpleNamespace(
-        config=SimpleNamespace(model="test-model", auto_confirm=False),
+        config=SimpleNamespace(model="test-model", auto_confirm=False, trust_mode="medium"),
         usage_stats={"input_tokens": 1000, "output_tokens": 500},
         messages=[],
         _last_response="Here you go:\n```python\nprint('hi')\n```\ndone",
@@ -36,11 +36,13 @@ class TestUndoCheckpoints:
         target.write_text("original\n")
 
         pending = undo.prepare_checkpoint("write_file", {"file_path": "app.py"})
+        pending["trust_decision_id"] = "a" * 32
         target.write_text("changed\n")
         undo.commit_checkpoint(pending)
 
         result = undo.undo_last()
         assert result["success"] is True
+        assert result["trust_decision_id"] == "a" * 32
         assert target.read_text() == "original\n"
 
     def test_undo_removes_files_that_did_not_exist(self, isolated_env):
@@ -271,14 +273,21 @@ class TestSessionCommands:
         target = isolated_env / "app.py"
         target.write_text("original\n")
         pending = undo.prepare_checkpoint("write_file", {"file_path": "app.py"})
+        pending["trust_decision_id"] = "b" * 32
         target.write_text("changed\n")
         undo.commit_checkpoint(pending)
+        reverted_decisions = []
 
         monkeypatch.setattr(
             "radsim.safety.ask_confirmation", lambda *a, **k: "yes"
         )
+        monkeypatch.setattr(
+            "radsim.trust_bandit_integration.record_matched_revert",
+            lambda decision_id, config=None: reverted_decisions.append(decision_id) or True,
+        )
         self.make_registry().handle_input("/undo", build_agent())
         assert target.read_text() == "original\n"
+        assert reverted_decisions == ["b" * 32]
         assert "Restored" in capsys.readouterr().out
 
 
