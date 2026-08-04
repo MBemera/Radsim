@@ -41,14 +41,14 @@ class FakeClient:
         self.calls = []
         self.interrupt_agent = None  # Set to simulate Esc mid-stream
 
-    def chat(self, messages, system_prompt=None, tools=None):
+    def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
         self.calls.append([dict(m) for m in messages])
         if not self.responses:
             raise AssertionError("FakeClient ran out of scripted responses")
         return self.responses.pop(0)
 
-    def stream_chat(self, messages, system_prompt=None, tools=None):
-        response = self.chat(messages, system_prompt, tools)
+    def stream_chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+        response = self.chat(messages, system_prompt, tools, max_tokens)
         for block in response["content"]:
             if block["type"] == "text" and block["text"]:
                 yield {"type": "text_delta", "text": block["text"]}

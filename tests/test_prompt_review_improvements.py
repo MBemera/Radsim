@@ -241,7 +241,7 @@ def test_api_call_refreshes_composed_prompt(monkeypatch):
         def __init__(self):
             self.seen_prompt = None
 
-        def chat(self, messages, system_prompt=None, tools=None):
+        def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
             self.seen_prompt = system_prompt
             return {"content": [], "usage": {"input_tokens": 1, "output_tokens": 1}}
 
@@ -254,6 +254,9 @@ def test_api_call_refreshes_composed_prompt(monkeypatch):
             self.usage_stats = {"input_tokens": 0, "output_tokens": 0}
             self.protection = FakeProtection()
             self._mcp_manager = None
+
+        def check_and_prune(self):
+            return 0
 
     monkeypatch.setattr("radsim.agent_api.get_system_prompt", lambda: "fresh prompt")
 

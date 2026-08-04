@@ -6,6 +6,12 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .context_budget import (
+    DEFAULT_CONTEXT_INPUT_TOKENS,
+    DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS,
+    DEFAULT_CONTEXT_RECOVERY_TOKENS,
+    MAX_CONTEXT_SETTING_TOKENS,
+)
 from .persistence import atomic_write_json
 from .pricing import ModelPricing
 from .runtime_context import get_runtime_context
@@ -45,6 +51,9 @@ class Config:
     max_api_calls_per_turn: int = 15  # Hard stop after 15 calls without user input
     max_session_input_tokens: int = 0  # 0 = unlimited (set to 500000 for budget limit)
     max_session_output_tokens: int = 0  # 0 = unlimited (set to 100000 for budget limit)
+    max_context_input_tokens: int = DEFAULT_CONTEXT_INPUT_TOKENS
+    context_output_reserve_tokens: int = DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS
+    context_recovery_tokens: int = DEFAULT_CONTEXT_RECOVERY_TOKENS
     rate_limit_cooldown_ms: int = 50  # Faster cooldown
     circuit_breaker_threshold: int = 3
 
@@ -1373,6 +1382,33 @@ def load_config(
         reasoning_effort = DEFAULT_REASONING_EFFORT
     reasoning_effort = resolve_reasoning_effort(provider, model, reasoning_effort)
 
+    max_session_input_tokens = _token_setting(
+        settings_config,
+        "max_session_input_tokens",
+        0,
+    )
+    max_session_output_tokens = _token_setting(
+        settings_config,
+        "max_session_output_tokens",
+        0,
+    )
+    max_context_input_tokens = _token_setting(
+        settings_config,
+        "max_context_input_tokens",
+        DEFAULT_CONTEXT_INPUT_TOKENS,
+    )
+    context_output_reserve_tokens = _token_setting(
+        settings_config,
+        "context_output_reserve_tokens",
+        DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS,
+        allow_zero=False,
+    )
+    context_recovery_tokens = _token_setting(
+        settings_config,
+        "context_recovery_tokens",
+        DEFAULT_CONTEXT_RECOVERY_TOKENS,
+    )
+
     return Config(
         provider=provider,
         api_key=api_key,
@@ -1383,4 +1419,32 @@ def load_config(
         agent_config=agent_config,
         reasoning_effort=reasoning_effort,
         max_api_calls_per_turn=max_api_calls,
+        max_session_input_tokens=max_session_input_tokens,
+        max_session_output_tokens=max_session_output_tokens,
+        max_context_input_tokens=max_context_input_tokens,
+        context_output_reserve_tokens=context_output_reserve_tokens,
+        context_recovery_tokens=context_recovery_tokens,
     )
+
+
+def _token_setting(
+    settings: dict[str, object],
+    name: str,
+    default: int,
+    *,
+    allow_zero: bool = True,
+) -> int:
+    """Load one bounded token setting and reject unsafe malformed values."""
+    if name not in settings:
+        return default
+    value = settings[name]
+    minimum = 0 if allow_zero else 1
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < minimum
+        or value > MAX_CONTEXT_SETTING_TOKENS
+    ):
+        qualifier = "non-negative" if allow_zero else "positive"
+        raise ValueError(f"{name} must be a {qualifier} bounded integer")
+    return value

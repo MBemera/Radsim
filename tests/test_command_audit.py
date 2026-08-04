@@ -49,10 +49,10 @@ ARG_VARIANTS = {
 class ScriptlessClient:
     """API client stub — commands must not silently call the model."""
 
-    def chat(self, messages, system_prompt=None, tools=None):
+    def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
         raise RuntimeError("command handler unexpectedly called the API")
 
-    def stream_chat(self, messages, system_prompt=None, tools=None):
+    def stream_chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
         raise RuntimeError("command handler unexpectedly called the API")
 
 

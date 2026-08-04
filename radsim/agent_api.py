@@ -73,7 +73,15 @@ class AgentApiMixin:
 
     def _call_api(self):
         """Call the API with current messages."""
+        from .context_budget import DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS
+
         self.system_prompt = get_system_prompt()
+        self.check_and_prune()
+        output_reserve_tokens = getattr(
+            self.config,
+            "context_output_reserve_tokens",
+            DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS,
+        )
 
         warning = self.protection.check_before_api_call()
         if warning:
@@ -92,6 +100,7 @@ class AgentApiMixin:
                     messages=self.messages,
                     system_prompt=self.system_prompt,
                     tools=all_tools,
+                    max_tokens=output_reserve_tokens,
                 )
 
                 for chunk in stream:
@@ -122,6 +131,7 @@ class AgentApiMixin:
                     messages=self.messages,
                     system_prompt=self.system_prompt,
                     tools=all_tools,
+                    max_tokens=output_reserve_tokens,
                 )
                 spinner.stop()
 

@@ -28,9 +28,18 @@ the instrumented baseline is captured
   confusion evidence. No stored eval artifacts were present, so descriptions
   remain unchanged until bounded development and holdout runs can justify a
   measured edit.
+- 2026-08-04: completed §5.4. Pruning no longer uses raw 80%/70% percentages of
+  the advertised model window. `radsim/context_budget.py` resolves one explicit
+  input cap as the narrowest of provider context minus output reserve, the
+  configured `max_context_input_tokens` (default 80,000) and any unspent session
+  input budget. Usage now counts the fixed system-prompt and canonical
+  tool-schema prefix, pruning runs before every provider request rather than
+  only on user turns, the same reserve is sent as `max_tokens`, and a request
+  that still cannot fit fails closed with `BudgetExceeded` before provider I/O.
 - No paid live eval or credential-bearing action has been run. The empirical
   cache target and release baseline remain intentionally unset pending explicit
-  spend authorization.
+  spend authorization. §5.4's live quality/latency sweep is deferred with it;
+  the offline boundary contracts are proven by tests.
 
 ## Scope
 
