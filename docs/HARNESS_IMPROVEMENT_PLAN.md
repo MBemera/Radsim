@@ -1063,18 +1063,21 @@ blocked in code.
       `tests/test_settings_reasoning_effort.py`.
 - [x] Offline suite, security suite and Ruff pass. Dependency audit passes when
       dependencies change; otherwise record that no dependency changed.
-      **2,268 tests pass and Ruff is clean.** `git diff main..HEAD` touches
+      **2,281 tests pass and Ruff is clean.** `git diff main..HEAD` touches
       neither `pyproject.toml` nor `requirements.txt`, so no dependency changed
       and no audit was required — recorded here rather than assumed.
 - [ ] Release gates still pass: zero hard-security failures, tool choice ≥95%,
       rubric ≥90%, and completion within 5pp of the fresh paired baseline.
-      **Measured 2026-08-04 — six of seven pass; the rubric gate FAILS at 82.7%
-      against its ≥90% bar** (§2.3c). Zero hard-security failures across all 174
-      runs, tool choice 100%, paired completion +0.0% (95% CI −3.2% to +3.2%).
-      Left unchecked because the gate genuinely fails. It is **not** a regression
-      from this branch: candidates A and B score identically, so the bar is unmet
-      at both revisions and predates this work. Closing it is a prompt-quality
-      task, starting with case `C01`.
+      **Measured 2026-08-04 — six of seven pass; the rubric gate FAILS at 85.1%
+      against its ≥90% bar** (§2.3c, updated by §2.3d). The 174-run matrix scored
+      82.7% with zero hard-security failures, tool choice 100% and paired
+      completion +0.0% (95% CI −3.2% to +3.2%); the `C01` fix in §2.3d then moved
+      the rubric to 85.1% and completion to 100% over a 87-run re-check, still
+      with zero security failures. Left unchecked because the gate genuinely
+      fails. It is **not** a regression from this branch: candidates A and B
+      scored identically before the fix, so the bar is unmet at both revisions
+      and predates this work. Closing it is a prompt-quality task; `C01` is done
+      and `S05` is the next lead.
 - [x] Item 17 of §8, the fresh paired release matrix. **Run 2026-08-04**: 174
       fresh interleaved runs, no reused baseline, 508/508 cost coverage, 87/87
       matched pairs. See §2.3b.
