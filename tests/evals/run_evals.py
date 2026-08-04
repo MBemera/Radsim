@@ -15,13 +15,14 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from .candidates import CANDIDATE_NAMES, get_candidate
-from .cases import get_cases
+from .candidates import CANDIDATE_NAMES
 from .harness import DEFAULT_MAX_ITERATIONS, run_case
+from .preflight import EvalPreflight, prepare_preflight, print_preflight
 from .scoring import evaluate_gates, grade_clarity, score_run, summarise
 
 DEFAULT_REPETITIONS = 3
 DEFAULT_WORKERS = 4
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
 
 
 def parse_arguments(argv=None):
@@ -39,7 +40,15 @@ def parse_arguments(argv=None):
     parser.add_argument("--model", default=None, help="Model override")
     parser.add_argument("--grader-model", default=None, help="Model used for rubric grading")
     parser.add_argument("--no-rubric", action="store_true", help="Skip model-graded clarity")
+    parser.add_argument("--dry-run", action="store_true", help="Validate and print bounds without API access")
+    parser.add_argument("--max-cost-usd", default=None, help="Required hard spend cap for paid runs")
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="Parallel runs")
+    parser.add_argument(
+        "--request-timeout-seconds",
+        type=float,
+        default=DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        help="Timeout for each provider request",
+    )
     parser.add_argument(
         "--max-iterations",
         type=int,
@@ -50,13 +59,9 @@ def parse_arguments(argv=None):
     return parser.parse_args(argv)
 
 
-def resolve_selection(provider, model):
-    """Resolve the provider, model, and credential for the run.
-
-    Returns:
-        (provider, model, api_key)
-    """
-    from radsim.config import get_provider_api_key, load_env_file
+def resolve_model_selection(provider, model):
+    """Resolve provider and model without reading a credential."""
+    from radsim.config import load_env_file
 
     saved = load_env_file()
     provider = provider or saved.get("provider")
@@ -64,45 +69,43 @@ def resolve_selection(provider, model):
     if not provider or not model:
         raise SystemExit("No provider/model configured. Pass --provider and --model.")
 
+    return provider, model
+
+
+def resolve_api_key(provider):
+    """Read the selected provider credential only after preflight passes."""
+    from radsim.config import get_provider_api_key
+
     api_key = get_provider_api_key(provider)
     if not api_key:
         raise SystemExit(f"No API key available for provider '{provider}'.")
+    return api_key
 
-    return provider, model, api_key
 
-
-def build_client(provider, api_key, model):
+def build_client(provider, api_key, model, request_timeout_seconds):
     """Create one API client for the whole run."""
     from radsim.api_client import create_client
 
-    return create_client(provider, api_key, model)
+    return create_client(provider, api_key, model, timeout=request_timeout_seconds)
 
 
-def run_matrix(arguments, client, grader_client):
+def run_matrix(arguments, client, grader_client, preflight: EvalPreflight):
     """Run every candidate, case, and repetition. Returns (records, scores)."""
-    cases = get_cases(
-        group=arguments.group,
-        case_ids=arguments.cases.split(",") if arguments.cases else None,
-    )
-    if not cases:
-        raise SystemExit("No cases matched the filter.")
-
     jobs = [
         (candidate, case, repetition)
-        for candidate in arguments.candidates.split(",")
-        for case in cases
+        for candidate in preflight.candidate_names
+        for case in preflight.cases
         for repetition in range(1, arguments.reps + 1)
     ]
-    prompts = {name: get_candidate(name)[1] for name in {job[0] for job in jobs}}
 
-    print(f"Running {len(jobs)} case runs ({len(cases)} cases)\n")
+    print(f"Running {len(jobs)} case runs ({len(preflight.cases)} cases)\n")
 
     def run_one(job):
         candidate, case, repetition = job
         record = run_case(
             case,
             candidate,
-            prompts[candidate],
+            preflight.prompts[candidate],
             client,
             max_iterations=arguments.max_iterations,
         )
@@ -134,7 +137,7 @@ def _print_progress(candidate, case, repetition, score):
     print(f"  [{candidate}] {case.id} rep{repetition}  {verdict}")
 
 
-def report(scores, records, output_path):
+def report(scores, records, output_path, manifest):
     """Print the gate table and write the full results.
 
     The written file keeps each run's answer and tool arguments, because a
@@ -161,7 +164,7 @@ def report(scores, records, output_path):
 
     if "B" not in summaries:
         print("\nCandidate B was not run, so the release gates do not apply.")
-        _write_results(output_path, summaries, [], scores, records)
+        _write_results(output_path, manifest, summaries, [], scores, records)
         return summaries, []
 
     gates = evaluate_gates(summaries.get("A"), summaries["B"])
@@ -172,16 +175,17 @@ def report(scores, records, output_path):
     for failure in summaries["B"]["security_failures"]:
         print(f"  ! {failure['case']} rep{failure['repetition']}: {'; '.join(failure['failures'])}")
 
-    _write_results(output_path, summaries, gates, scores, records)
+    _write_results(output_path, manifest, summaries, gates, scores, records)
     print(f"\nWrote {output_path}")
     return summaries, gates
 
 
-def _write_results(output_path, summaries, gates, scores, records):
+def _write_results(output_path, manifest, summaries, gates, scores, records):
     """Write summaries, gates, scores, and full run transcripts."""
     Path(output_path).write_text(
         json.dumps(
             {
+                "manifest": manifest,
                 "summaries": summaries,
                 "gates": gates,
                 "scores": [score.as_dict() for score in scores],
@@ -196,18 +200,29 @@ def _write_results(output_path, summaries, gates, scores, records):
 def main(argv=None):
     """Entry point. Returns a process exit code."""
     arguments = parse_arguments(argv)
-    provider, model, api_key = resolve_selection(arguments.provider, arguments.model)
+    provider, model = resolve_model_selection(arguments.provider, arguments.model)
+    preflight = prepare_preflight(arguments, provider, model)
     print(f"Provider: {provider}  Model: {model}")
+    print_preflight(preflight)
 
-    client = build_client(provider, api_key, model)
+    if arguments.dry_run:
+        return 0
+
+    api_key = resolve_api_key(provider)
+    client = build_client(provider, api_key, model, arguments.request_timeout_seconds)
     grader_client = (
-        build_client(provider, api_key, arguments.grader_model)
+        build_client(
+            provider,
+            api_key,
+            arguments.grader_model,
+            arguments.request_timeout_seconds,
+        )
         if arguments.grader_model
         else client
     )
 
-    records, scores = run_matrix(arguments, client, grader_client)
-    _summaries, gates = report(scores, records, arguments.output)
+    records, scores = run_matrix(arguments, client, grader_client, preflight)
+    _summaries, gates = report(scores, records, arguments.output, preflight.manifest)
 
     return 0 if gates and all(gate["passed"] for gate in gates) else 1
 

@@ -7,17 +7,18 @@ a bad action.
 ## Running it
 
 ```bash
-python -m tests.evals.run_evals                    # both candidates, 3 reps each
-python -m tests.evals.run_evals --candidates B     # current prompt only
-python -m tests.evals.run_evals --cases S01,S03    # a few ids
-python -m tests.evals.run_evals --group injection  # one group
+python -m tests.evals.run_evals --dry-run --provider openrouter --model z-ai/glm-5.2
+python -m tests.evals.run_evals --max-cost-usd 3.00                    # both candidates
+python -m tests.evals.run_evals --max-cost-usd 1.25 --candidates B     # current prompt
+python -m tests.evals.run_evals --max-cost-usd 0.25 --cases S01,S03    # a few ids
 ```
 
 Live model calls are made against the saved primary provider and model unless
 `--provider`/`--model` say otherwise. A full run is 29 cases × 2 candidates ×
-3 repetitions, each up to four request/tool rounds, plus one grading call per
-rubric case. Budget accordingly; `--reps 1 --candidates B` is the cheap smoke
-version.
+3 repetitions, each up to seven request/tool rounds, plus one grading call per
+rubric case. Every paid run requires an explicit `--max-cost-usd`; use
+`--dry-run` first to validate the selection and print the maximum logical
+requests, retry attempts, concurrency and timeout without reading an API key.
 
 The harness itself is covered offline by `tests/test_eval_harness.py`, which
 runs every part of this package against a stub client. Fix a scoring bug there

@@ -744,7 +744,13 @@ class OpenRouterClient(OpenAIClient):
         return kwargs
 
 
-def create_client(provider, api_key, model=None, reasoning_effort=None):
+def create_client(
+    provider,
+    api_key,
+    model=None,
+    reasoning_effort=None,
+    timeout=DEFAULT_TIMEOUT_SECONDS,
+):
     """Create an API client for the specified provider."""
     clients = {
         "claude": ClaudeClient,
@@ -756,7 +762,7 @@ def create_client(provider, api_key, model=None, reasoning_effort=None):
         raise ValueError(f"Unknown provider: {provider}")
 
     client_class = clients[provider]
-    kwargs = {}
+    kwargs = {"timeout": timeout}
     if model:
         kwargs["model"] = model
     if reasoning_effort and provider in ("openai", "openrouter"):
