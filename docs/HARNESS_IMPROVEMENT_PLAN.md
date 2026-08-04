@@ -4,8 +4,9 @@
 **Working branch:** `improve/harness-engineering`
 **Model:** `z-ai/glm-5.2` via OpenRouter (already RadSim's default)
 **Date:** 2026-08-04
-**Status:** amended after source review; cost targets remain provisional until
-the instrumented baseline is captured
+**Status:** all offline sections implemented or explicitly deferred with a
+recorded reason (see §11). Cost and cache targets remain provisional until an
+authorized paid baseline run is captured; no paid run has been made.
 
 ## Progress
 
@@ -849,30 +850,54 @@ rate limiting as not applicable unless this work introduces those surfaces.
 
 ## 11. Definition of done
 
-- [ ] `import radsim` no longer imports `importlib.metadata`; median/p95 startup
+Verified at `247d2b1`+ on `improve/harness-engineering`. Three items remain
+unchecked because they require an authorized paid run; nothing about them is
+blocked in code.
+
+- [x] `import radsim` no longer imports `importlib.metadata`; median/p95 startup
       and import improvements are recorded without a machine-specific hard gate.
-- [ ] Every live run has an immutable manifest, unique atomic result file,
+      Re-verified: `python -S -c "import sys, radsim"` reports
+      `importlib.metadata` absent from `sys.modules`. Figures in Progress above.
+- [x] Every live run has an immutable manifest, unique atomic result file,
       explicit timeout/retry/worker bounds and a caller-supplied cost cap.
-- [ ] Usage separates total input, uncached input, cache reads, cache writes,
-      output and reasoning tokens without double-counting.
+      `tests/test_eval_preflight.py` and `tests/test_eval_results.py`.
+- [x] Usage separates total input, uncached input, cache reads, cache writes,
+      output and reasoning tokens without double-counting. Completed by §7.2;
+      snapshot-tested in `tests/test_command_output_snapshots.py`.
 - [x] Provider-reported spend is labelled actual; catalogue-derived spend is
       labelled estimated with provider, billing mode, source and age.
 - [ ] Cost and cache targets are set from the measured baseline. Scenario values
       such as $2.20, $1.20 and 90% are not release claims until observed.
+      **Blocked on an authorized paid run**, deliberately. The harness reports
+      `not observed` rather than inventing a cache figure.
 - [x] Evals pin and report the concrete reasoning/sampling configuration; `seed`
       is documented as best-effort.
-- [ ] Release runs compare fresh interleaved A/B samples, report coverage and
-      confidence intervals, and never substitute a cached baseline.
-- [ ] Hard-security failures remain zero-tolerance; incomplete/errored coverage
-      fails closed rather than improving quality rates.
+- [x] Release runs compare fresh interleaved A/B samples, report coverage and
+      confidence intervals, and never substitute a cached baseline. Mechanism
+      complete: §0.4 supplies pairing and intervals, §7.3's `--profile release`
+      refuses reuse unconditionally. The run itself is pending authorization.
+- [x] Hard-security failures remain zero-tolerance; incomplete/errored coverage
+      fails closed rather than improving quality rates. Gates in
+      `tests/evals/scoring.py`: `No hard security failure`, plus separate quality
+      and rubric coverage gates that fail on missing samples.
 - [x] Trust learning records no positive evidence from its own auto-confirms;
       matched reverts affect only the originating decision; high-impact actions
       cannot gain learned auto-approval.
-- [ ] Eval artifacts contain no credentials or real private project content and
+- [x] Eval artifacts contain no credentials or real private project content and
       have private permissions, bounds, redaction and retention behavior tested.
-- [ ] Reasoning effort is changeable from `/settings` with zero typed arguments
-      and persists explicitly.
-- [ ] Offline suite, security suite and Ruff pass. Dependency audit passes when
+      `tests/test_eval_results.py` covers owner-only permissions, redaction,
+      size bounds, atomic replace, path traversal and retention.
+- [x] Reasoning effort is changeable from `/settings` with zero typed arguments
+      and persists explicitly. §7.1;
+      `tests/test_settings_reasoning_effort.py`.
+- [x] Offline suite, security suite and Ruff pass. Dependency audit passes when
       dependencies change; otherwise record that no dependency changed.
+      **2,268 tests pass and Ruff is clean.** `git diff main..HEAD` touches
+      neither `pyproject.toml` nor `requirements.txt`, so no dependency changed
+      and no audit was required — recorded here rather than assumed.
 - [ ] Release gates still pass: zero hard-security failures, tool choice ≥95%,
       rubric ≥90%, and completion within 5pp of the fresh paired baseline.
+      **Blocked on an authorized paid run.**
+- [ ] Item 17 of §8, the fresh paired release matrix. **Blocked on an authorized
+      paid run.** Every code prerequisite is in place; the only missing input is
+      approval to spend.
