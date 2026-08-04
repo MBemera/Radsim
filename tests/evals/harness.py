@@ -11,6 +11,7 @@ file cannot affect the next case or the machine.
 import copy
 import json
 import logging
+import math
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -56,6 +57,7 @@ class RunRecord:
     retry_attempts: int = 0
     latency_ms: float = 0.0
     request_ids: list[str] = field(default_factory=list)
+    request_observations: list[dict[str, Any]] = field(default_factory=list)
     reported_cost_complete: bool = False
     error: str = ""
 
@@ -172,9 +174,44 @@ def _record_usage(record: RunRecord, usage: dict[str, Any]) -> None:
     request_id = usage.get("request_id")
     if isinstance(request_id, str) and request_id:
         record.request_ids.append(request_id[:256])
+    record.request_observations.append(_request_observation(usage))
     record.reported_cost_complete = (
         record.request_count > 0 and record.reported_cost_requests == record.request_count
     )
+
+
+def _request_observation(usage: dict[str, Any]) -> dict[str, Any]:
+    """Keep bounded per-request cache, route, model, and latency evidence."""
+    return {
+        "request_id": _bounded_metadata(usage.get("request_id")),
+        "provider_name": _bounded_metadata(usage.get("provider_name")),
+        "routed_provider": _bounded_metadata(usage.get("routed_provider")),
+        "response_model": _bounded_metadata(usage.get("response_model")),
+        "input_tokens": _nonnegative_integer(usage.get("input_tokens")),
+        "cache_read_input_tokens": _nonnegative_integer(
+            usage.get("cache_read_input_tokens")
+        ),
+        "cache_write_input_tokens": _nonnegative_integer(
+            usage.get("cache_write_input_tokens")
+        ),
+        "latency_ms": _nonnegative_float(usage.get("latency_ms")),
+    }
+
+
+def _bounded_metadata(value: Any) -> str | None:
+    return value[:256] if isinstance(value, str) and value else None
+
+
+def _nonnegative_integer(value: Any) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        return 0
+    return value
+
+
+def _nonnegative_float(value: Any) -> float | None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    return float(value) if math.isfinite(value) and value >= 0 else None
 
 
 def _error_retry_attempts(error: Exception) -> int:

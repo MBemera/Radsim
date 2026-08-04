@@ -15,8 +15,17 @@ the instrumented baseline is captured
   272.38 ms p95 to 49.33 ms median / 73.65 ms p95. Importing `radsim` no longer
   loads `importlib.metadata`; 49 focused tests, the full 2,102-test suite and
   Ruff passed.
-- No paid live eval or credential-bearing action has been run. Phase 0 safety,
-  provenance and cost-cap controls remain the next implementation slice.
+- 2026-08-04: completed Phases 0 and 1 as separate reviewable commits. The eval
+  now has preflight bounds, immutable artifacts, normalized usage, honest A/B
+  statistics, provider-aware pricing, bounded trust evidence and pinned
+  sampling controls.
+- 2026-08-04: completed §5.2 offline. Provider requests now use canonical tool
+  schemas, active prompt modes are ordered deterministically, the first scored
+  run per candidate primes the natural prefix before fan-out, and results
+  record cache, provider/route/model and latency evidence.
+- No paid live eval or credential-bearing action has been run. The empirical
+  cache target and release baseline remain intentionally unset pending explicit
+  spend authorization.
 
 ## Scope
 

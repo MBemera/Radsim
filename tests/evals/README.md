@@ -27,6 +27,9 @@ effort and records it in the manifest. Pass `--effort` and, when needed,
 `--grader-effort` explicitly to compare other configurations.
 Candidate A/B jobs are kept adjacent by case and repetition, with their pair
 order and case order derived from the recorded `--seed` (default `20260804`).
+Before the remaining fan-out, the harness scores the first selected case for
+each candidate sequentially. Those are natural matrix runs, not extra warm-up
+calls, so cache priming adds no provider request and changes no score coverage.
 The eval request profile also pins `temperature`, `top_p`, and a separate
 `--sampling-seed`. The manifest records requested and capability-filtered
 values. A seed is best-effort reproducibility evidence, not a guarantee of
@@ -52,11 +55,21 @@ before spending tokens here.
 4. Records every call before answering it, so an action the model should never
    have attempted is scored even when the simulated answer was harmless.
 5. Records normalized input, output, cache-read, cache-write and reasoning
-   tokens, provider-reported cost, latency and bounded request IDs. Cache reads
-   remain part of total input tokens and are not added to the total twice.
+   tokens, provider-reported cost, latency, bounded request IDs, configured
+   provider, response model and routed provider when the remote route reports
+   them. Cache reads remain part of total input tokens and are not added to the
+   total twice.
 6. Redacts and bounds the payload, writes it atomically to a unique
    `eval_results/<UTC timestamp>-<short SHA>-<artifact digest>.json` file with
    owner-only permissions, then atomically updates `latest.json`.
+
+The console and result artifact report the cached input fraction after each
+candidate's first request. A zero or missing remote cache counter is reported
+as `not observed`; it is not promoted to an assumed cache hit. No cache
+percentage is a release gate until a bounded live baseline establishes an
+empirical target. Upstream routing is provider-default and recorded explicitly;
+RadSim does not pin a route without first measuring the privacy and availability
+trade-off.
 
 `eval_results/` is gitignored. Generated results are retained for 30 days with
 a maximum of 50 result files. Cleanup only matches the generated filename

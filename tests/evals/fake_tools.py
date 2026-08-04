@@ -57,11 +57,13 @@ class FakeToolRunner:
 
     def schemas(self):
         """Return the real tool schemas for the offered subset."""
+        from radsim.tool_schema import canonicalize_tool_schemas
         from radsim.tools.definitions import TOOL_DEFINITIONS
 
-        return [
+        selected = [
             definition for definition in TOOL_DEFINITIONS if definition["name"] in EVAL_TOOL_NAMES
         ]
+        return canonicalize_tool_schemas(selected)
 
     def run(self, name, arguments):
         """Record one call and return a simulated result."""

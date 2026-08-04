@@ -12,9 +12,14 @@ temporary project; sanitized run artifacts go to the private result directory.
 import argparse
 import random
 import sys
-from concurrent.futures import ThreadPoolExecutor
 
 from .budget import BudgetedEvalClient, EvalCostBudget
+from .cache_observability import (
+    print_cache_observability,
+    run_jobs_with_natural_priming,
+    split_cache_priming_jobs,
+    summarise_cache_observability,
+)
 from .candidates import CANDIDATE_NAMES
 from .harness import DEFAULT_MAX_ITERATIONS, run_case
 from .preflight import EvalPreflight, prepare_preflight, print_preflight
@@ -159,32 +164,51 @@ def run_matrix(arguments, client, grader_client, preflight: EvalPreflight):
         arguments.reps,
         arguments.seed,
     )
-    preflight.manifest["execution"]["job_order"] = [
-        f"{case.id}:rep{repetition}:{candidate}" for candidate, case, repetition in jobs
-    ]
+    priming_jobs, remaining_jobs = split_cache_priming_jobs(jobs)
+    _record_job_execution(preflight, jobs, priming_jobs)
 
     print(f"Running {len(jobs)} case runs ({len(preflight.cases)} cases)\n")
 
     def run_one(job):
-        candidate, case, repetition = job
-        record = run_case(
-            case,
-            candidate,
-            preflight.prompts[candidate],
-            client,
-            max_iterations=arguments.max_iterations,
-        )
-        record.repetition = repetition
-        score = score_run(case, record)
-        if case.rubric and not arguments.no_rubric:
-            score.rubric_score = grade_clarity(case, record, grader_client)
-        _print_progress(candidate, case, repetition, score)
-        return record, score
+        return _run_one_job(job, arguments, client, grader_client, preflight)
 
-    with ThreadPoolExecutor(max_workers=max(1, arguments.workers)) as executor:
-        results = list(executor.map(run_one, jobs))
+    results = run_jobs_with_natural_priming(
+        priming_jobs,
+        remaining_jobs,
+        run_one,
+        arguments.workers,
+    )
 
     return [record for record, _score in results], [score for _record, score in results]
+
+
+def _job_name(job) -> str:
+    candidate, case, repetition = job
+    return f"{case.id}:rep{repetition}:{candidate}"
+
+
+def _record_job_execution(preflight: EvalPreflight, jobs, priming_jobs) -> None:
+    preflight.manifest["execution"]["job_order"] = [_job_name(job) for job in jobs]
+    preflight.manifest["execution"]["cache_priming"]["scored_jobs"] = [
+        _job_name(job) for _index, job in priming_jobs
+    ]
+
+
+def _run_one_job(job, arguments, client, grader_client, preflight):
+    candidate, case, repetition = job
+    record = run_case(
+        case,
+        candidate,
+        preflight.prompts[candidate],
+        client,
+        max_iterations=arguments.max_iterations,
+    )
+    record.repetition = repetition
+    score = score_run(case, record)
+    if case.rubric and not arguments.no_rubric:
+        score.rubric_score = grade_clarity(case, record, grader_client)
+    _print_progress(candidate, case, repetition, score)
+    return record, score
 
 
 def build_jobs(candidate_names, cases, repetitions, seed):
@@ -231,15 +255,23 @@ def report(scores, records, result_directory, manifest):
         by_candidate.setdefault(score.candidate, []).append(score)
 
     summaries = {name: summarise(items) for name, items in by_candidate.items()}
+    cache_observability = summarise_cache_observability(records)
 
     print("\nRates by candidate")
     for name, summary in sorted(summaries.items()):
         _print_candidate_summary(name, summary)
+    print_cache_observability(cache_observability)
 
     if "B" not in summaries:
         print("\nCandidate B was not run, so the release gates do not apply.")
         result_path = _write_results(
-            result_directory, manifest, summaries, [], scores, records
+            result_directory,
+            manifest,
+            summaries,
+            [],
+            scores,
+            records,
+            cache_observability=cache_observability,
         )
         print(f"\nWrote {result_path}")
         return summaries, []
@@ -262,6 +294,7 @@ def report(scores, records, result_directory, manifest):
         scores,
         records,
         comparisons,
+        cache_observability,
     )
     print(f"\nWrote {result_path}")
     return summaries, gates
@@ -303,6 +336,7 @@ def _write_results(
     scores,
     records,
     comparisons=None,
+    cache_observability=None,
 ):
     """Write summaries, gates, scores, and full run transcripts."""
     payload = {
@@ -310,6 +344,7 @@ def _write_results(
         "summaries": summaries,
         "gates": gates,
         "comparisons": comparisons or {},
+        "cache_observability": cache_observability or {},
         "scores": [score.as_dict() for score in scores],
         "runs": [record.as_dict() for record in records],
     }

@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from radsim.api_client import ClaudeClient, OpenAIClient, _parse_tool_arguments
+from radsim.api_client import ClaudeClient, OpenAIClient, OpenRouterClient, _parse_tool_arguments
 
 
 class EmptyClaudeStream:
@@ -68,6 +68,7 @@ class TestOpenAIParseResponse:
     def test_complete_usage_is_normalized(self):
         provider_response = self._response_with_arguments("")
         provider_response.id = "openrouter-request"
+        provider_response.model = "vendor/model"
         provider_response.usage = SimpleNamespace(
             prompt_tokens=100,
             completion_tokens=25,
@@ -84,6 +85,18 @@ class TestOpenAIParseResponse:
         assert response["usage"]["reasoning_output_tokens"] == 8
         assert response["usage"]["reported_cost_usd"] == 0.003
         assert response["usage"]["request_id"] == "openrouter-request"
+        assert response["usage"]["provider_name"] == "openai"
+        assert response["usage"]["response_model"] == "vendor/model"
+
+    def test_openrouter_records_configured_and_routed_provider(self):
+        provider_response = self._response_with_arguments("")
+        provider_response.provider = "upstream-provider"
+        client = OpenRouterClient.__new__(OpenRouterClient)
+
+        response = client._parse_response(provider_response)
+
+        assert response["usage"]["provider_name"] == "openrouter"
+        assert response["usage"]["routed_provider"] == "upstream-provider"
 
 
 class TestProviderUsageStreams:

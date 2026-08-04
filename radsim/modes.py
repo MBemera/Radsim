@@ -103,12 +103,12 @@ class ModeManager:
 
     def get_active_modes(self) -> list[str]:
         """Get list of active mode names."""
-        return list(self._active_modes)
+        return sorted(self._active_modes)
 
     def get_prompt_additions(self) -> str:
         """Get combined prompt additions from all active modes."""
         additions = []
-        for mode_name in self._active_modes:
+        for mode_name in sorted(self._active_modes):
             mode = self._modes.get(mode_name)
             if mode and mode.prompt_addition:
                 additions.append(mode.prompt_addition)

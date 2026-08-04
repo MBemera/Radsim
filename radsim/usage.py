@@ -31,6 +31,15 @@ def normalize_usage(
         ),
         "retry_attempts": _token_count(provider_usage, "retry_attempts"),
         "request_id": _request_id(response),
+        "provider_name": _bounded_string(provider),
+        "routed_provider": _first_string(
+            (response, "provider"),
+            (provider_usage, "provider"),
+        ),
+        "response_model": _first_string(
+            (response, "model"),
+            (provider_usage, "model"),
+        ),
         "latency_ms": _nonnegative_number(latency_ms),
     }
 
@@ -106,8 +115,9 @@ def merge_usage_snapshots(
         _token_count(current, "retry_attempts"),
         _token_count(latest, "retry_attempts"),
     )
-    if latest.get("request_id"):
-        merged["request_id"] = latest["request_id"]
+    for field in ("request_id", "provider_name", "routed_provider", "response_model"):
+        if latest.get(field):
+            merged[field] = latest[field]
     return merged
 
 
@@ -165,6 +175,22 @@ def _request_id(response: Any) -> str | None:
         if isinstance(value, str) and value:
             return value[:256]
     return None
+
+
+def _first_string(*locations: tuple[Any, str]) -> str | None:
+    """Return the first bounded, non-empty string from provider metadata."""
+    for value, name in locations:
+        normalized = _bounded_string(_read_field(value, name))
+        if normalized:
+            return normalized
+    return None
+
+
+def _bounded_string(value: Any) -> str | None:
+    """Bound untrusted metadata without coercing objects or numbers."""
+    if not isinstance(value, str) or not value:
+        return None
+    return value[:256]
 
 
 def _read_field(value: Any, name: str) -> Any:

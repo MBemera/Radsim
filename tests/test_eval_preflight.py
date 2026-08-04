@@ -5,9 +5,20 @@ import json
 
 import pytest
 
+from tests.evals.cache_observability import (
+    run_jobs_with_natural_priming,
+    split_cache_priming_jobs,
+    summarise_cache_observability,
+)
 from tests.evals.cases import get_cases
+from tests.evals.harness import RunRecord
 from tests.evals.preflight import prepare_preflight
-from tests.evals.run_evals import build_client, build_jobs, main, parse_arguments
+from tests.evals.run_evals import (
+    build_client,
+    build_jobs,
+    main,
+    parse_arguments,
+)
 
 
 def _arguments(*extra: str) -> argparse.Namespace:
@@ -49,7 +60,7 @@ def test_manifest_contains_provenance_without_credentials():
     )
 
     encoded = json.dumps(preflight.manifest)
-    assert preflight.manifest["schema_version"] == 2
+    assert preflight.manifest["schema_version"] == 3
     assert len(preflight.manifest["artifact_digest"]) == 64
     assert preflight.manifest["execution"]["case_runs"] == 3
     assert preflight.manifest["execution"]["logical_request_limit"] == 21
@@ -60,6 +71,15 @@ def test_manifest_contains_provenance_without_credentials():
         "seed": 20260804,
     }
     assert preflight.manifest["selection"]["seed_is_best_effort"] is True
+    assert preflight.manifest["execution"]["cache_priming"] == {
+        "strategy": "first-scored-run-per-candidate-prefix",
+        "additional_requests": 0,
+        "route_affinity": "provider-default",
+        "routing_tradeoff": (
+            "No upstream provider is pinned; this preserves routing availability and "
+            "avoids an unmeasured privacy/availability trade-off."
+        ),
+    }
     assert preflight.manifest["runtime"]["radsim"]
     assert "api_key" not in encoded.lower()
     assert "OPENROUTER_API_KEY" not in encoded
@@ -134,6 +154,94 @@ def test_seeded_job_order_is_reproducible_and_seed_sensitive():
 
     assert first == repeated
     assert first != changed
+
+
+def test_first_scored_job_for_each_candidate_is_selected_for_priming():
+    jobs = build_jobs(("A", "B"), get_cases(case_ids=["S01", "T02"]), 2, seed=42)
+
+    priming, remaining = split_cache_priming_jobs(jobs)
+
+    assert [job[1][0] for job in priming] == [jobs[0][0], jobs[1][0]]
+    assert {job[1][0] for job in priming} == {"A", "B"}
+    assert len(priming) + len(remaining) == len(jobs)
+
+
+def test_natural_priming_runs_first_without_changing_result_order():
+    jobs = [("B", "case-1"), ("A", "case-1"), ("B", "case-2"), ("A", "case-2")]
+    priming, remaining = split_cache_priming_jobs(jobs)
+    execution_order = []
+
+    results = run_jobs_with_natural_priming(
+        priming,
+        remaining,
+        lambda job: execution_order.append(job) or job,
+        workers=1,
+    )
+
+    assert execution_order[:2] == jobs[:2]
+    assert results == jobs
+
+
+def test_cache_summary_skips_only_natural_first_request_per_candidate():
+    first = RunRecord("T01", "discipline", "B", 1)
+    first.request_observations = [
+        _cache_observation(cache_tokens=0, routed_provider="route-a", latency_ms=20),
+        _cache_observation(cache_tokens=80, routed_provider="route-a", latency_ms=10),
+    ]
+    second = RunRecord("T02", "discipline", "B", 1)
+    second.request_observations = [
+        _cache_observation(cache_tokens=60, routed_provider="route-b", latency_ms=30)
+    ]
+
+    summary = summarise_cache_observability([first, second])["B"]
+
+    assert summary["status"] == "observed"
+    assert summary["eligible_requests"] == 2
+    assert summary["cached_fraction"] == pytest.approx(0.7)
+    assert summary["mean_latency_ms"] == 20
+    assert summary["routed_providers"] == ["route-a", "route-b"]
+
+
+def test_cache_summary_says_not_observed_without_remote_hits():
+    record = RunRecord("T01", "discipline", "B", 1)
+    record.request_observations = [
+        _cache_observation(cache_tokens=0),
+        _cache_observation(cache_tokens=0),
+    ]
+
+    summary = summarise_cache_observability([record])["B"]
+
+    assert summary["status"] == "not observed"
+    assert summary["cached_fraction"] == 0
+
+
+def test_cache_summary_rejects_inconsistent_provider_accounting():
+    record = RunRecord("T01", "discipline", "B", 1)
+    record.request_observations = [
+        _cache_observation(cache_tokens=0),
+        _cache_observation(input_tokens=10, cache_tokens=11),
+    ]
+
+    summary = summarise_cache_observability([record])["B"]
+
+    assert summary["status"] == "invalid accounting"
+    assert summary["cached_fraction"] is None
+
+
+def _cache_observation(
+    *,
+    input_tokens=100,
+    cache_tokens=0,
+    routed_provider=None,
+    latency_ms=5,
+):
+    return {
+        "input_tokens": input_tokens,
+        "cache_read_input_tokens": cache_tokens,
+        "routed_provider": routed_provider,
+        "provider_name": "openrouter",
+        "latency_ms": latency_ms,
+    }
 
 
 def test_manifest_digest_changes_with_candidate_prompt(monkeypatch):

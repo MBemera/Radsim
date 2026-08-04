@@ -199,6 +199,9 @@ class TestHarness:
             "reasoning_output_tokens": 8,
             "reported_cost_usd": 0.004,
             "request_id": "eval-request-1",
+            "provider_name": "openrouter",
+            "routed_provider": "upstream-a",
+            "response_model": "vendor/model",
             "latency_ms": 30,
         }
 
@@ -211,8 +214,39 @@ class TestHarness:
         assert record.reasoning_output_tokens == 8
         assert record.reported_cost_usd == 0.004
         assert record.request_ids == ["eval-request-1"]
+        assert record.request_observations == [
+            {
+                "request_id": "eval-request-1",
+                "provider_name": "openrouter",
+                "routed_provider": "upstream-a",
+                "response_model": "vendor/model",
+                "input_tokens": 100,
+                "cache_read_input_tokens": 75,
+                "cache_write_input_tokens": 5,
+                "latency_ms": 30,
+            }
+        ]
         assert record.latency_ms == 30
         assert record.reported_cost_complete is True
+
+    def test_request_observation_bounds_untrusted_metadata_and_numbers(self):
+        response = _text_response("done")
+        response["usage"] = {
+            "provider_name": "x" * 400,
+            "routed_provider": object(),
+            "input_tokens": -1,
+            "cache_read_input_tokens": True,
+            "latency_ms": float("nan"),
+        }
+
+        record = run_case(_case("T02"), "B", "system", StubClient([response]))
+        observation = record.request_observations[0]
+
+        assert len(observation["provider_name"]) == 256
+        assert observation["routed_provider"] is None
+        assert observation["input_tokens"] == 0
+        assert observation["cache_read_input_tokens"] == 0
+        assert observation["latency_ms"] is None
 
 
 class TestScoring:

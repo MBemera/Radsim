@@ -35,8 +35,38 @@ def test_normalizes_complete_openrouter_usage():
         "estimated_cost_usd": None,
         "retry_attempts": 0,
         "request_id": "request-123",
+        "provider_name": None,
+        "routed_provider": None,
+        "response_model": None,
         "latency_ms": 14.5,
     }
+
+
+def test_normalizes_bounded_provider_route_and_model_metadata():
+    normalized = normalize_usage(
+        {"provider": "fallback-provider"},
+        provider="openrouter",
+        response=SimpleNamespace(
+            provider="upstream-provider",
+            model="vendor/model",
+        ),
+    )
+
+    assert normalized["provider_name"] == "openrouter"
+    assert normalized["routed_provider"] == "upstream-provider"
+    assert normalized["response_model"] == "vendor/model"
+
+
+def test_malformed_provider_metadata_is_ignored_and_bounded():
+    normalized = normalize_usage(
+        {"provider": 42, "model": object()},
+        provider="x" * 400,
+        response={"provider": "y" * 400},
+    )
+
+    assert len(normalized["provider_name"]) == 256
+    assert len(normalized["routed_provider"]) == 256
+    assert normalized["response_model"] is None
 
 
 def test_normalizes_anthropic_cache_fields_and_model_extra():
@@ -97,6 +127,16 @@ def test_streaming_snapshots_merge_without_double_counting():
     assert merged["reasoning_output_tokens"] == 8
     assert merged["reported_cost_usd"] == 0.003
     assert merged["request_id"] == "stream-request"
+
+
+def test_streaming_snapshots_keep_latest_route_metadata():
+    current = normalize_usage({}, provider="openrouter", response={"provider": "route-a"})
+    latest = normalize_usage({}, provider="openrouter", response={"provider": "route-b"})
+
+    merged = merge_usage_snapshots(current, latest)
+
+    assert merged["provider_name"] == "openrouter"
+    assert merged["routed_provider"] == "route-b"
 
 
 def test_session_totals_track_cost_coverage_separately():

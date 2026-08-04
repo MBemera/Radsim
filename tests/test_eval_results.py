@@ -11,6 +11,7 @@ import pytest
 
 import radsim.persistence as persistence_module
 import tests.evals.results as results_module
+from tests.evals.harness import RunRecord
 from tests.evals.results import (
     EvalResultTooLarge,
     load_latest_compatible,
@@ -100,7 +101,10 @@ def test_report_prints_sample_provenance_and_confidence(tmp_path, capsys):
         )
         for candidate in ("A", "B")
     ]
-    records = [SimpleNamespace(as_dict=lambda: {}) for _score in scores]
+    records = [
+        RunRecord("C01", "communication", candidate, 1)
+        for candidate in ("A", "B")
+    ]
 
     _summaries, gates = report(scores, records, tmp_path, _manifest())
 

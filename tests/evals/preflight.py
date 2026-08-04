@@ -18,7 +18,7 @@ from .candidates import CANDIDATE_NAMES, get_candidate
 from .cases import get_cases
 from .fake_tools import FakeToolRunner
 
-MANIFEST_SCHEMA_VERSION = 2
+MANIFEST_SCHEMA_VERSION = 3
 MAX_REPETITIONS = 20
 MAX_WORKERS = 32
 MAX_ITERATIONS = 50
@@ -28,8 +28,10 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 EVAL_SOURCE_FILES = (
     "../../radsim/api_client.py",
     "../../radsim/request_options.py",
+    "../../radsim/tool_schema.py",
     "../../radsim/usage.py",
     "budget.py",
+    "cache_observability.py",
     "candidates.py",
     "cases.py",
     "fake_tools.py",
@@ -329,6 +331,15 @@ def _execution(
         "provider_attempt_limit": logical_requests * 4,
         "max_cost_usd": cost_limit,
         "dry_run": arguments.dry_run,
+        "cache_priming": {
+            "strategy": "first-scored-run-per-candidate-prefix",
+            "additional_requests": 0,
+            "route_affinity": "provider-default",
+            "routing_tradeoff": (
+                "No upstream provider is pinned; this preserves routing availability and "
+                "avoids an unmeasured privacy/availability trade-off."
+            ),
+        },
     }
 
 

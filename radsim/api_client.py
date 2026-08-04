@@ -9,6 +9,7 @@ from functools import wraps
 from typing import Any
 
 from .request_options import RequestOptions
+from .tool_schema import canonicalize_tool_schemas
 from .usage import merge_usage_snapshots, normalize_usage
 
 # Production Readiness: Explicit timeouts prevent hung connections
@@ -315,6 +316,8 @@ class BaseAPIClient(ABC):
 class ClaudeClient(BaseAPIClient):
     """Anthropic Claude API client."""
 
+    PROVIDER_NAME = "anthropic"
+
     def __init__(self, api_key, model="claude-opus-4-8", timeout=DEFAULT_TIMEOUT_SECONDS):
         try:
             import anthropic
@@ -350,7 +353,7 @@ class ClaudeClient(BaseAPIClient):
         if system_prompt:
             kwargs["system"] = system_prompt
         if tools:
-            kwargs["tools"] = tools
+            kwargs["tools"] = canonicalize_tool_schemas(tools)
         if request_options is not None:
             kwargs.update(request_options.for_supported(self._supported_request_parameters()))
         return kwargs
@@ -503,6 +506,8 @@ class ClaudeClient(BaseAPIClient):
 class OpenAIClient(BaseAPIClient):
     """OpenAI API client."""
 
+    PROVIDER_NAME = "openai"
+
     # OpenAI's chat completions API rejects `max_tokens` on its reasoning
     # models and wants `max_completion_tokens`, which counts reasoning tokens
     # as well as visible output.
@@ -640,7 +645,11 @@ class OpenAIClient(BaseAPIClient):
             # chunk that also carries choices (some OpenRouter models), so
             # record it and keep processing the same chunk.
             if hasattr(chunk, "usage") and chunk.usage:
-                snapshot = normalize_usage(chunk.usage, response=chunk)
+                snapshot = normalize_usage(
+                    chunk.usage,
+                    provider=self.PROVIDER_NAME,
+                    response=chunk,
+                )
                 usage = merge_usage_snapshots(usage, snapshot)
 
             if not chunk.choices:
@@ -775,7 +784,7 @@ class OpenAIClient(BaseAPIClient):
     def _convert_tools(self, tools):
         """Convert tool definitions to OpenAI format."""
         openai_tools = []
-        for tool in tools:
+        for tool in canonicalize_tool_schemas(tools):
             openai_tools.append(
                 {
                     "type": "function",
@@ -794,7 +803,12 @@ class OpenAIClient(BaseAPIClient):
         result = {
             "content": [],
             "stop_reason": response.choices[0].finish_reason,
-            "usage": normalize_usage(response.usage, response=response, latency_ms=latency_ms),
+            "usage": normalize_usage(
+                response.usage,
+                provider=self.PROVIDER_NAME,
+                response=response,
+                latency_ms=latency_ms,
+            ),
         }
 
         if message.content:
@@ -833,6 +847,7 @@ class OpenRouterClient(OpenAIClient):
     # OpenRouter normalises `max_tokens` across every upstream provider it
     # routes to, so it is the portable field here.
     MAX_OUTPUT_TOKENS_PARAM = "max_tokens"
+    PROVIDER_NAME = "openrouter"
 
     def __init__(
         self,
