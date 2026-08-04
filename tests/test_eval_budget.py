@@ -2,6 +2,7 @@
 
 import pytest
 
+from radsim.pricing import ModelPricing
 from tests.evals.budget import BudgetedEvalClient, EvalBudgetExceeded, EvalCostBudget
 
 
@@ -85,6 +86,27 @@ def test_budget_snapshot_counts_provider_retry_attempts():
     snapshot = budget.snapshot()
     assert snapshot["requests_started"] == 1
     assert snapshot["provider_attempts"] == 3
+
+
+def test_eval_response_uses_one_immutable_pricing_snapshot_for_estimate():
+    budget = EvalCostBudget("1")
+    pricing = ModelPricing(
+        provider="openrouter",
+        billing_mode="routing",
+        model="vendor/model",
+        input_per_million_usd="1",
+        output_per_million_usd="2",
+        source="catalogue-cache",
+        fetched_at="2026-08-04T00:00:00Z",
+    )
+    response = _response(0.1)
+    response["usage"].update({"input_tokens": 1_000, "output_tokens": 500})
+    client = BudgetedEvalClient(StubClient([response]), budget, pricing)
+
+    result = client.chat()
+
+    assert result["usage"]["estimated_cost_usd"] == pytest.approx(0.002)
+    assert result["usage"]["pricing_source"] == "catalogue-cache"
 
 
 @pytest.mark.parametrize("cost", [None, -1, float("inf"), "invalid", True])

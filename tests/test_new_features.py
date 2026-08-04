@@ -204,8 +204,18 @@ class TestSessionCommands:
 
     def test_usage_shows_tokens_and_cost(self, capsys, monkeypatch):
         import radsim.config
+        from radsim.pricing import ModelPricing
 
-        monkeypatch.setattr(radsim.config, "get_model_pricing", lambda model: (2.0, 10.0))
+        pricing = ModelPricing(
+            provider="openrouter",
+            billing_mode="routing",
+            model="test-model",
+            input_per_million_usd="2.0",
+            output_per_million_usd="10.0",
+            source="fixture",
+            fetched_at=None,
+        )
+        monkeypatch.setattr(radsim.config, "get_model_pricing", lambda *_args: pricing)
         agent = build_agent()
         self.make_registry().handle_input("/usage", agent)
         output = capsys.readouterr().out

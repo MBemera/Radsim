@@ -30,6 +30,36 @@ def _append_reported_cost(rows: list[tuple[str, str]], usage: dict[str, Any]) ->
     rows.append(("Reported cost:", f"${reported_cost:.4f}  (partial: {coverage})"))
 
 
+def _append_estimated_cost(
+    rows: list[tuple[str, str]],
+    usage: dict[str, Any],
+    model: str,
+    provider: str | None,
+) -> None:
+    """Append a cache-aware catalogue estimate with explicit provenance."""
+    from .config import get_model_pricing
+    from .pricing import describe_pricing_source, estimate_usage_cost
+
+    pricing = get_model_pricing(model, provider)
+    if pricing is None:
+        rows.append(("Est. cost:", "n/a (no pricing data for this model)"))
+        return
+    estimate = estimate_usage_cost(usage, pricing)
+    if estimate.total_usd is None:
+        rows.append(("Est. cost:", f"n/a ({estimate.unavailable_reason})"))
+        return
+    input_cost = estimate.uncached_input_usd + estimate.cache_read_usd
+    input_cost += estimate.cache_write_usd
+    source = describe_pricing_source(pricing)
+    rows.append(
+        (
+            "Est. cost:",
+            f"${estimate.total_usd:.4f}  "
+            f"(in ${input_cost:.4f} / out ${estimate.output_usd:.4f}; {source})",
+        )
+    )
+
+
 class CoreCommandHandlersMixin:
     """Handlers for core session, configuration, and mode commands."""
 
@@ -265,10 +295,13 @@ class CoreCommandHandlersMixin:
         model = self.CHEAPEST_OPENROUTER_MODEL
         agent.update_config("openrouter", api_key, model)
 
-        pricing = get_model_pricing(model)
+        pricing = get_model_pricing(model, "openrouter")
         lines = [f"  ok Switched to cheapest model: {model}"]
         if pricing:
-            lines.append(f"    (${pricing[0]} input / ${pricing[1]} output per 1M tokens)")
+            lines.append(
+                f"    (${pricing.input_per_million_usd} input / "
+                f"${pricing.output_per_million_usd} output per 1M tokens)"
+            )
         print_block(lines, blank_after=False)
         print_header("openrouter", model)
 
@@ -570,8 +603,6 @@ class CoreCommandHandlersMixin:
 
     def _cmd_usage(self, agent):
         """Show session token usage and estimated cost."""
-        from .config import get_model_pricing
-
         usage = agent.usage_stats
         input_tokens = usage.get("input_tokens", 0)
         output_tokens = usage.get("output_tokens", 0)
@@ -587,19 +618,12 @@ class CoreCommandHandlersMixin:
             ("Total tokens:", f"{input_tokens + output_tokens:,}"),
         ]
         _append_reported_cost(rows, usage)
-        pricing = get_model_pricing(model)
-        if pricing is None:
-            rows.append(("Est. cost:", "n/a (no pricing data for this model)"))
-        else:
-            input_cost = (input_tokens / 1_000_000) * pricing[0]
-            output_cost = (output_tokens / 1_000_000) * pricing[1]
-            rows.append(
-                (
-                    "Est. cost:",
-                    f"${input_cost + output_cost:.4f}"
-                    f"  (in ${input_cost:.4f} / out ${output_cost:.4f})",
-                )
-            )
+        _append_estimated_cost(
+            rows,
+            usage,
+            model,
+            getattr(agent.config, "provider", None),
+        )
         print_labeled_values(rows, label_width=16)
 
     def _cmd_copy(self, agent, args=None):

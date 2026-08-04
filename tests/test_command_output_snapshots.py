@@ -26,11 +26,22 @@ def test_modes_output_snapshot(capsys):
 
 
 def test_usage_output_snapshot(capsys, monkeypatch):
+    from radsim.pricing import ModelPricing
+
     agent = SimpleNamespace(
         usage_stats={"input_tokens": 1234, "output_tokens": 567},
         config=SimpleNamespace(model="snapshot-model"),
     )
-    monkeypatch.setattr("radsim.config.get_model_pricing", lambda model: (1.0, 2.0))
+    pricing = ModelPricing(
+        provider="openrouter",
+        billing_mode="routing",
+        model="snapshot-model",
+        input_per_million_usd="1.0",
+        output_per_million_usd="2.0",
+        source="fixture-catalogue",
+        fetched_at=None,
+    )
+    monkeypatch.setattr("radsim.config.get_model_pricing", lambda *_args: pricing)
 
     CoreCommandHandlersMixin()._cmd_usage(agent)
 
@@ -43,7 +54,8 @@ def test_usage_output_snapshot(capsys, monkeypatch):
         "  Output tokens:  567\n"
         "  Reasoning:      0\n"
         "  Total tokens:   1,801\n"
-        "  Est. cost:      $0.0024  (in $0.0012 / out $0.0011)\n"
+        "  Est. cost:      $0.0024  (in $0.0012 / out $0.0011; "
+        "openrouter/routing, fixture-catalogue, age unknown)\n"
         "\n"
     )
 
@@ -62,7 +74,7 @@ def test_usage_labels_provider_cost_coverage(capsys, monkeypatch):
         },
         config=SimpleNamespace(model="snapshot-model"),
     )
-    monkeypatch.setattr("radsim.config.get_model_pricing", lambda _model: None)
+    monkeypatch.setattr("radsim.config.get_model_pricing", lambda *_args: None)
 
     CoreCommandHandlersMixin()._cmd_usage(agent)
 

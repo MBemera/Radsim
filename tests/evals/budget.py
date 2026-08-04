@@ -6,6 +6,8 @@ from decimal import Decimal, InvalidOperation
 from threading import Lock
 from typing import Any
 
+from radsim.pricing import ModelPricing, estimate_usage_cost
+
 
 class EvalBudgetExceeded(RuntimeError):
     """Raised before a request when live eval spend is no longer authorized."""
@@ -81,9 +83,15 @@ class EvalCostBudget:
 class BudgetedEvalClient:
     """Apply one shared cost budget around an eval API client."""
 
-    def __init__(self, client: Any, budget: EvalCostBudget) -> None:
+    def __init__(
+        self,
+        client: Any,
+        budget: EvalCostBudget,
+        pricing: ModelPricing | None = None,
+    ) -> None:
         self.client = client
         self.budget = budget
+        self.pricing = pricing
 
     def chat(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         self.budget.before_request()
@@ -92,8 +100,23 @@ class BudgetedEvalClient:
         except Exception as error:
             self.budget.record_error(error)
             raise
+        _attach_estimated_cost(response, self.pricing)
         self.budget.record_response(response)
         return response
+
+
+def _attach_estimated_cost(response: Any, pricing: ModelPricing | None) -> None:
+    """Attach one estimate from the immutable run pricing snapshot."""
+    if pricing is None or not isinstance(response, dict):
+        return
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return
+    estimate = estimate_usage_cost(usage, pricing)
+    usage["estimated_cost_usd"] = (
+        None if estimate.total_usd is None else float(estimate.total_usd)
+    )
+    usage["pricing_source"] = pricing.source
 
 
 def _cost_decimal(value: Any) -> Decimal | None:

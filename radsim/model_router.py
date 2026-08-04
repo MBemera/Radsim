@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
-from .config import DEFAULT_MODELS, FALLBACK_MODELS, MODEL_PRICING
+from .config import DEFAULT_MODELS, FALLBACK_MODELS, get_model_pricing
 
 
 class TaskComplexity(Enum):
@@ -156,17 +156,18 @@ class ModelRouter:
                 continue
 
             # Check cost constraint
-            if max_cost is not None and model in MODEL_PRICING:
-                input_cost, output_cost = MODEL_PRICING[model]
-                if input_cost > max_cost or output_cost > max_cost:
+            pricing = get_model_pricing(model, provider)
+            if max_cost is not None and pricing is not None:
+                if (
+                    pricing.input_per_million_usd > max_cost
+                    or pricing.output_per_million_usd > max_cost
+                ):
                     continue
 
             # For simple tasks, prefer cheaper models
-            if task_complexity == TaskComplexity.SIMPLE:
-                if model in MODEL_PRICING:
-                    input_cost, _ = MODEL_PRICING[model]
-                    if input_cost == 0:  # Free model
-                        return provider, model
+            if task_complexity == TaskComplexity.SIMPLE and pricing is not None:
+                if pricing.input_per_million_usd == 0:
+                    return provider, model
 
             return provider, model
 

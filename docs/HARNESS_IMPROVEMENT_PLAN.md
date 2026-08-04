@@ -673,7 +673,7 @@ rate limiting as not applicable unless this work introduces those surfaces.
       explicit timeout/retry/worker bounds and a caller-supplied cost cap.
 - [ ] Usage separates total input, uncached input, cache reads, cache writes,
       output and reasoning tokens without double-counting.
-- [ ] Provider-reported spend is labelled actual; catalogue-derived spend is
+- [x] Provider-reported spend is labelled actual; catalogue-derived spend is
       labelled estimated with provider, billing mode, source and age.
 - [ ] Cost and cache targets are set from the measured baseline. Scenario values
       such as $2.20, $1.20 and 90% are not release claims until observed.

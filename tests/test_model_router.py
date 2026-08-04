@@ -91,11 +91,14 @@ class TestModelSelection:
         router = ModelRouter(primary_provider="claude")
         provider, model = router.select_model(max_cost=0.5)
         # Should skip expensive claude models and fall back
-        from radsim.config import MODEL_PRICING
+        from radsim.config import get_model_pricing
 
-        if model in MODEL_PRICING:
-            input_cost, output_cost = MODEL_PRICING[model]
-            assert input_cost <= 0.5 or output_cost <= 0.5
+        pricing = get_model_pricing(model, provider)
+        if pricing is not None:
+            assert (
+                pricing.input_per_million_usd <= 0.5
+                or pricing.output_per_million_usd <= 0.5
+            )
 
     def test_select_skips_unhealthy_providers(self):
         router = ModelRouter(primary_provider="claude")

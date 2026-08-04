@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .persistence import atomic_write_json
+from .pricing import ModelPricing
 from .runtime_context import get_runtime_context
 from .terminal import is_unsafe_terminal_character
 
@@ -144,67 +145,135 @@ FALLBACK_MODELS = {
     ],
 }
 
-# Pricing per 1M tokens (input, output) in USD - Updated Jul 2026
-MODEL_PRICING = {
-    # Claude Series
-    "claude-opus-4-8": (5.00, 25.00),
-    "claude-opus-4-6": (5.00, 25.00),
-    "claude-sonnet-4-6": (3.00, 15.00),
-    "claude-sonnet-4-5": (3.00, 15.00),
-    "claude-haiku-4-5": (1.00, 5.00),
-    # OpenAI GPT-5 Series
-    "gpt-5.4": (5.00, 15.00),
-    "gpt-5.3-codex": (5.00, 15.00),
-    "gpt-5.2": (2.50, 10.00),
-    "gpt-5.2-codex": (2.50, 10.00),
-    "gpt-5-mini": (1.00, 4.00),
-    # OpenRouter models (live pricing, verified Jul 2026)
-    "minimax/minimax-m3": (0.30, 1.20),
-    "deepseek/deepseek-v4-flash": (0.09, 0.18),
-    "moonshotai/kimi-k3": (3.00, 15.00),
-    "moonshotai/kimi-k2.5": (0.38, 2.02),
-    "anthropic/claude-fable-5": (10.00, 50.00),
-    "anthropic/claude-opus-4.8": (5.00, 25.00),
-    "anthropic/claude-opus-4.6": (5.00, 25.00),
-    "anthropic/claude-sonnet-4.6": (3.00, 15.00),
-    "anthropic/claude-haiku-4.5": (1.00, 5.00),
-    "openai/gpt-5.4": (2.50, 15.00),
-    "openai/gpt-5.6-sol-pro": (5.00, 30.00),
-    "openai/gpt-5.6-sol": (5.00, 30.00),
-    "openai/gpt-5.6-terra-pro": (2.50, 15.00),
-    "openai/gpt-5.6-terra": (2.50, 15.00),
-    "openai/gpt-5.6-luna-pro": (1.00, 6.00),
-    "openai/gpt-5.6-luna": (1.00, 6.00),
-    "openai/gpt-5.3-codex": (1.75, 14.00),
-    "openai/gpt-5.2-codex": (1.75, 14.00),
-    "minimax/minimax-m2.1": (0.30, 1.20),
-    "z-ai/glm-5.2": (0.2646, 0.8316),
-    "z-ai/glm-4.7": (0.40, 1.75),
-}
+# Static estimates are provider and billing-mode scoped. OpenRouter catalogue
+# prices take precedence at runtime; these values are labelled stale fallbacks.
+PricingKey = tuple[str, str, str]
 
 
-def get_model_pricing(model):
-    """Return (input, output) USD per 1M tokens, or None when unknown.
-
-    Checks the static table first, then the OpenRouter catalogue cache.
-    Returning None (instead of zeros) lets callers distinguish "unknown
-    cost" from "genuinely free" — unknown models must never display as
-    free.
-    """
-    if model in MODEL_PRICING:
-        return MODEL_PRICING[model]
-    try:
-        from .openrouter_models import find_model
-
-        entry = find_model(model, allow_network=False)
-    except Exception:
-        return None
-    if not entry:
-        return None
-    return (
-        entry.get("input_price", 0.0) * 1_000_000,
-        entry.get("output_price", 0.0) * 1_000_000,
+def _static_pricing(
+    provider: str,
+    model: str,
+    input_price: str,
+    output_price: str,
+    *,
+    cache_read_price: str | None = None,
+    fetched_at: str | None = None,
+) -> ModelPricing:
+    return ModelPricing(
+        provider=provider,
+        billing_mode="routing" if provider == "openrouter" else "api",
+        model=model,
+        input_per_million_usd=input_price,
+        output_per_million_usd=output_price,
+        cache_read_per_million_usd=cache_read_price,
+        source="static-fallback",
+        fetched_at=fetched_at,
+        stale=True,
     )
+
+
+_STATIC_PRICE_ROWS = (
+    ("claude", "claude-opus-4-8", "5.00", "25.00"),
+    ("claude", "claude-opus-4-6", "5.00", "25.00"),
+    ("claude", "claude-sonnet-4-6", "3.00", "15.00"),
+    ("claude", "claude-sonnet-4-5", "3.00", "15.00"),
+    ("claude", "claude-haiku-4-5", "1.00", "5.00"),
+    ("openai", "gpt-5.4", "5.00", "15.00"),
+    ("openai", "gpt-5.3-codex", "5.00", "15.00"),
+    ("openai", "gpt-5.2", "2.50", "10.00"),
+    ("openai", "gpt-5.2-codex", "2.50", "10.00"),
+    ("openai", "gpt-5-mini", "1.00", "4.00"),
+    ("openrouter", "minimax/minimax-m3", "0.30", "1.20"),
+    ("openrouter", "deepseek/deepseek-v4-flash", "0.09", "0.18"),
+    ("openrouter", "moonshotai/kimi-k3", "3.00", "15.00"),
+    ("openrouter", "moonshotai/kimi-k2.5", "0.38", "2.02"),
+    ("openrouter", "anthropic/claude-fable-5", "10.00", "50.00"),
+    ("openrouter", "anthropic/claude-opus-4.8", "5.00", "25.00"),
+    ("openrouter", "anthropic/claude-opus-4.6", "5.00", "25.00"),
+    ("openrouter", "anthropic/claude-sonnet-4.6", "3.00", "15.00"),
+    ("openrouter", "anthropic/claude-haiku-4.5", "1.00", "5.00"),
+    ("openrouter", "openai/gpt-5.4", "2.50", "15.00"),
+    ("openrouter", "openai/gpt-5.6-sol-pro", "5.00", "30.00"),
+    ("openrouter", "openai/gpt-5.6-sol", "5.00", "30.00"),
+    ("openrouter", "openai/gpt-5.6-terra-pro", "2.50", "15.00"),
+    ("openrouter", "openai/gpt-5.6-terra", "2.50", "15.00"),
+    ("openrouter", "openai/gpt-5.6-luna-pro", "1.00", "6.00"),
+    ("openrouter", "openai/gpt-5.6-luna", "1.00", "6.00"),
+    ("openrouter", "openai/gpt-5.3-codex", "1.75", "14.00"),
+    ("openrouter", "openai/gpt-5.2-codex", "1.75", "14.00"),
+    ("openrouter", "minimax/minimax-m2.1", "0.30", "1.20"),
+    ("openrouter", "z-ai/glm-4.7", "0.40", "1.75"),
+)
+
+MODEL_PRICING: dict[PricingKey, ModelPricing] = {
+    (provider, pricing.billing_mode, model): pricing
+    for provider, model, input_price, output_price in _STATIC_PRICE_ROWS
+    for pricing in (_static_pricing(provider, model, input_price, output_price),)
+}
+MODEL_PRICING[("openrouter", "routing", "z-ai/glm-5.2")] = _static_pricing(
+    "openrouter",
+    "z-ai/glm-5.2",
+    "0.76",
+    "2.42",
+    cache_read_price="0.14",
+    fetched_at="2026-08-04T00:00:00Z",
+)
+
+
+def get_static_model_pricing(
+    model: str,
+    provider: str | None = None,
+    billing_mode: str | None = None,
+) -> ModelPricing | None:
+    """Return one static provider/billing estimate without network access."""
+    matches = [
+        pricing
+        for (price_provider, price_mode, price_model), pricing in MODEL_PRICING.items()
+        if price_model == model
+        and (provider is None or provider == price_provider)
+        and (billing_mode is None or billing_mode == price_mode)
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def get_model_pricing(
+    model: str,
+    provider: str | None = None,
+    billing_mode: str | None = None,
+    *,
+    allow_network: bool = False,
+) -> ModelPricing | None:
+    """Resolve one validated snapshot, preferring OpenRouter's catalogue."""
+    resolved_provider = provider or ("openrouter" if "/" in model else None)
+    resolved_mode = billing_mode or ("routing" if resolved_provider == "openrouter" else "api")
+    if resolved_provider == "openrouter":
+        catalogue_pricing = _get_openrouter_pricing(model, allow_network)
+        if catalogue_pricing is not None:
+            return catalogue_pricing
+    return get_static_model_pricing(model, resolved_provider, resolved_mode)
+
+
+def _get_openrouter_pricing(model: str, allow_network: bool) -> ModelPricing | None:
+    try:
+        from .openrouter_models import find_model_with_status
+
+        entry, status = find_model_with_status(model, allow_network=allow_network)
+        if not entry or status.source == "static-fallback":
+            return None
+        return ModelPricing.from_per_token(
+            provider="openrouter",
+            billing_mode="routing",
+            model=model,
+            input_price=entry.get("input_price"),
+            output_price=entry.get("output_price"),
+            cache_read_price=entry.get("cache_read_price"),
+            cache_write_price=entry.get("cache_write_price"),
+            source=status.source,
+            fetched_at=status.fetched_at,
+            stale=status.stale,
+        )
+    except (OSError, TypeError, ValueError):
+        return None
 
 # Context window limits per model (in tokens) - Updated Jul 2026
 CONTEXT_LIMITS = {

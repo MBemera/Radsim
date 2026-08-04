@@ -313,6 +313,7 @@ def print_status_bar(model, input_tokens, output_tokens):
     import shutil
 
     from .config import get_model_pricing
+    from .pricing import estimate_usage_cost
 
     columns, _ = shutil.get_terminal_size()
 
@@ -323,10 +324,15 @@ def print_status_bar(model, input_tokens, output_tokens):
     if pricing is None:
         cost_str = " | cost n/a"
     else:
-        input_cost = (input_tokens / 1_000_000) * pricing[0]
-        output_cost = (output_tokens / 1_000_000) * pricing[1]
-        total_cost = input_cost + output_cost
-        cost_str = f" | ~${total_cost:.4f}" if total_cost > 0 else " | Free"
+        estimate = estimate_usage_cost(
+            {"input_tokens": input_tokens, "output_tokens": output_tokens},
+            pricing,
+        )
+        total_cost = estimate.total_usd
+        if total_cost is None:
+            cost_str = " | cost n/a"
+        else:
+            cost_str = f" | ~${total_cost:.4f}" if total_cost > 0 else " | Free"
 
     status = f" {model} | Tokens: {total_tokens:,} (In: {input_tokens:,} / Out: {output_tokens:,}){cost_str} "
 

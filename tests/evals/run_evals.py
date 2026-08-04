@@ -124,6 +124,13 @@ def build_client(provider, api_key, model, reasoning_effort, request_timeout_sec
     )
 
 
+def capture_pricing(provider, model):
+    """Capture one immutable price record before any paid eval request."""
+    from radsim.config import get_model_pricing
+
+    return get_model_pricing(model, provider, allow_network=True)
+
+
 def run_matrix(arguments, client, grader_client, preflight: EvalPreflight):
     """Run every candidate, case, and repetition. Returns (records, scores)."""
     jobs = build_jobs(
@@ -309,8 +316,18 @@ def main(argv=None):
         preflight.reasoning_effort,
         arguments.request_timeout_seconds,
     )
-    client = BudgetedEvalClient(raw_client, budget)
     grader_model = arguments.grader_model or model
+    candidate_pricing = capture_pricing(provider, model)
+    grader_pricing = (
+        candidate_pricing
+        if grader_model == model
+        else capture_pricing(provider, grader_model)
+    )
+    preflight.manifest["pricing_snapshots"] = {
+        "candidate": candidate_pricing.as_dict() if candidate_pricing else None,
+        "grader": grader_pricing.as_dict() if grader_pricing else None,
+    }
+    client = BudgetedEvalClient(raw_client, budget, candidate_pricing)
     needs_grader_client = (
         grader_model != model or preflight.grader_effort != preflight.reasoning_effort
     )
@@ -324,6 +341,7 @@ def main(argv=None):
                 arguments.request_timeout_seconds,
             ),
             budget,
+            grader_pricing,
         )
         if needs_grader_client
         else client
