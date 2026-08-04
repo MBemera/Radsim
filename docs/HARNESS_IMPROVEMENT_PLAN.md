@@ -51,6 +51,10 @@ the instrumented baseline is captured
   `_handle_delegate_task` is already down to 53 lines and is no longer a
   finding. The other four are recorded with current locations for a dedicated
   refactor branch.
+- 2026-08-04: completed §7.1. Reasoning effort is now reachable from `/settings`
+  with zero typed arguments, shows the active value in the menu, persists to
+  settings.json, applies to the live client, and refuses levels the current
+  model does not support.
 - No paid live eval or credential-bearing action has been run. The empirical
   cache target and release baseline remain intentionally unset pending explicit
   spend authorization. §5.4's live quality/latency sweep is deferred with it;
@@ -669,6 +673,25 @@ models that do not support it.
 sessions; `/settings` shows the active value.
 
 **Effort:** ~half day.
+
+**Resolved 2026-08-04 — implemented.** `/settings` gained a `Reasoning effort
+[<current>]` entry, so the active value is visible with zero typed arguments and
+selecting it opens a menu of only the levels
+`config.get_reasoning_effort_options()` reports for the current provider/model.
+`/settings reasoning` (bare) opens the same menu rather than printing usage, per
+the standing rule; `/settings reasoning <level>` also works for typed use.
+
+Applying a level calls `save_reasoning_effort()` (so it persists to
+`~/.radsim/settings.json` across sessions) *and* rebuilds `agent.client` through
+`create_client`, because the client captures `reasoning_effort` at construction —
+without the rebuild the change would not reach the current session's requests.
+
+Fails closed: a level the model does not support is refused with the supported
+set printed, and neither settings.json nor the live client is touched. A model
+with no reasoning dial shows `[unsupported by this model]` and refuses rather
+than writing a value the provider would reject. Covered by
+`tests/test_settings_reasoning_effort.py` (7 tests); the `/settings` help golden
+fixture was regenerated for the new subcommand.
 
 ### 7.2 Honest cost reporting
 

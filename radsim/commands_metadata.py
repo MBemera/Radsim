@@ -512,15 +512,23 @@ DEFAULT_COMMAND_SPECS = [
         accepts_args=True, telegram_safe=False,
         title="Agent Settings",
         summary="View or change agent configuration parameters.",
-        usage=["/settings", "/settings <key> <value>", "/settings security_level <level>"],
+        usage=[
+            "/settings",
+            "/settings <key> <value>",
+            "/settings security_level <level>",
+            "/settings reasoning [level]",
+        ],
         details="Manage RadSim's internal settings:\n\n"
             "  • (no args)          — Interactive menu\n"
             "  • <key>              — View a single setting\n"
             "  • <key> <value>      — Change a setting\n"
-            "  • security_level     — Set preset (strict/balanced/permissive)",
+            "  • security_level     — Set preset (strict/balanced/permissive)\n"
+            "  • reasoning          — Pick a reasoning effort from the levels the\n"
+            "                         current model supports (menu with no args)",
         examples=[
             "/settings",
             "/settings security_level strict",
+            "/settings reasoning",
             "/set self_improvement.enabled true",
         ],
         related=["/evolve", "/config"],

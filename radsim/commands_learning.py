@@ -260,6 +260,74 @@ class LearningCommandHandlersMixin:
             return
         self._apply_security_level(config_mgr, choice)
 
+    def _reasoning_effort_label(self, agent):
+        """Return the active effort, or why this model has no dial."""
+        from .config import get_reasoning_effort_options
+
+        provider = getattr(agent.config, "provider", "")
+        model = getattr(agent.config, "model", "")
+        if not get_reasoning_effort_options(provider, model):
+            return "unsupported by this model"
+        return self._active_reasoning_effort(agent)
+
+    def _active_reasoning_effort(self, agent):
+        """Return the saved effort mapped onto what the model accepts."""
+        from .config import load_reasoning_effort, resolve_reasoning_effort
+
+        return resolve_reasoning_effort(
+            getattr(agent.config, "provider", ""),
+            getattr(agent.config, "model", ""),
+            load_reasoning_effort(),
+        )
+
+    def _reasoning_effort_menu(self, agent):
+        """Pick a reasoning effort from the levels this model supports."""
+        from .config import get_reasoning_effort_options
+        from .menu import interactive_menu
+
+        model = getattr(agent.config, "model", "")
+        options = get_reasoning_effort_options(getattr(agent.config, "provider", ""), model)
+        if not options:
+            print_info(f"{model} does not expose a reasoning effort setting.")
+            return
+
+        current = self._active_reasoning_effort(agent)
+        choice = interactive_menu(
+            f"REASONING EFFORT (current: {current})",
+            [(option, f"{option}{'  ← current' if option == current else ''}") for option in options],
+        )
+        if choice is None:
+            return
+        self._apply_reasoning_effort(agent, choice)
+
+    def _apply_reasoning_effort(self, agent, effort):
+        """Persist one supported effort and apply it to the live client."""
+        from .api_client import create_client
+        from .config import get_reasoning_effort_options, save_reasoning_effort
+
+        provider = getattr(agent.config, "provider", "")
+        model = getattr(agent.config, "model", "")
+        options = get_reasoning_effort_options(provider, model)
+        if not options:
+            print_info(f"{model} does not expose a reasoning effort setting.")
+            return
+
+        effort = str(effort).strip().lower()
+        if effort not in options:
+            print_info(f"Unsupported reasoning effort: {effort}")
+            print_info(f"{model} supports: {', '.join(options)}")
+            return
+
+        save_reasoning_effort(effort)
+        agent.config.reasoning_effort = effort
+        agent.client = create_client(
+            provider,
+            agent.config.api_key,
+            model,
+            reasoning_effort=effort,
+        )
+        print_block((f"  Reasoning effort: {effort}", "  Saved to ~/.radsim/settings.json"))
+
     def _apply_security_level(self, config_mgr, level):
         """Validate a preset choice, gate "off" behind a warning, and apply."""
         from .agent_config import SECURITY_LEVEL_NUMBERS
@@ -330,6 +398,7 @@ class LearningCommandHandlersMixin:
                     ("view", "View all settings"),
                     ("change", "Change a setting"),
                     ("security", "Set security level"),
+                    ("reasoning", f"Reasoning effort [{self._reasoning_effort_label(agent)}]"),
                 ],
             )
             if choice is None:
@@ -337,6 +406,9 @@ class LearningCommandHandlersMixin:
 
             if choice == "view":
                 print(config_mgr.get_config_display())
+                return
+            if choice == "reasoning":
+                self._reasoning_effort_menu(agent)
                 return
             if choice == "change":
                 key = safe_input("  Setting key: ")
@@ -358,6 +430,13 @@ class LearningCommandHandlersMixin:
 
         if key_path == "security_level" and len(args) >= 2:
             self._apply_security_level(config_mgr, args[1])
+            return
+
+        if key_path in ("reasoning", "reasoning_effort"):
+            if len(args) == 1:
+                self._reasoning_effort_menu(agent)
+            else:
+                self._apply_reasoning_effort(agent, args[1])
             return
 
         if len(args) < 2:
