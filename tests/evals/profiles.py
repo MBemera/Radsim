@@ -9,7 +9,7 @@ data labels the comparison provisional and prints where the baseline came from.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from .results import load_latest_compatible
@@ -131,10 +131,10 @@ def _result_age_days(manifest: dict[str, Any], now: datetime | None) -> float | 
     except ValueError:
         return None
     if created.tzinfo is None:
-        created = created.replace(tzinfo=UTC)
-    reference = now or datetime.now(tz=UTC)
+        created = created.replace(tzinfo=timezone.utc)
+    reference = now or datetime.now(tz=timezone.utc)
     if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=UTC)
+        reference = reference.replace(tzinfo=timezone.utc)
     return max(0.0, (reference - created).total_seconds() / 86_400)
 
 

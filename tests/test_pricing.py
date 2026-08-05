@@ -1,7 +1,7 @@
 """Contracts for provider-aware pricing and cache-aware estimates."""
 
 from dataclasses import FrozenInstanceError
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -79,7 +79,7 @@ def test_pricing_snapshot_is_immutable():
 def test_pricing_source_description_includes_provider_mode_source_and_age():
     description = describe_pricing_source(
         build_pricing(stale=True),
-        now=datetime(2026, 8, 4, 3, tzinfo=UTC),
+        now=datetime(2026, 8, 4, 3, tzinfo=timezone.utc),
     )
 
     assert description == "openrouter/routing, catalogue-cache, age 3h, stale"

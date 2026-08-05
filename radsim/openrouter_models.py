@@ -11,7 +11,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .persistence import atomic_write_json
@@ -334,7 +334,7 @@ def _cache_status(cache: dict, *, stale: bool) -> CatalogueStatus:
 
 
 def _iso_timestamp(timestamp: float) -> str:
-    return datetime.fromtimestamp(timestamp, tz=UTC).isoformat().replace("+00:00", "Z")
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def get_openrouter_models(

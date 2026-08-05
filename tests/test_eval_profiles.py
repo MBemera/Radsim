@@ -1,6 +1,6 @@
 """Offline contracts for the release and commit eval profiles."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -17,7 +17,7 @@ from tests.evals.profiles import (
 from tests.evals.results import write_eval_result
 from tests.evals.run_evals import DEFAULT_CANDIDATES, DEFAULT_REPETITIONS, parse_arguments
 
-REFERENCE_TIME = datetime(2026, 8, 4, tzinfo=UTC)
+REFERENCE_TIME = datetime(2026, 8, 4, tzinfo=timezone.utc)
 
 
 def build_manifest(created_at=None, artifact_digest="a" * 64):

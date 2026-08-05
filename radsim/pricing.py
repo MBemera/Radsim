@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -133,7 +133,7 @@ def describe_pricing_source(
     now: datetime | None = None,
 ) -> str:
     """Describe provider, billing mode, source, and snapshot age."""
-    age = _snapshot_age(pricing.fetched_at, now or datetime.now(tz=UTC))
+    age = _snapshot_age(pricing.fetched_at, now or datetime.now(tz=timezone.utc))
     stale_label = ", stale" if pricing.stale else ""
     return (
         f"{pricing.provider}/{pricing.billing_mode}, {pricing.source}, "
