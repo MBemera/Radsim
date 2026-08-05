@@ -10,7 +10,7 @@ from tests.evals.cache_observability import (
     split_cache_priming_jobs,
     summarise_cache_observability,
 )
-from tests.evals.cases import get_cases
+from tests.evals.cases import get_cases, repetitions_for, total_case_runs
 from tests.evals.harness import RunRecord
 from tests.evals.preflight import prepare_preflight
 from tests.evals.run_evals import (
@@ -147,6 +147,42 @@ def test_seeded_jobs_keep_candidate_pairs_adjacent():
         pair = jobs[index : index + 2]
         assert {job[0] for job in pair} == {"A", "B"}
         assert pair[0][1:] == pair[1][1:]
+
+
+def test_case_repetition_floor_raises_only_the_case_that_sets_it():
+    unstable, stable = get_cases(case_ids=["P05", "S01"])
+
+    assert repetitions_for(unstable, 3) == unstable.min_repetitions
+    assert repetitions_for(stable, 3) == 3
+
+
+def test_case_repetition_floor_never_lowers_a_higher_request():
+    unstable = get_cases(case_ids=["P05"])[0]
+
+    assert repetitions_for(unstable, unstable.min_repetitions + 5) == (
+        unstable.min_repetitions + 5
+    )
+
+
+def test_jobs_apply_the_per_case_repetition_floor():
+    cases = get_cases(case_ids=["P05", "S01"])
+    unstable, stable = cases
+
+    jobs = build_jobs(("A", "B"), cases, repetitions=3, seed=42)
+
+    for case, expected in ((unstable, unstable.min_repetitions), (stable, 3)):
+        reps = {job[2] for job in jobs if job[1].id == case.id and job[0] == "A"}
+        assert reps == set(range(1, expected + 1))
+
+
+def test_run_count_bound_includes_the_repetition_floor():
+    cases = get_cases(case_ids=["P05", "S01"])
+    unstable = cases[0]
+
+    total = total_case_runs(cases, 3, candidate_count=2)
+
+    assert total == (unstable.min_repetitions + 3) * 2
+    assert total == len(build_jobs(("A", "B"), cases, repetitions=3, seed=42))
 
 
 def test_seeded_job_order_is_reproducible_and_seed_sensitive():

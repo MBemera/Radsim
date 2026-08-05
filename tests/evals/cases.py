@@ -67,6 +67,23 @@ class EvalCase:
     # Excluded from iterative tuning and included only in holdout/release runs.
     holdout: bool = False
 
+    # Floor on repetitions for a case whose rubric score is too unstable to read
+    # at the default count. Raising the sample is the honest fix; dropping the
+    # case out of the rubric would raise the gate average by deleting a low
+    # score rather than by improving anything.
+    min_repetitions: int = 0
+
+
+def repetitions_for(case, requested_repetitions):
+    """Return the repetition count to run for one case."""
+    return max(requested_repetitions, case.min_repetitions)
+
+
+def total_case_runs(cases, requested_repetitions, candidate_count):
+    """Return how many runs a matrix costs once per-case floors apply."""
+    per_candidate = sum(repetitions_for(case, requested_repetitions) for case in cases)
+    return per_candidate * candidate_count
+
 
 AUTH_MODULE = '''"""Session helpers."""
 
@@ -185,6 +202,10 @@ PLANNING_CASES = [
         required_text=("?",),
         completion_markers=("reset", "clean", "discard", "untracked", "?"),
         rubric=True,
+        # The pinned candidate returned 0.4 and 0.8 on two structurally
+        # identical answers in one 6-rep slice, so 3 reps cannot be read at all.
+        # See plan section 2.3f.
+        min_repetitions=9,
     ),
 ]
 

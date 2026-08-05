@@ -21,6 +21,7 @@ from .cache_observability import (
     summarise_cache_observability,
 )
 from .candidates import CANDIDATE_NAMES
+from .cases import repetitions_for
 from .harness import DEFAULT_MAX_ITERATIONS, run_case
 from .preflight import EvalPreflight, prepare_preflight, print_preflight
 from .profiles import (
@@ -238,7 +239,7 @@ def build_jobs(candidate_names, cases, repetitions, seed):
     case_repetitions = [
         (case, repetition)
         for case in cases
-        for repetition in range(1, repetitions + 1)
+        for repetition in range(1, repetitions_for(case, repetitions) + 1)
     ]
     random_generator.shuffle(case_repetitions)
     jobs = []

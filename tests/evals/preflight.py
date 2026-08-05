@@ -15,7 +15,7 @@ from typing import Any
 from radsim.request_options import RequestOptions
 
 from .candidates import CANDIDATE_NAMES, get_candidate
-from .cases import get_cases
+from .cases import get_cases, repetitions_for, total_case_runs
 from .fake_tools import FakeToolRunner
 
 MANIFEST_SCHEMA_VERSION = 4
@@ -331,7 +331,7 @@ def _execution(
     logical_requests: int,
     cost_limit: str | None,
 ) -> dict[str, Any]:
-    case_runs = len(candidate_names) * len(cases) * arguments.reps
+    case_runs = total_case_runs(cases, arguments.reps, len(candidate_names))
     return {
         "case_runs": case_runs,
         "repetitions": arguments.reps,
@@ -360,12 +360,14 @@ def _logical_request_limit(
     candidate_names: tuple[str, ...],
     cases: tuple[Any, ...],
 ) -> int:
-    case_runs = len(candidate_names) * len(cases) * arguments.reps
+    case_runs = total_case_runs(cases, arguments.reps, len(candidate_names))
     candidate_requests = case_runs * arguments.max_iterations
     if arguments.no_rubric:
         return candidate_requests
-    rubric_cases = sum(1 for case in cases if case.rubric)
-    return candidate_requests + (len(candidate_names) * rubric_cases * arguments.reps)
+    rubric_runs = sum(
+        repetitions_for(case, arguments.reps) for case in cases if case.rubric
+    )
+    return candidate_requests + (len(candidate_names) * rubric_runs)
 
 
 def _repository_state() -> dict[str, Any]:
