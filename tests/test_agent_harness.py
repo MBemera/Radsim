@@ -403,7 +403,7 @@ class TestLoopProtection:
     def test_user_rejection_stops_turn_without_followup(
         self, agent_factory, tmp_path, monkeypatch
     ):
-        monkeypatch.setattr("radsim.agent.confirm_write", lambda *a, **kw: False)
+        monkeypatch.setattr("radsim.agent_tool_handlers.confirm_write", lambda *a, **kw: False)
 
         agent = agent_factory(
             [
