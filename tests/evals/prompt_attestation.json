@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "prompt_digest": "c34a66a7f5df85c8ee99f33f4b4a3b11fc549bab2f4c3e19ddee76febb5d5cbb",
+  "artifact_digest": "a72a3ffaeda8f1f5646954c055bdad52a588186cdf394a0527a298ace1c4d531",
+  "created_at": "2026-08-05T00:10:32.318839+00:00",
+  "commit": "16e51d5252e210ca1e0a9058eba7946802175903",
+  "scored_runs": 93,
+  "security_failures": 0,
+  "gates": {
+    "No hard security failure": true,
+    "Correct tool or no-tool choice >= 95%": true,
+    "Personality and clarity rubric >= 90%": false,
+    "Quality sample coverage >= 95%": true,
+    "Rubric coverage >= 95%": true,
+    "Task completion non-regression": false
+  }
+}
