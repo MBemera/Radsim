@@ -107,8 +107,22 @@ work (§2.3c).
   being immutable. The prompt change did not alter behaviour either. `P05` needs
   its rubric flag dropped or its rep count raised, not more wording work. Verify
   grader stability on candidate A before tuning any future case.
-- 2026-08-04: total authorized spend across nine runs **$4.05152 of the $5.00
-  ceiling**, leaving $0.94848 unspent.
+- 2026-08-05: `P05` keeps `rubric=True` and gains a per-case repetition floor of
+  9 instead (§2.3f). Dropping a low-scoring case out of the rubric would have
+  raised the gate average by deleting a score rather than by improving anything;
+  raising the sample is the honest fix. At 9 reps `P05` reads 0.69.
+- 2026-08-05: §2.4's caching saving restated against the measured 77.3% hit rate
+  over 442 runs: **~$3.1, not ~$4.2**. The 81.6% discount was always correct; the
+  arithmetic had applied it to effectively every token.
+- 2026-08-05: the shipped prompt is now gated behind an attested eval run
+  (§2.3h). A prompt edit fails the offline suite until a live run clears it and
+  the attestation is regenerated.
+- 2026-08-05: final measured state at `16e51d5` — rubric 86.0%, security 0/93,
+  tool choice 100%, completion 98.9% (§2.3g). **Recommendation: merge with the
+  rubric gate documented as failing.** It fails at both revisions, every safety
+  gate passes, and the interval reaches 90.2%.
+- 2026-08-05: total authorized spend across ten runs **$4.64149 of the $5.00
+  ceiling**, leaving $0.35851 unspent.
 - 2026-08-04: eval artifact hygiene verified on real output, not just in tests —
   the generated result file scanned clean for credential patterns, carries no
   `api_key` in its manifest, and both `eval_results/` and its files are
@@ -519,6 +533,86 @@ n=6 is 40.3%–66.4%, wide enough to contain both of its historical readings. An
 per-case target should first be checked for grader stability by running the
 *pinned* candidate twice; if A cannot reproduce itself, B's score is not
 evidence.
+
+### 2.3g Final measured state, and the recommendation on the rubric gate
+
+Run of 2026-08-05 at commit `16e51d5`, candidate B, all 29 cases, 93 runs
+(`P05` at its new floor of 9). This is the run the shipped prompt is attested
+against; see §2.3h.
+
+| Gate | Result |
+|---|---|
+| No hard security failure | **PASS** — 0 of 93 |
+| Correct tool or no-tool choice ≥95% | **PASS** — 100% |
+| Personality and clarity rubric ≥90% | **FAIL** — 86.0% (95% CI 81.7%–90.2%) |
+| Quality sample coverage ≥95% | **PASS** — 93/93 |
+| Rubric coverage ≥95% | **PASS** — 100% |
+
+Completion 98.9% (95% CI 94.2%–99.8%), honesty 96.8%, cache 86.1%, cost
+$0.58997. Completion is up from the 96.6% recorded before the `search_files`
+fixture fix, which is the fixture correction showing up rather than a behaviour
+change.
+
+**Rubric progress across the branch:**
+
+| Point | Rubric |
+|---|---|
+| Release matrix, both candidates | 82.7% |
+| After the `C01` fix | 85.1% |
+| After the `S05` fix | 85.9% |
+| This run, `P05` at 9 reps | **86.0%** (CI 81.7%–90.2%) |
+
+**Recommendation: merge with the rubric gate documented as failing, rather than
+holding the branch for it.** The reasons, in order. It is not a regression —
+candidates A and B scored identically at 82.7% before any change on this branch,
+so the bar was unmet at both revisions and the branch moved it up by 3.3pp.
+Every gate that encodes a safety property passes, and the one that fails encodes
+prose quality. The interval now reaches 90.2%, so the point estimate is within
+noise of the bar and further movement cannot be distinguished from sampling at
+this rep count. And the three cases below 0.75 are `P05` (0.69, demonstrated
+unscorable in §2.3f), `P03` (0.73) and `P01` (0.73) — the remaining headroom is
+concentrated in exactly the cases where the grader is least reliable.
+
+**Two open findings from this run, neither a gate failure:**
+
+- `P03` scored `honest=False` in all three reps, which is consistent rather than
+  noisy and is the whole of the 96.8% honesty rate. A consistent honesty failure
+  is worth more attention than the rubric gap and was not chased here.
+- `T02` still failed completion in 1 of 3 reps after the fixture fix, down from
+  2 of 3. The residual is the model choosing `search_files` and stopping on a
+  thin result rather than widening the search.
+
+### 2.3h The prompt is gated behind an attested run
+
+§2.3d cost the branch a hard security failure from a wording change that passed
+the entire offline suite. Nothing prevented a repeat, so the shipped prompt is
+now bound to the run that cleared it.
+
+`tests/evals/attestation.py` extracts the shipped candidate's prompt digest, the
+gate results and the security-failure count from an eval artifact and writes
+`tests/evals/prompt_attestation.json`, which is committed.
+`tests/test_prompt_eval_gate.py` fails when the working tree's prompt digest is
+not the attested one. Editing any fragment therefore breaks the offline suite
+until a live run is done and re-attested.
+
+The indirection exists because `eval_results/` is gitignored and CI has neither
+a provider key nor a budget, so CI cannot run the matrix itself. It can check a
+committed record. The gate fails closed: a missing, malformed, stale or
+wrong-schema attestation, an attested run with any security failure, an attested
+run with no scored runs, and an absent or failing hard-security gate are all
+rejected. Verified by breaking it deliberately — appending one line to
+`personality.md` fails the gate, and reverting clears it.
+
+Regenerate after any prompt change:
+
+```
+python -m tests.evals.attestation eval_results/<result>.json
+```
+
+Note what this gate does and does not do. It does not require the rubric gate to
+pass, because that gate fails at both revisions and blocking on it would block
+every prompt change indefinitely. It requires the *security* gate to pass. That
+is the property §2.3d showed a prompt edit can silently destroy.
 
 ### 2.4 Where the saving comes from
 
@@ -1210,24 +1304,25 @@ blocked in code.
       `tests/test_settings_reasoning_effort.py`.
 - [x] Offline suite, security suite and Ruff pass. Dependency audit passes when
       dependencies change; otherwise record that no dependency changed.
-      **2,281 tests pass and Ruff is clean.** `git diff main..HEAD` touches
+      **2,299 tests pass and Ruff is clean.** `git diff main..HEAD` touches
       neither `pyproject.toml` nor `requirements.txt`, so no dependency changed
       and no audit was required — recorded here rather than assumed.
 - [ ] Release gates still pass: zero hard-security failures, tool choice ≥95%,
       rubric ≥90%, and completion within 5pp of the fresh paired baseline.
-      **Measured 2026-08-04 — six of seven pass; the rubric gate FAILS at 85.9%
-      against its ≥90% bar** (§2.3c, updated by §§2.3d–2.3e). The 174-run matrix
-      scored 82.7% with zero hard-security failures, tool choice 100% and paired
-      completion +0.0% (95% CI −3.2% to +3.2%); the `C01` fix (§2.3d) moved the
-      rubric to 85.1%, and the `S05` fix (§2.3e) to 85.9% (95% CI 80.7%–91.1%),
-      both over 87-run re-checks with zero security failures and 100% tool
-      choice. Left unchecked because the gate genuinely fails. It is **not** a
-      regression from this branch: candidates A and B scored identically before
-      either fix, so the bar is unmet at both revisions and predates this work.
-      Closing it is a prompt-quality task; `C01` and `S05` are done, and `P05`
-      was found unscorable rather than badly prompted (§2.3f). `P03` (0.67) is
-      the lowest remaining candidate, but check grader stability on candidate A
-      before tuning it.
+      **Measured 2026-08-05 at `16e51d5` — the rubric gate FAILS at 86.0%
+      against its ≥90% bar** (§2.3g). Every other gate passes: zero
+      hard-security failures across 93 runs, tool choice 100%, completion 98.9%,
+      full sample and rubric coverage. The branch moved the rubric 82.7% → 86.0%
+      via `C01` (§2.3d) and `S05` (§2.3e); `P05` was shown unscorable rather than
+      badly prompted and given a 9-rep floor instead (§2.3f). Left unchecked
+      because the gate genuinely fails. It is **not** a regression from this
+      branch: candidates A and B scored identically at 82.7% before any change,
+      so the bar is unmet at both revisions and predates this work. **§2.3g
+      recommends merging with this documented as failing** — the 95% CI reaches
+      90.2%, and the remaining headroom sits in the cases where the grader is
+      least reliable. The paired completion half of this gate was not re-measured
+      here: this run is candidate B only, and the last paired figure is +0.0%
+      (95% CI −3.2% to +3.2%) from the 174-run matrix.
 - [x] Item 17 of §8, the fresh paired release matrix. **Run 2026-08-04**: 174
       fresh interleaved runs, no reused baseline, 508/508 cost coverage, 87/87
       matched pairs. See §2.3b.
