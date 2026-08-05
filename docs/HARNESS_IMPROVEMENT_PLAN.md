@@ -522,12 +522,32 @@ evidence.
 
 ### 2.4 Where the saving comes from
 
+**Restated 2026-08-04 against measured data.** The original table applied the
+81.6% read discount to effectively all 6.5 M tokens. The discount rate is
+correct and verified; the *hit rate* it was applied to was not. Measured across
+**442 recorded runs and 11.06 M input tokens, the aggregate cache rate is
+77.3%** — see §2.3a. The saving is real but smaller than planned:
+
+| Cache hit rate | Cost of 6.5 M tokens | Saving vs uncached |
+|---|---|---|
+| Uncached baseline | $4.94 | — |
+| ~100% — as originally assumed | $0.91 | ~$4.03 |
+| **77.3% — measured** | **$1.82** | **~$3.12** |
+| 70% — the gate floor | $2.12 | ~$2.82 |
+
 | Lever | Saving | Confidence |
 |---|---|---|
-| Realise automatic prefix caching (81.6% off 6.5 M tokens) | ~$4.2 | High — pricing verified |
+| Realise automatic prefix caching at the measured 77.3% hit rate | **~$3.1** | High — pricing verified, hit rate measured over 442 runs |
 | Tool-schema description trim (~30%) | ~$0.20 | Medium — depends how much is trimmable |
 | Rubric grading moved to `glm-4.7-flash` | ~$0.24 | High — `--grader-model` flag already exists |
 | Reuse candidate A for routine signals | ~$1.1 | Medium — only valid with exact provenance and a freshness limit |
+
+**Two measured facts for whoever budgets the next run.** Observed cost is
+**$0.0086 per case run** over those 442 runs. Rubric grading is *not* included in
+a run record's `reported_cost_usd`; it is billed to the run's budget separately
+and adds roughly **6%** on top (the 87-run pass summed to $0.7878 across its run
+records against $0.8344 reported by the budget guard). Budget from the guard's
+figure, not from the sum of run records.
 
 Candidate A is the prompt as it shipped at commit `76b2ec7`, but its score can
 still change as provider routing, model snapshots, cases, tool schemas or the
