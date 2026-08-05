@@ -8,9 +8,6 @@ This module has no imports from the rest of RadSim, so it is safe
 to import from anywhere (cli, output, __init__) without cycles.
 """
 
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as installed_version
-
 # The PyPI distribution is named "radsimcli"; the import package is "radsim".
 DIST_NAME = "radsimcli"
 
@@ -23,6 +20,9 @@ def get_radsim_version() -> str:
     Falls back to the source version when RadSim runs from a
     checkout that was never pip-installed (no package metadata).
     """
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as installed_version
+
     try:
         return installed_version(DIST_NAME)
     except PackageNotFoundError:

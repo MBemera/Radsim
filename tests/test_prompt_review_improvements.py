@@ -188,6 +188,27 @@ def test_trusted_layers_render_unchanged():
     assert _render_layer({"name": "tool_use", "content": content}) == content
 
 
+def test_active_mode_prompt_order_is_stable():
+    """Set iteration cannot change the serialized system-prefix bytes."""
+    from radsim.modes import Mode, ModeManager
+
+    manager = ModeManager()
+    manager.register(Mode("zeta", "Zeta", "/z", "zeta instructions"))
+    manager.register(Mode("alpha", "Alpha", "/a", "alpha instructions"))
+    manager.toggle("zeta")
+    manager.toggle("alpha")
+
+    assert manager.get_active_modes() == ["alpha", "zeta"]
+    assert manager.get_prompt_additions().endswith("alpha instructions\n\nzeta instructions")
+
+
+def test_composed_prompt_is_byte_stable_while_sources_are_unchanged():
+    """No timestamp, random value, or request identifier enters prompt assembly."""
+    from radsim.prompts import get_system_prompt
+
+    assert get_system_prompt().encode() == get_system_prompt().encode()
+
+
 def test_agents_md_is_labelled_untrusted_repository_content(monkeypatch):
     """Project agents.md keeps a provenance label instead of a persona heading."""
     from radsim.prompts import _build_memory_prompt_fragment
@@ -220,7 +241,7 @@ def test_api_call_refreshes_composed_prompt(monkeypatch):
         def __init__(self):
             self.seen_prompt = None
 
-        def chat(self, messages, system_prompt=None, tools=None):
+        def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
             self.seen_prompt = system_prompt
             return {"content": [], "usage": {"input_tokens": 1, "output_tokens": 1}}
 
@@ -233,6 +254,9 @@ def test_api_call_refreshes_composed_prompt(monkeypatch):
             self.usage_stats = {"input_tokens": 0, "output_tokens": 0}
             self.protection = FakeProtection()
             self._mcp_manager = None
+
+        def check_and_prune(self):
+            return 0
 
     monkeypatch.setattr("radsim.agent_api.get_system_prompt", lambda: "fresh prompt")
 

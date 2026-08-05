@@ -41,14 +41,14 @@ class FakeClient:
         self.calls = []
         self.interrupt_agent = None  # Set to simulate Esc mid-stream
 
-    def chat(self, messages, system_prompt=None, tools=None):
+    def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
         self.calls.append([dict(m) for m in messages])
         if not self.responses:
             raise AssertionError("FakeClient ran out of scripted responses")
         return self.responses.pop(0)
 
-    def stream_chat(self, messages, system_prompt=None, tools=None):
-        response = self.chat(messages, system_prompt, tools)
+    def stream_chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+        response = self.chat(messages, system_prompt, tools, max_tokens)
         for block in response["content"]:
             if block["type"] == "text" and block["text"]:
                 yield {"type": "text_delta", "text": block["text"]}
@@ -114,6 +114,9 @@ class TestSingleTurn:
 
         assert result == "Hello Matt"
         assert [m["role"] for m in agent.messages] == ["user", "assistant"]
+        assert agent.usage_stats["input_tokens"] == 10
+        assert agent.usage_stats["output_tokens"] == 5
+        assert agent.usage_stats["request_count"] == 1
 
     def test_streaming_response(self, agent_factory):
         agent = agent_factory(
@@ -400,7 +403,7 @@ class TestLoopProtection:
     def test_user_rejection_stops_turn_without_followup(
         self, agent_factory, tmp_path, monkeypatch
     ):
-        monkeypatch.setattr("radsim.agent.confirm_write", lambda *a, **kw: False)
+        monkeypatch.setattr("radsim.agent_tool_handlers.confirm_write", lambda *a, **kw: False)
 
         agent = agent_factory(
             [

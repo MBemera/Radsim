@@ -88,8 +88,20 @@ def test_normalize_model_extracts_supported_params():
         "id": "vendor/model",
         "name": "Vendor Model",
         "context_length": 128000,
-        "pricing": {"prompt": "0.000003", "completion": "0.000015"},
-        "supported_parameters": ["tools", "reasoning", "reasoning_effort"],
+        "pricing": {
+            "prompt": "0.000003",
+            "completion": "0.000015",
+            "input_cache_read": "0.0000003",
+            "input_cache_write": "0.00000375",
+        },
+        "supported_parameters": [
+            "tools",
+            "reasoning",
+            "reasoning_effort",
+            "temperature",
+            "top_p",
+            "seed",
+        ],
         "reasoning": {
             "mandatory": True,
             "default_effort": "high",
@@ -102,6 +114,9 @@ def test_normalize_model_extracts_supported_params():
     assert normalized["supports_reasoning"] is True
     assert normalized["supports_tools"] is True
     assert normalized["input_price"] == pytest.approx(0.000003)
+    assert normalized["cache_read_price"] == pytest.approx(0.0000003)
+    assert normalized["cache_write_price"] == pytest.approx(0.00000375)
+    assert normalized["request_parameters"] == ["temperature", "top_p", "seed"]
     assert normalized["reasoning_efforts"] == ["low", "high", "max"]
     assert normalized["default_reasoning_effort"] == "high"
     assert normalized["reasoning_mandatory"] is True
@@ -149,3 +164,70 @@ def test_static_model_metadata_survives_an_older_live_cache(fake_home):
 
     assert model["reasoning_efforts"] == ["max"]
     assert openrouter_models.model_supports_reasoning("moonshotai/kimi-k3") is True
+
+
+def test_stale_cache_is_explicitly_labelled(fake_home):
+    fake_home.mkdir()
+    cached = {
+        "fetched_at": time.time() - openrouter_models.CACHE_TTL_SECONDS - 1,
+        "models": [{"id": "vendor/model", "name": "Stale"}],
+    }
+    (fake_home / "models_cache.json").write_text(json.dumps(cached))
+
+    _models, status = openrouter_models.get_openrouter_catalogue(allow_network=False)
+
+    assert status.source == "stale-catalogue-cache"
+    assert status.stale is True
+    assert status.fetched_at.endswith("Z")
+
+
+def test_catalogue_pricing_takes_precedence_over_static_fallback(fake_home):
+    fake_home.mkdir()
+    cached = {
+        "fetched_at": time.time(),
+        "models": [
+            {
+                "id": "z-ai/glm-5.2",
+                "name": "GLM",
+                "input_price": 0.0000008,
+                "output_price": 0.0000025,
+                "cache_read_price": 0.0000002,
+            }
+        ],
+    }
+    (fake_home / "models_cache.json").write_text(json.dumps(cached))
+
+    pricing = radsim.config.get_model_pricing("z-ai/glm-5.2", "openrouter")
+
+    assert str(pricing.input_per_million_usd) == "0.8000000"
+    assert pricing.source == "catalogue-cache"
+    assert pricing.stale is False
+
+
+def test_malformed_catalogue_price_fails_to_labelled_static_fallback(fake_home):
+    fake_home.mkdir()
+    cached = {
+        "fetched_at": time.time(),
+        "models": [
+            {
+                "id": "z-ai/glm-5.2",
+                "name": "GLM",
+                "input_price": None,
+                "output_price": 0.0000025,
+            }
+        ],
+    }
+    (fake_home / "models_cache.json").write_text(json.dumps(cached))
+
+    pricing = radsim.config.get_model_pricing("z-ai/glm-5.2", "openrouter")
+
+    assert pricing.source == "static-fallback"
+    assert pricing.stale is True
+
+
+def test_static_glm_capabilities_cover_verified_sampling_parameters(fake_home):
+    assert openrouter_models.get_model_request_parameters("z-ai/glm-5.2") == (
+        "temperature",
+        "top_p",
+        "seed",
+    )

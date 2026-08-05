@@ -1,5 +1,6 @@
 """Character-level snapshots for shared command presentation shapes."""
 
+import re
 from types import SimpleNamespace
 
 from radsim.commands_core import CoreCommandHandlersMixin
@@ -26,11 +27,22 @@ def test_modes_output_snapshot(capsys):
 
 
 def test_usage_output_snapshot(capsys, monkeypatch):
+    from radsim.pricing import ModelPricing
+
     agent = SimpleNamespace(
         usage_stats={"input_tokens": 1234, "output_tokens": 567},
         config=SimpleNamespace(model="snapshot-model"),
     )
-    monkeypatch.setattr("radsim.config.get_model_pricing", lambda model: (1.0, 2.0))
+    pricing = ModelPricing(
+        provider="openrouter",
+        billing_mode="routing",
+        model="snapshot-model",
+        input_per_million_usd="1.0",
+        output_per_million_usd="2.0",
+        source="fixture-catalogue",
+        fetched_at=None,
+    )
+    monkeypatch.setattr("radsim.config.get_model_pricing", lambda *_args: pricing)
 
     CoreCommandHandlersMixin()._cmd_usage(agent)
 
@@ -38,11 +50,66 @@ def test_usage_output_snapshot(capsys, monkeypatch):
         "\n"
         "  Model:          snapshot-model\n"
         "  Input tokens:   1,234\n"
+        "    Uncached:     1,234\n"
+        "    Cache reads:  0  (0% of input)\n"
+        "    Cache writes: 0\n"
         "  Output tokens:  567\n"
+        "  Reasoning:      0\n"
         "  Total tokens:   1,801\n"
-        "  Est. cost:      $0.0024  (in $0.0012 / out $0.0011)\n"
+        "  Est. cost:      $0.0024  (catalogue estimate)\n"
+        "    Uncached in:  $0.0012\n"
+        "    Cached in:    $0.0000\n"
+        "    Output:       $0.0011\n"
+        "    Pricing:      openrouter/routing, fixture-catalogue, age unknown\n"
         "\n"
     )
+
+
+def test_usage_labels_provider_cost_coverage(capsys, monkeypatch):
+    agent = SimpleNamespace(
+        usage_stats={
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "cache_read_input_tokens": 75,
+            "cache_write_input_tokens": 5,
+            "reasoning_output_tokens": 8,
+            "reported_cost_usd": 0.004,
+            "reported_cost_requests": 1,
+            "request_count": 2,
+        },
+        config=SimpleNamespace(model="snapshot-model"),
+    )
+    monkeypatch.setattr("radsim.config.get_model_pricing", lambda *_args: None)
+
+    CoreCommandHandlersMixin()._cmd_usage(agent)
+
+    output = capsys.readouterr().out
+    assert "Input tokens:   100" in output
+    assert "Uncached:     20" in output
+    assert "Cache reads:  75  (75% of input)" in output
+    assert "Reasoning:      8" in output
+    assert "Reported cost:  $0.0040  (partial: 1/2 requests)" in output
+
+
+def test_usage_refuses_to_invent_uncached_input(capsys, monkeypatch):
+    """Cached counts above total input must not print a negative uncached figure."""
+    agent = SimpleNamespace(
+        usage_stats={
+            "input_tokens": 50,
+            "output_tokens": 10,
+            "cache_read_input_tokens": 90,
+            "cache_write_input_tokens": 5,
+        },
+        config=SimpleNamespace(model="snapshot-model"),
+    )
+    monkeypatch.setattr("radsim.config.get_model_pricing", lambda *_args: None)
+
+    CoreCommandHandlersMixin()._cmd_usage(agent)
+
+    output = capsys.readouterr().out
+    assert "Uncached:     not reported (cached exceeds total input)" in output
+    assert not re.search(r"-\d", output)
+    assert "Cache reads:  90" in output
 
 
 def test_learning_summary_output_snapshot(capsys, monkeypatch):

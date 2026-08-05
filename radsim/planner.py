@@ -421,9 +421,10 @@ class PlanManager:
                 try:
                     plans.append(json.loads(f.read_text()))
                 except Exception:
+                    logger.debug("Skipping unreadable plan file %s", f, exc_info=True)
                     continue
         except Exception:
-            pass
+            logger.debug("Could not list saved plans", exc_info=True)
         return plans
 
     def load_latest_plan(self):

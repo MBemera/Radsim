@@ -4,6 +4,11 @@ Provides numbered menu display and safe input handling so that
 every command can be cleanly exited with 'q' or Ctrl+C.
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 
 def _flush_stdin():
     """Flush any buffered stdin characters to prevent stale input.
@@ -21,7 +26,7 @@ def _flush_stdin():
             if not os.read(fd, 4096):
                 break
     except Exception:
-        pass
+        logger.debug("Draining buffered stdin failed", exc_info=True)
 
 
 def safe_input(prompt="  Select: "):

@@ -4,10 +4,14 @@ RadSim Principle: One Function, One Purpose
 """
 
 import difflib
+import logging
 
 from ..runtime_context import get_runtime_context
 from .constants import MAX_FILE_SIZE, MAX_FILES_TO_READ, MAX_TRUNCATED_SIZE
 from .validation import contains_symlink, is_protected_path, validate_path
+
+logger = logging.getLogger(__name__)
+
 
 
 def _guard_write_target(file_path, resolved_path):
@@ -53,7 +57,7 @@ def _track_recent_files(paths, intent="accessed"):
             intent=intent,
         )
     except Exception:
-        pass
+        logger.debug("Recording recent files in project memory failed", exc_info=True)
 
 
 def _count_changed_lines(old_content, new_content):

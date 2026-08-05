@@ -11,6 +11,8 @@ Access code security:
 import hmac
 import os
 
+from .output import print_error, print_warning
+
 
 def _secure_compare(provided: str, stored: str) -> bool:
     """Compare strings in constant time to prevent timing attacks.
@@ -76,12 +78,12 @@ def prompt_for_access() -> bool:
                 return True
             remaining = max_attempts - attempt - 1
             if remaining > 0:
-                print(f"  error: Invalid code. {remaining} attempts remaining.")
+                print_error(f"Invalid code. {remaining} attempts remaining.")
         except (KeyboardInterrupt, EOFError):
-            print("\n  Access cancelled.")
+            print_warning("Access cancelled.")
             return False
 
-    print("  error: Access denied.")
+    print_error("Access denied.")
     return False
 
 

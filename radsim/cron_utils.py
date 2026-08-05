@@ -2,8 +2,8 @@
 
 RadSim Principle: One source of truth.
 
-Both schedulers (jobs.py and scheduler.py) talk to the same user crontab,
-so the primitives for reading, writing, and escaping entries live here.
+`jobs.py` is the only writer of the user crontab, so the primitives for
+reading, writing, and escaping entries live here rather than in it.
 """
 
 import platform

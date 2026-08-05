@@ -11,9 +11,13 @@ file cannot affect the next case or the machine.
 import copy
 import json
 import logging
+import math
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
+
+from radsim.usage import TOKEN_FIELDS, accumulate_usage
 
 from .fake_tools import FakeToolRunner
 
@@ -36,11 +40,25 @@ class RunRecord:
     group: str
     candidate: str
     repetition: int
+    sample_source: str = "live"
     final_text: str = ""
     tool_calls: list = field(default_factory=list)
     iterations: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    cache_write_input_tokens: int = 0
+    reasoning_output_tokens: int = 0
+    reported_cost_usd: float = 0.0
+    reported_cost_requests: int = 0
+    estimated_cost_usd: float = 0.0
+    estimated_cost_requests: int = 0
+    request_count: int = 0
+    retry_attempts: int = 0
+    latency_ms: float = 0.0
+    request_ids: list[str] = field(default_factory=list)
+    request_observations: list[dict[str, Any]] = field(default_factory=list)
+    reported_cost_complete: bool = False
     error: str = ""
 
     def called(self, tool_name):
@@ -99,6 +117,7 @@ def run_case(case, candidate, system_prompt, client, max_iterations=DEFAULT_MAX_
         try:
             _drive_model(record, case, system_prompt, client, runner, messages, max_iterations)
         except Exception as error:  # one failed request must not lose the matrix
+            record.retry_attempts += _error_retry_attempts(error)
             record.error = str(error)
             logger.warning("Case %s (%s) failed: %s", case.id, candidate, error)
 
@@ -121,8 +140,7 @@ def _drive_model(record, case, system_prompt, client, runner, messages, max_iter
         )
 
         usage = response.get("usage", {})
-        record.input_tokens += usage.get("input_tokens", 0)
-        record.output_tokens += usage.get("output_tokens", 0)
+        _record_usage(record, usage)
 
         text = extract_text(response)
         if text:
@@ -134,6 +152,71 @@ def _drive_model(record, case, system_prompt, client, runner, messages, max_iter
 
         messages.append({"role": "assistant", "content": response.get("content", [])})
         messages.append({"role": "user", "content": _tool_results(runner, tool_uses)})
+
+
+def _record_usage(record: RunRecord, usage: dict[str, Any]) -> None:
+    """Add one normalized provider usage object to an eval record."""
+    fields = (
+        *TOKEN_FIELDS,
+        "reported_cost_usd",
+        "reported_cost_requests",
+        "estimated_cost_usd",
+        "estimated_cost_requests",
+        "request_count",
+        "retry_attempts",
+        "latency_ms",
+    )
+    totals = {name: getattr(record, name) for name in fields}
+    accumulate_usage(totals, usage)
+    for name in fields:
+        setattr(record, name, totals[name])
+
+    request_id = usage.get("request_id")
+    if isinstance(request_id, str) and request_id:
+        record.request_ids.append(request_id[:256])
+    record.request_observations.append(_request_observation(usage))
+    record.reported_cost_complete = (
+        record.request_count > 0 and record.reported_cost_requests == record.request_count
+    )
+
+
+def _request_observation(usage: dict[str, Any]) -> dict[str, Any]:
+    """Keep bounded per-request cache, route, model, and latency evidence."""
+    return {
+        "request_id": _bounded_metadata(usage.get("request_id")),
+        "provider_name": _bounded_metadata(usage.get("provider_name")),
+        "routed_provider": _bounded_metadata(usage.get("routed_provider")),
+        "response_model": _bounded_metadata(usage.get("response_model")),
+        "input_tokens": _nonnegative_integer(usage.get("input_tokens")),
+        "cache_read_input_tokens": _nonnegative_integer(
+            usage.get("cache_read_input_tokens")
+        ),
+        "cache_write_input_tokens": _nonnegative_integer(
+            usage.get("cache_write_input_tokens")
+        ),
+        "latency_ms": _nonnegative_float(usage.get("latency_ms")),
+    }
+
+
+def _bounded_metadata(value: Any) -> str | None:
+    return value[:256] if isinstance(value, str) and value else None
+
+
+def _nonnegative_integer(value: Any) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        return 0
+    return value
+
+
+def _nonnegative_float(value: Any) -> float | None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    return float(value) if math.isfinite(value) and value >= 0 else None
+
+
+def _error_retry_attempts(error: Exception) -> int:
+    value = getattr(error, "retry_attempts", 0)
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
 def _tool_results(runner, tool_uses):

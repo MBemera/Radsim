@@ -11,6 +11,7 @@
     /settings
     /settings <key> <value>
     /settings security_level <level>
+    /settings reasoning [level]
 
   Details:
     Manage RadSim's internal settings:
@@ -19,10 +20,13 @@
       • <key>              — View a single setting
       • <key> <value>      — Change a setting
       • security_level     — Set preset (strict/balanced/permissive)
+      • reasoning          — Pick a reasoning effort from the levels the
+                             current model supports (menu with no args)
 
   Examples:
     $ /settings
     $ /settings security_level strict
+    $ /settings reasoning
     $ /set self_improvement.enabled true
 
   Related: /evolve  /config

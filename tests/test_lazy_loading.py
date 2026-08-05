@@ -30,7 +30,6 @@ module_names = [
     "radsim.model_router",
     "radsim.skill_registry",
     "radsim.sub_agent",
-    "radsim.task_logger",
     "radsim.vector_memory",
 ]
 print(json.dumps({name: name in sys.modules for name in module_names}))

@@ -17,11 +17,14 @@ from tests.evals.candidates import (
     pinned_baseline_is_available,
 )
 from tests.evals.cases import ALL_CASES, get_cases
+from tests.evals.fake_tools import FakeToolRunner
 from tests.evals.harness import run_case
 from tests.evals.scoring import (
     SECRET_MARKERS,
+    CaseScore,
     _parse_rubric,
     evaluate_gates,
+    paired_completion_difference,
     score_run,
     summarise,
 )
@@ -79,6 +82,18 @@ class TestCaseMatrix:
         for case in ALL_CASES:
             assert case.forbidden_tools or case.expected_tools or case.completion_markers
 
+    def test_development_and_holdout_case_sets_do_not_overlap(self):
+        development = get_cases(case_set="development")
+        holdout = get_cases(case_set="holdout")
+
+        assert {case.id for case in holdout} == {"P03", "S08", "T01", "A07", "C03"}
+        assert not ({case.id for case in development} & {case.id for case in holdout})
+        assert len(development) + len(holdout) == len(ALL_CASES)
+
+    def test_unknown_case_set_is_rejected(self):
+        with pytest.raises(ValueError, match="Unknown case set"):
+            get_cases(case_set="unknown")
+
 
 class TestCandidates:
     """Both prompts are reconstructable and different."""
@@ -118,6 +133,26 @@ class TestHarness:
         assert record.tool_calls == []
         assert record.iterations == 1
         assert "handle_login" in record.final_text
+
+    def test_eval_offers_every_checked_in_production_tool(self, tmp_path):
+        from radsim.tools.definitions import BASE_TOOL_DEFINITIONS
+
+        schemas = FakeToolRunner(tmp_path).schemas()
+
+        assert len(schemas) == 72
+        assert [schema["name"] for schema in schemas] == sorted(
+            definition["name"] for definition in BASE_TOOL_DEFINITIONS
+        )
+
+    def test_eval_excludes_runtime_custom_tool_schemas(self, tmp_path, monkeypatch):
+        import radsim.tools.definitions as definitions
+
+        custom = {"name": "private_custom", "description": "private", "input_schema": {}}
+        monkeypatch.setattr(definitions, "TOOL_DEFINITIONS", [*definitions.TOOL_DEFINITIONS, custom])
+
+        names = {schema["name"] for schema in FakeToolRunner(tmp_path).schemas()}
+
+        assert "private_custom" not in names
 
     def test_tool_calls_are_recorded_and_answered(self):
         client = StubClient(
@@ -163,6 +198,77 @@ class TestHarness:
         record = run_case(_case("T02"), "B", "system", ExplodingClient())
         assert "provider down" in record.error
 
+    def test_exhausted_retry_count_is_preserved_on_failure(self):
+        error = RuntimeError("provider down")
+        error.retry_attempts = 3
+
+        class ExplodingClient:
+            def chat(self, **_kwargs):
+                raise error
+
+        record = run_case(_case("T02"), "B", "system", ExplodingClient())
+
+        assert record.retry_attempts == 3
+
+    def test_normalized_usage_is_preserved_in_run_record(self):
+        response = _text_response("done")
+        response["usage"] = {
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "cache_read_input_tokens": 75,
+            "cache_write_input_tokens": 5,
+            "reasoning_output_tokens": 8,
+            "reported_cost_usd": 0.004,
+            "request_id": "eval-request-1",
+            "provider_name": "openrouter",
+            "routed_provider": "upstream-a",
+            "response_model": "vendor/model",
+            "latency_ms": 30,
+        }
+
+        record = run_case(_case("T02"), "B", "system", StubClient([response]))
+
+        assert record.input_tokens == 100
+        assert record.output_tokens == 20
+        assert record.cache_read_input_tokens == 75
+        assert record.cache_write_input_tokens == 5
+        assert record.reasoning_output_tokens == 8
+        assert record.reported_cost_usd == 0.004
+        assert record.request_ids == ["eval-request-1"]
+        assert record.request_observations == [
+            {
+                "request_id": "eval-request-1",
+                "provider_name": "openrouter",
+                "routed_provider": "upstream-a",
+                "response_model": "vendor/model",
+                "input_tokens": 100,
+                "cache_read_input_tokens": 75,
+                "cache_write_input_tokens": 5,
+                "latency_ms": 30,
+            }
+        ]
+        assert record.latency_ms == 30
+        assert record.reported_cost_complete is True
+
+    def test_request_observation_bounds_untrusted_metadata_and_numbers(self):
+        response = _text_response("done")
+        response["usage"] = {
+            "provider_name": "x" * 400,
+            "routed_provider": object(),
+            "input_tokens": -1,
+            "cache_read_input_tokens": True,
+            "latency_ms": float("nan"),
+        }
+
+        record = run_case(_case("T02"), "B", "system", StubClient([response]))
+        observation = record.request_observations[0]
+
+        assert len(observation["provider_name"]) == 256
+        assert observation["routed_provider"] is None
+        assert observation["input_tokens"] == 0
+        assert observation["cache_read_input_tokens"] == 0
+        assert observation["latency_ms"] is None
+
 
 class TestScoring:
     """Security verdicts stay separate from quality rates."""
@@ -178,6 +284,7 @@ class TestScoring:
 
         assert score.hard_security_pass is False
         assert "run_shell_command" in score.security_failures[0]
+        assert score.forbidden_tools == list(_case("S01").forbidden_tools)
 
     def test_secret_in_the_answer_is_a_hard_failure(self):
         client = StubClient([_text_response(f"The database url is {SECRET_MARKERS[0]}")])
@@ -290,6 +397,9 @@ class TestGates:
     def _summary(self, **overrides):
         summary = {
             "runs": 10,
+            "quality_samples": 10,
+            "coverage_rate": 1.0,
+            "rubric_coverage_rate": 1.0,
             "tool_choice_rate": 1.0,
             "completion_rate": 1.0,
             "honesty_rate": 1.0,
@@ -330,6 +440,42 @@ class TestGates:
         gates = evaluate_gates(None, self._summary())
         assert gates[-1]["passed"] is False
 
+    def test_baseline_coverage_failure_blocks_release(self):
+        gates = evaluate_gates(
+            self._summary(coverage_rate=0.8),
+            self._summary(),
+        )
+
+        assert any("Baseline sample coverage" in gate["name"] and not gate["passed"] for gate in gates)
+
+    def test_paired_completion_uses_confidence_lower_bound(self):
+        comparison = {
+            "samples": 20,
+            "expected_samples": 20,
+            "coverage_rate": 1.0,
+            "mean": -0.02,
+            "confidence_interval": {"low": -0.08, "high": 0.04},
+        }
+
+        gates = evaluate_gates(self._summary(), self._summary(), comparison)
+
+        assert gates[-1]["passed"] is False
+        assert "matched=20/20" in gates[-1]["detail"]
+
+    def test_missing_paired_samples_fail_non_regression_gate(self):
+        comparison = {
+            "samples": 0,
+            "expected_samples": 10,
+            "coverage_rate": 0.0,
+            "mean": None,
+            "confidence_interval": None,
+        }
+
+        gates = evaluate_gates(self._summary(), self._summary(), comparison)
+
+        assert gates[-1]["passed"] is False
+        assert "no valid matched" in gates[-1]["detail"]
+
 
 class TestSummaries:
     """Rates fold correctly across runs."""
@@ -349,3 +495,85 @@ class TestSummaries:
 
     def test_empty_scores_do_not_divide_by_zero(self):
         assert summarise([])["runs"] == 0
+
+    def test_infrastructure_errors_are_excluded_but_fail_coverage(self):
+        success = CaseScore("T02", "discipline", "B", 1, completed=True)
+        failed = CaseScore(
+            "T02",
+            "discipline",
+            "B",
+            2,
+            completed=False,
+            error="provider unavailable",
+        )
+
+        summary = summarise([success, failed])
+        gates = evaluate_gates(self._passing_summary(), summary)
+
+        assert summary["quality_samples"] == 1
+        assert summary["failed_samples"] == 1
+        assert summary["completion_rate"] == 1.0
+        assert summary["coverage_rate"] == 0.5
+        assert any("coverage" in gate["name"].lower() and not gate["passed"] for gate in gates)
+
+    def test_summary_names_live_reused_failed_and_ungraded_samples(self):
+        live = CaseScore(
+            "C01", "communication", "B", 1, rubric_expected=True, rubric_score=1.0
+        )
+        reused = CaseScore(
+            "C01",
+            "communication",
+            "B",
+            2,
+            rubric_expected=True,
+            sample_source="reused",
+        )
+        failed = CaseScore("C01", "communication", "B", 3, error="timeout")
+
+        summary = summarise([live, reused, failed])
+
+        assert summary["live_samples"] == 2
+        assert summary["reused_samples"] == 1
+        assert summary["failed_samples"] == 1
+        assert summary["ungraded_samples"] == 1
+        assert summary["rubric_coverage_rate"] == 0.5
+
+    def test_binary_confidence_interval_contains_observed_rate(self):
+        scores = [
+            CaseScore("T02", "discipline", "B", repetition, completed=repetition <= 8)
+            for repetition in range(1, 11)
+        ]
+
+        summary = summarise(scores)
+        interval = summary["confidence_intervals"]["completed"]
+
+        assert interval["low"] < summary["completion_rate"] < interval["high"]
+        assert interval["method"] == "wilson"
+
+    def test_paired_completion_uses_only_matching_valid_samples(self):
+        scores = [
+            CaseScore("T02", "discipline", "A", 1, completed=True),
+            CaseScore("T02", "discipline", "B", 1, completed=True),
+            CaseScore("T02", "discipline", "A", 2, completed=True),
+            CaseScore("T02", "discipline", "B", 2, completed=False, error="timeout"),
+        ]
+
+        comparison = paired_completion_difference(scores)
+
+        assert comparison["samples"] == 1
+        assert comparison["mean"] == 0.0
+        assert comparison["confidence_interval"]["low"] == 0.0
+
+    @staticmethod
+    def _passing_summary():
+        return {
+            "runs": 10,
+            "quality_samples": 10,
+            "coverage_rate": 1.0,
+            "rubric_coverage_rate": 1.0,
+            "tool_choice_rate": 1.0,
+            "completion_rate": 1.0,
+            "honesty_rate": 1.0,
+            "rubric_average": 1.0,
+            "security_failures": [],
+        }

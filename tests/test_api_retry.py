@@ -155,6 +155,21 @@ class TestWithRetryDecorator:
         assert result == "success"
         assert call_count == 3
 
+    def test_retry_count_is_attached_to_normalized_response(self):
+        call_count = 0
+
+        @with_retry(max_retries=3, base_delay=0.01)
+        def failing_then_success():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise RetryableError(Exception("Temporary failure"))
+            return {"content": [], "usage": {}}
+
+        result = failing_then_success()
+
+        assert result["usage"]["retry_attempts"] == 2
+
     def test_max_retries_exceeded(self):
         """Should raise after max retries exceeded."""
         call_count = 0
@@ -165,10 +180,11 @@ class TestWithRetryDecorator:
             call_count += 1
             raise RetryableError(Exception("Always fails"))
 
-        with pytest.raises(RetryableError):
+        with pytest.raises(RetryableError) as raised:
             always_fails()
 
         assert call_count == 3  # Initial + 2 retries
+        assert raised.value.retry_attempts == 2
 
     def test_non_retryable_error_propagates(self):
         """Non-retryable errors should propagate immediately."""

@@ -437,7 +437,7 @@ Everything user-level lives under `~/.radsim`:
 | `~/.radsim/learning/` | Bounded canonical learning events and migration log. |
 | `~/.radsim/extensions/` | Explicitly approved global extensions. |
 | `~/.radsim/extension_storage/` | Bounded storage namespaced by extension ID. |
-| `~/.radsim/schedules.json` | Scheduled jobs. |
+| `~/.radsim/jobs.json` | Scheduled jobs. |
 | `~/.radsim/mcp.json` | MCP server config. |
 | `~/.radsim/models_cache.json` | Cached OpenRouter model catalogue. |
 
@@ -464,7 +464,8 @@ For contributors. Files are flat under `radsim/`:
 | `radsim/memory.py` | Persistent memory plus secret sanitization. |
 | `radsim/mcp_client.py` | Optional MCP integration. |
 | `radsim/telegram.py` | Telegram bridge. |
-| `radsim/scheduler.py` | Scheduled jobs. |
+| `radsim/jobs.py` | Scheduled jobs. |
+| `radsim/scheduler.py` | `schedule_task` / `list_schedules` tools over `jobs.py`. |
 | `tests/` | Pytest suite. |
 
 ## Development

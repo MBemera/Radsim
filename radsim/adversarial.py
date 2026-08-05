@@ -5,12 +5,20 @@ Does NOT execute code — purely reads and analyzes patterns.
 All findings are presented as a report; no files are modified.
 """
 
+import ast
 import os
 import re
 from pathlib import Path
 
 # Extensions we analyze
 CODE_EXTENSIONS = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java"}
+
+# Every detector caps its output so one noisy file cannot flood a report.
+MAX_ISSUES_PER_DETECTOR = 5
+
+_TRY_STATEMENTS = tuple(
+    node for node in (ast.Try, getattr(ast, "TryStar", None)) if node is not None
+)
 
 
 # ---------------------------------------------------------------------------
@@ -151,64 +159,182 @@ def _detect_bare_except(content, extension):
     return issues
 
 
+def _dotted_call_name(node):
+    """Return the dotted name of a call target, e.g. 'requests.get' or 'read'."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
+def _io_call_description(node):
+    """Return a label when the node performs I/O, else None."""
+    if not isinstance(node, ast.Call):
+        return None
+
+    dotted = _dotted_call_name(node.func)
+    if not dotted:
+        return None
+
+    root = dotted.split(".")[0]
+    leaf = dotted.split(".")[-1]
+
+    if dotted == "open":
+        return "File open"
+    if dotted in {"json.load", "json.dump"}:
+        return "JSON file access"
+    if root in {"requests", "urllib", "httpx"}:
+        return "HTTP request"
+    if root == "subprocess":
+        return "Subprocess call"
+    if leaf in {"read", "readlines"} and dotted != "read":
+        return "File read"
+    if leaf in {"write", "writelines"} and dotted != "write":
+        return "File write"
+    return None
+
+
+def _function_name_by_line(tree):
+    """Map each line number to the innermost function that contains it."""
+    names = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for line in range(node.lineno, (node.end_lineno or node.lineno) + 1):
+            names[line] = node.name
+    return names
+
+
+def _collect_unguarded_io(node, protected, found):
+    """Record I/O calls that no enclosing try block covers.
+
+    Walking the parse tree means occurrences inside strings and comments are
+    never seen, and try coverage is exact rather than guessed from indentation.
+    """
+    if isinstance(node, _TRY_STATEMENTS):
+        for statement in node.body:
+            _collect_unguarded_io(statement, True, found)
+        for statement in list(node.handlers) + list(node.orelse) + list(node.finalbody):
+            _collect_unguarded_io(statement, protected, found)
+        return
+
+    description = _io_call_description(node)
+    if description and not protected:
+        found.append((node.lineno, description))
+
+    for child in ast.iter_child_nodes(node):
+        _collect_unguarded_io(child, protected, found)
+
+
 def _detect_unguarded_io(content, extension):
-    """Find I/O operations without try/except wrapping."""
-    issues = []
+    """Find I/O operations that no enclosing try block covers."""
+    if extension != ".py":
+        return []
 
-    if extension == ".py":
-        io_patterns = [
-            (r"open\(", "File open"),
-            (r"\.read\(", "File read"),
-            (r"\.write\(", "File write"),
-            (r"requests\.", "HTTP request"),
-            (r"urllib\.", "HTTP request"),
-            (r"subprocess\.", "Subprocess call"),
-            (r"json\.load\(", "JSON file read"),
-        ]
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return []
 
-        lines = content.split("\n")
-        for line_number, line in enumerate(lines, 1):
-            stripped = line.strip()
-            if stripped.startswith("#"):
-                continue
+    found = []
+    _collect_unguarded_io(tree, False, found)
+    function_names = _function_name_by_line(tree)
 
-            for pattern, description in io_patterns:
-                if re.search(pattern, stripped):
-                    # Check if this line is inside a try block
-                    if not _is_in_try_block(lines, line_number - 1):
-                        func_name = _find_containing_function(content, line_number, extension)
-                        issues.append(_issue(
-                            "io_safety", "medium", func_name, line_number,
-                            f"{description} without try/except wrapper",
-                            "Wrap in try/except to handle IOError or OSError"
-                        ))
+    issues = [
+        _issue(
+            "io_safety",
+            "medium",
+            function_names.get(line_number, "<module>"),
+            line_number,
+            f"{description} is not wrapped in try/except here",
+            "Wrap it in try/except, or confirm the caller handles OSError",
+        )
+        for line_number, description in found
+    ]
+    return issues[:MAX_ISSUES_PER_DETECTOR]
 
-    return issues
+
+def _string_valued_names(tree):
+    """Return names that are demonstrably strings in this file."""
+    names = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.update(
+                argument.arg
+                for argument in node.args.args
+                if isinstance(argument.annotation, ast.Name) and argument.annotation.id == "str"
+            )
+        elif isinstance(node, ast.Assign):
+            if _is_string_expression(node.value):
+                names.update(target.id for target in node.targets if isinstance(target, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if isinstance(node.annotation, ast.Name) and node.annotation.id == "str":
+                names.add(node.target.id)
+
+    return names
+
+
+def _is_string_expression(node):
+    """Return True when an expression obviously produces a string."""
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, str)
+    if isinstance(node, ast.JoinedStr):
+        return True
+    if isinstance(node, ast.Call):
+        return _dotted_call_name(node.func).split(".")[-1] in {"str", "format", "join", "strip"}
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _is_string_expression(node.left) or _is_string_expression(node.right)
+    return False
+
+
+def _concatenated_unknown_name(node, known_strings):
+    """Return the name added to a string literal when its type is unknown."""
+    if not isinstance(node, ast.BinOp) or not isinstance(node.op, ast.Add):
+        return None
+
+    for side, other in ((node.left, node.right), (node.right, node.left)):
+        if not isinstance(other, ast.Constant) or not isinstance(other.value, str):
+            continue
+        if isinstance(side, ast.Name) and side.id not in known_strings:
+            return side.id
+
+    return None
 
 
 def _detect_type_confusion(content, extension):
-    """Find potential type confusion risks."""
+    """Find string concatenation with a name that is not known to be a string."""
+    if extension != ".py":
+        return []
+
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return []
+
+    known_strings = _string_valued_names(tree)
+    function_names = _function_name_by_line(tree)
     issues = []
 
-    if extension == ".py":
-        # Find string concatenation with + that might fail on non-strings
-        for line_number, line in enumerate(content.split("\n"), 1):
-            stripped = line.strip()
-            if stripped.startswith("#"):
-                continue
+    for node in ast.walk(tree):
+        name = _concatenated_unknown_name(node, known_strings)
+        if not name:
+            continue
+        issues.append(
+            _issue(
+                "type_safety",
+                "low",
+                function_names.get(node.lineno, "<module>"),
+                node.lineno,
+                f"Concatenating '{name}' with a string fails if it is not a string",
+                f'Use an f-string or str(): f"{{{name}}}text"',
+            )
+        )
 
-            # Detect f-string or concatenation patterns that could fail
-            # Only flag obvious cases: variable + "string"
-            if re.search(r'\w+\s*\+\s*["\']', stripped) and "str(" not in stripped:
-                func_name = _find_containing_function(content, line_number, extension)
-                issues.append(_issue(
-                    "type_safety", "low", func_name, line_number,
-                    "String concatenation may fail if variable is not a string",
-                    "Use f-strings or str() conversion: f\"{variable}text\""
-                ))
-
-    # Cap at 5 to reduce noise
-    return issues[:5]
+    return issues[:MAX_ISSUES_PER_DETECTOR]
 
 
 def _detect_boundary_issues(content, extension):

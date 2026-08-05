@@ -1,10 +1,15 @@
 """Interactive and single-shot runtime helpers for the main agent."""
 
+import logging
+
 from .commands import CommandRegistry, detect_help_intent
 from .output import print_agent_response, print_error, print_warning
 from .prompts import get_system_prompt
 from .rate_limiter import BudgetExceeded, CircuitBreakerOpen, RateLimitExceeded
 from .runtime_context import get_runtime_context
+
+logger = logging.getLogger(__name__)
+
 
 
 def _run_user_shell_command(command, agent):
@@ -203,7 +208,7 @@ def run_interactive(config, context_file=None):
             try:
                 get_runtime_context().get_memory().session_mem.update_activity()
             except Exception:
-                pass
+                logger.debug("Session activity update failed", exc_info=True)
 
             if not config.stream:
                 print_agent_response(response)

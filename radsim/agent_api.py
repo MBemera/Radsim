@@ -19,6 +19,7 @@ from .output import (
 from .prompts import get_system_prompt
 from .rate_limiter import BudgetExceeded, CircuitBreakerOpen, RateLimitExceeded
 from .tools import TOOL_DEFINITIONS
+from .usage import accumulate_usage
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,15 @@ class AgentApiMixin:
 
     def _call_api(self):
         """Call the API with current messages."""
+        from .context_budget import DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS
+
         self.system_prompt = get_system_prompt()
+        self.check_and_prune()
+        output_reserve_tokens = getattr(
+            self.config,
+            "context_output_reserve_tokens",
+            DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS,
+        )
 
         warning = self.protection.check_before_api_call()
         if warning:
@@ -91,6 +100,7 @@ class AgentApiMixin:
                     messages=self.messages,
                     system_prompt=self.system_prompt,
                     tools=all_tools,
+                    max_tokens=output_reserve_tokens,
                 )
 
                 for chunk in stream:
@@ -121,14 +131,14 @@ class AgentApiMixin:
                     messages=self.messages,
                     system_prompt=self.system_prompt,
                     tools=all_tools,
+                    max_tokens=output_reserve_tokens,
                 )
                 spinner.stop()
 
             if "usage" in response:
                 input_tokens = response["usage"].get("input_tokens", 0)
                 output_tokens = response["usage"].get("output_tokens", 0)
-                self.usage_stats["input_tokens"] += input_tokens
-                self.usage_stats["output_tokens"] += output_tokens
+                accumulate_usage(self.usage_stats, response["usage"])
 
                 budget_warning = self.protection.record_api_success(input_tokens, output_tokens)
                 if budget_warning:
@@ -347,14 +357,6 @@ class AgentApiMixin:
             tool_success = result.get("success", False)
             tool_error = result.get("error", "") if not tool_success else ""
 
-            if self._interrupted.is_set():
-                try:
-                    from .trust_bandit_integration import record_user_decision
-
-                    record_user_decision(tool_name, tool_input, accepted=False, config=self.config)
-                except Exception:
-                    logger.debug("Trust bandit interrupt recording failed", exc_info=True)
-
             if not tool_success and "STOPPED" in tool_error:
                 user_rejected = True
 
@@ -397,7 +399,7 @@ class AgentApiMixin:
                     status = "ok" if tool_success else "fail"
                     send_telegram_message(f"[{status}] {tool_name}")
                 except Exception:
-                    pass
+                    logger.debug("Telegram tool notification failed", exc_info=True)
 
             image_block = extract_image_block(result)
             if image_block:

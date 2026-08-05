@@ -10,6 +10,8 @@ import logging
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .persistence import atomic_write_json
@@ -32,10 +34,24 @@ REASONING_EFFORT_ORDER = (
     "max",
 )
 REASONING_EFFORT_LEVELS = set(REASONING_EFFORT_ORDER)
+REQUEST_PARAMETER_ORDER = ("temperature", "top_p", "seed")
+REQUEST_PARAMETER_NAMES = set(REQUEST_PARAMETER_ORDER)
+STATIC_REQUEST_PARAMETERS = {
+    "z-ai/glm-5.2": REQUEST_PARAMETER_ORDER,
+}
 
 _catalogue = None
 _catalogue_key = None
 _catalogue_fetched_at = 0.0
+
+
+@dataclass(frozen=True)
+class CatalogueStatus:
+    """Provenance for one coherent OpenRouter catalogue selection."""
+
+    source: str
+    fetched_at: str | None
+    stale: bool
 
 
 def _cache_path() -> Path:
@@ -107,6 +123,12 @@ def _is_valid_model(model) -> bool:
         return False
     if not _is_optional_number(model.get("output_price"), 0, 1):
         return False
+    if not _is_optional_number(model.get("cache_read_price"), 0, 1):
+        return False
+    if not _is_optional_number(model.get("cache_write_price"), 0, 1):
+        return False
+    if not _is_valid_request_parameters(model.get("request_parameters")):
+        return False
     if not _is_valid_reasoning_metadata(model):
         return False
     return all(
@@ -127,6 +149,16 @@ def _is_valid_reasoning_metadata(model) -> bool:
             return False
     default_effort = model.get("default_reasoning_effort")
     return default_effort is None or default_effort in REASONING_EFFORT_LEVELS
+
+
+def _is_valid_request_parameters(value) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, list) or len(value) > len(REQUEST_PARAMETER_NAMES):
+        return False
+    return len(value) == len(set(value)) and all(
+        parameter in REQUEST_PARAMETER_NAMES for parameter in value
+    )
 
 
 def _is_bounded_string(value, required: bool) -> bool:
@@ -154,19 +186,22 @@ def _is_number_in_range(value, minimum, maximum) -> bool:
     )
 
 
-def _save_cache(models: list[dict]) -> None:
+def _save_cache(models: list[dict], fetched_at: float | None = None) -> float | None:
     from .config import CONFIG_DIR
 
     if not _is_valid_models(models):
         logger.debug("refusing to cache an invalid model catalogue")
-        return
+        return None
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {"fetched_at": time.time(), "models": models}
+    saved_at = fetched_at or time.time()
+    payload = {"fetched_at": saved_at, "models": models}
     try:
         atomic_write_json(_cache_path(), payload)
     except OSError as error:
         logger.debug("models_cache write failed: %s", error)
+        return None
+    return saved_at
 
 
 def _is_cache_fresh(cache: dict, ttl_seconds: int = CACHE_TTL_SECONDS) -> bool:
@@ -205,6 +240,12 @@ def _normalize_model(entry: dict) -> dict:
     top_provider = entry.get("top_provider") or {}
     supported_params = entry.get("supported_parameters") or []
     reasoning = entry.get("reasoning") or {}
+    if not isinstance(pricing, dict):
+        pricing = {}
+    if not isinstance(top_provider, dict):
+        top_provider = {}
+    if not isinstance(supported_params, list):
+        supported_params = []
     if not isinstance(reasoning, dict):
         reasoning = {}
     advertised_efforts = reasoning.get("supported_efforts") or []
@@ -217,6 +258,11 @@ def _normalize_model(entry: dict) -> dict:
     default_reasoning_effort = reasoning.get("default_effort")
     if default_reasoning_effort not in REASONING_EFFORT_LEVELS:
         default_reasoning_effort = None
+    request_parameters = [
+        parameter
+        for parameter in REQUEST_PARAMETER_ORDER
+        if parameter in supported_params
+    ]
     return {
         "id": entry.get("id", ""),
         "name": entry.get("name") or entry.get("id", ""),
@@ -225,6 +271,9 @@ def _normalize_model(entry: dict) -> dict:
             or 0,
         "input_price": _safe_float(pricing.get("prompt")),
         "output_price": _safe_float(pricing.get("completion")),
+        "cache_read_price": _safe_float(pricing.get("input_cache_read")),
+        "cache_write_price": _safe_float(pricing.get("input_cache_write")),
+        "request_parameters": request_parameters,
         "supports_reasoning": "reasoning" in supported_params
             or "reasoning_effort" in supported_params,
         "supports_tools": "tools" in supported_params,
@@ -234,11 +283,58 @@ def _normalize_model(entry: dict) -> dict:
     }
 
 
-def _safe_float(value) -> float:
+def _safe_float(value) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
     try:
         return float(value)
-    except (TypeError, ValueError):
-        return 0.0
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def get_openrouter_catalogue(
+    force_refresh: bool = False, allow_network: bool = True
+) -> tuple[list[dict], CatalogueStatus]:
+    """Return one catalogue and explicit source metadata without mixing sources."""
+    cache = _load_cache()
+    if not force_refresh and cache and _is_cache_fresh(cache):
+        return cache["models"], _cache_status(cache, stale=False)
+    if not allow_network:
+        if cache:
+            return cache["models"], _cache_status(cache, stale=not _is_cache_fresh(cache))
+        return _static_fallback(), CatalogueStatus("static-fallback", None, True)
+
+    models = _fetch_catalogue_safely()
+    if models:
+        fetched_at = time.time()
+        _save_cache(models, fetched_at)
+        return models, CatalogueStatus("live-catalogue", _iso_timestamp(fetched_at), False)
+    if cache and cache.get("models"):
+        return cache["models"], _cache_status(cache, stale=True)
+    return _static_fallback(), CatalogueStatus("static-fallback", None, True)
+
+
+def _fetch_catalogue_safely() -> list[dict] | None:
+    try:
+        return _fetch_from_api()
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as error:
+        logger.debug("openrouter fetch failed: %s", error)
+        return None
+
+
+def _cache_status(cache: dict, *, stale: bool) -> CatalogueStatus:
+    source = "stale-catalogue-cache" if stale else "catalogue-cache"
+    return CatalogueStatus(source, _iso_timestamp(cache["fetched_at"]), stale)
+
+
+def _iso_timestamp(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def get_openrouter_models(
@@ -251,46 +347,34 @@ def get_openrouter_models(
     2. Cached copy on disk (even if stale, when the network call fails)
     3. Static fallback derived from config.PROVIDER_MODELS
     """
-    cache = _load_cache()
-
-    if not force_refresh and cache and (_is_cache_fresh(cache) or not allow_network):
-        return cache["models"]
-
-    if not allow_network:
-        return _static_fallback()
-
-    try:
-        models = _fetch_from_api()
-        if models:
-            _save_cache(models)
-            return models
-    except (
-        urllib.error.URLError,
-        TimeoutError,
-        json.JSONDecodeError,
-        UnicodeDecodeError,
-        ValueError,
-    ) as error:
-        logger.debug("openrouter fetch failed: %s", error)
-
-    if cache and cache.get("models"):
-        return cache["models"]
-
-    return _static_fallback()
+    models, _status = get_openrouter_catalogue(force_refresh, allow_network)
+    return models
 
 
 def _static_fallback() -> list[dict]:
-    from .config import CONTEXT_LIMITS, MODEL_CAPABILITIES, MODEL_PRICING, PROVIDER_MODELS
+    from .config import (
+        CONTEXT_LIMITS,
+        MODEL_CAPABILITIES,
+        PROVIDER_MODELS,
+        get_static_model_pricing,
+    )
     fallback = []
     for model_id, label in PROVIDER_MODELS.get("openrouter", []):
         capabilities = MODEL_CAPABILITIES.get(model_id, {})
-        prompt_price, completion_price = MODEL_PRICING.get(model_id, (0.0, 0.0))
+        pricing = get_static_model_pricing(model_id, "openrouter", "routing")
         fallback.append({
             "id": model_id,
             "name": label,
             "context_length": CONTEXT_LIMITS.get(model_id, 0),
-            "input_price": prompt_price / 1_000_000,
-            "output_price": completion_price / 1_000_000,
+            "input_price": _price_per_token(pricing, "input_per_million_usd"),
+            "output_price": _price_per_token(pricing, "output_per_million_usd"),
+            "cache_read_price": _price_per_token(
+                pricing, "cache_read_per_million_usd"
+            ),
+            "cache_write_price": _price_per_token(
+                pricing, "cache_write_per_million_usd"
+            ),
+            "request_parameters": list(STATIC_REQUEST_PARAMETERS.get(model_id, ())),
             "supports_reasoning": capabilities.get("supports_reasoning", False)
                 or capabilities.get("supports_extended_thinking", False),
             "supports_tools": capabilities.get("supports_tools", True),
@@ -301,15 +385,31 @@ def _static_fallback() -> list[dict]:
     return fallback
 
 
+def _price_per_token(pricing, field_name: str) -> float | None:
+    if pricing is None:
+        return None
+    price = getattr(pricing, field_name)
+    return None if price is None else float(price / 1_000_000)
+
+
 def find_model(model_id: str, allow_network: bool = False) -> dict | None:
     """Look up a model without network I/O unless explicitly allowed."""
-    for model in get_openrouter_models(allow_network=allow_network):
+    model, _status = find_model_with_status(model_id, allow_network=allow_network)
+    return model
+
+
+def find_model_with_status(
+    model_id: str, allow_network: bool = False
+) -> tuple[dict | None, CatalogueStatus]:
+    """Look up a model and preserve the selected catalogue's provenance."""
+    models, status = get_openrouter_catalogue(allow_network=allow_network)
+    for model in models:
         if model["id"] == model_id:
-            return model
+            return model, status
     for model in _static_fallback():
         if model["id"] == model_id:
-            return model
-    return None
+            return model, CatalogueStatus("static-fallback", None, True)
+    return None, status
 
 
 def model_supports_reasoning(model_id: str) -> bool:
@@ -331,3 +431,15 @@ def get_model_default_reasoning_effort(model_id: str) -> str | None:
     if not model:
         return None
     return model.get("default_reasoning_effort")
+
+
+def get_model_request_parameters(
+    model_id: str,
+    *,
+    allow_network: bool = False,
+) -> tuple[str, ...]:
+    """Return validated sampling parameters from the cached model catalogue."""
+    model = find_model(model_id, allow_network=allow_network)
+    if model and isinstance(model.get("request_parameters"), list):
+        return tuple(model["request_parameters"])
+    return tuple(STATIC_REQUEST_PARAMETERS.get(model_id, ()))

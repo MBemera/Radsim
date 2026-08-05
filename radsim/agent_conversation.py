@@ -1,5 +1,6 @@
 """Conversation lifecycle helpers for the main agent."""
 
+import json
 import logging
 import time
 from pathlib import Path
@@ -87,39 +88,98 @@ class AgentConversationMixin:
 
     def estimate_tokens(self, text):
         """Estimate token count for text (rough approximation)."""
-        return len(text) // 4
+        return (len(text) + 3) // 4 if text else 0
 
-    def get_context_usage(self):
-        """Get current context usage as percentage."""
+    def get_context_budget(self):
+        """Resolve the narrowest safe input limit for the next request."""
         from .config import get_context_limit
+        from .context_budget import (
+            DEFAULT_CONTEXT_INPUT_TOKENS,
+            DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS,
+            DEFAULT_CONTEXT_RECOVERY_TOKENS,
+            ContextBudget,
+        )
 
-        max_tokens = get_context_limit(self.config.model)
-        current_tokens = sum(self.estimate_tokens(str(message.get("content", ""))) for message in self.messages)
-        percentage = (current_tokens / max_tokens) * 100 if max_tokens > 0 else 0
-        return current_tokens, max_tokens, percentage
+        config = self.config
+        return ContextBudget(
+            model_context_tokens=get_context_limit(config.model),
+            configured_input_tokens=getattr(
+                config,
+                "max_context_input_tokens",
+                DEFAULT_CONTEXT_INPUT_TOKENS,
+            ),
+            output_reserve_tokens=getattr(
+                config,
+                "context_output_reserve_tokens",
+                DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS,
+            ),
+            recovery_tokens=getattr(
+                config,
+                "context_recovery_tokens",
+                DEFAULT_CONTEXT_RECOVERY_TOKENS,
+            ),
+            remaining_session_input_tokens=self._remaining_session_input_tokens(),
+        )
 
-    def prune_session(self, target_percentage=70):
-        """Prune old messages to reduce context size."""
-        from .config import get_context_limit
+    def _remaining_session_input_tokens(self):
+        """Return the unspent configured session input budget, if bounded."""
+        protection = getattr(self, "protection", None)
+        guard = getattr(protection, "budget_guard", None)
+        maximum = getattr(guard, "max_input_tokens", 0)
+        if not isinstance(maximum, int) or isinstance(maximum, bool) or maximum <= 0:
+            return None
+        used = getattr(guard, "input_tokens", 0)
+        used = used if isinstance(used, int) and not isinstance(used, bool) else 0
+        return max(0, maximum - used)
 
-        max_tokens = get_context_limit(self.config.model)
+    def _fixed_context_tokens(self):
+        """Estimate the system prompt and canonical tool schema prefix."""
+        from .tool_schema import canonicalize_tool_schemas
+
+        prompt = getattr(self, "system_prompt", "")
+        tools = canonicalize_tool_schemas(self._get_all_tools())
+        prompt_tokens = self.estimate_tokens(prompt) if prompt else 0
+        if not tools:
+            return prompt_tokens
+        serialized_tools = json.dumps(tools, separators=(",", ":"), ensure_ascii=False)
+        return prompt_tokens + self.estimate_tokens(serialized_tools)
+
+    def get_context_usage(self, budget=None):
+        """Get estimated request input usage against the effective budget."""
+        budget = budget or self.get_context_budget()
+        message_tokens = sum(
+            self.estimate_tokens(str(message.get("content", "")))
+            for message in self.messages
+        )
+        current_tokens = self._fixed_context_tokens() + message_tokens
+        maximum = budget.effective_input_tokens
+        percentage = (current_tokens / maximum) * 100 if maximum > 0 else 100.0
+        return current_tokens, maximum, percentage
+
+    def prune_session(self, target_tokens):
+        """Prune old messages toward one explicit total-input target."""
         message_weights = [
             self.estimate_tokens(str(message.get("content", "")))
             for message in self.messages
         ]
-        current_tokens = sum(message_weights)
-        target_tokens = int(max_tokens * (target_percentage / 100))
+        fixed_tokens = self._fixed_context_tokens()
+        message_tokens = sum(message_weights)
+        current_tokens = fixed_tokens + message_tokens
 
         if current_tokens <= target_tokens:
             return 0
 
-        cut_index = self._find_prune_cut(message_weights, current_tokens, target_tokens)
+        message_target = max(0, target_tokens - fixed_tokens)
+        cut_index = self._find_prune_cut(
+            message_weights,
+            message_tokens,
+            message_target,
+        )
         cut_index = self._skip_orphaned_results(cut_index)
         pruned = cut_index - 2
 
         if pruned > 0:
             del self.messages[2:cut_index]
-            self.get_context_usage()
             print_info(f"Session pruned: removed {pruned} old messages")
 
         return pruned
@@ -208,11 +268,25 @@ class AgentConversationMixin:
             removed += 1
         return removed
 
-    def check_and_prune(self, threshold=80):
-        """Check context usage and prune if over threshold."""
-        _, _, percentage = self.get_context_usage()
-        if percentage > threshold:
-            self.prune_session(target_percentage=70)
+    def check_and_prune(self):
+        """Prune before the effective input cap or fail before provider I/O."""
+        budget = self.get_context_budget()
+        current_tokens, maximum, _percentage = self.get_context_usage(budget)
+        if current_tokens <= maximum:
+            return 0
+
+        pruned = self.prune_session(budget.prune_target_tokens)
+        remaining_tokens, maximum, _percentage = self.get_context_usage(budget)
+        if remaining_tokens <= maximum:
+            return pruned
+
+        from .rate_limiter import BudgetExceeded
+
+        raise BudgetExceeded(
+            f"Context cannot fit the {maximum:,}-token input budget; "
+            f"{remaining_tokens:,} estimated tokens remain after safe pruning. "
+            "Use /clear, shorten the request, or reduce the enabled tool/prompt surface."
+        )
 
     def process_message(self, user_input):
         """Process a user message and return the response."""
@@ -321,7 +395,6 @@ class AgentConversationMixin:
             pending_context.clear()
 
         self.messages.append({"role": "user", "content": user_input})
-        self.check_and_prune(threshold=80)
 
         try:
             from .agent_config import get_agent_config_manager

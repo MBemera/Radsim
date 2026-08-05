@@ -8,6 +8,10 @@ from abc import ABC, abstractmethod
 from functools import wraps
 from typing import Any
 
+from .request_options import RequestOptions
+from .tool_schema import canonicalize_tool_schemas
+from .usage import merge_usage_snapshots, normalize_usage
+
 # Production Readiness: Explicit timeouts prevent hung connections
 # Never use default infinite timeouts in production
 DEFAULT_TIMEOUT_SECONDS = 120  # 2 minutes max for LLM responses
@@ -96,7 +100,8 @@ def with_retry(
 
             for attempt in range(max_retries + 1):
                 try:
-                    return func(*args, **kwargs)
+                    result = func(*args, **kwargs)
+                    return _attach_retry_count(result, attempt)
 
                 except retryable_exceptions as e:
                     last_exception = e
@@ -121,6 +126,7 @@ def with_retry(
                         time.sleep(delay)
                     else:
                         logger.error(f"All {max_retries} retries exhausted: {e}")
+                        _attach_error_retry_count(e, attempt)
                         raise
 
                 except Exception:
@@ -134,6 +140,24 @@ def with_retry(
         return wrapper
 
     return decorator
+
+
+def _attach_retry_count(result: Any, retry_attempts: int) -> Any:
+    """Attach retry evidence to normalized API responses when possible."""
+    if not isinstance(result, dict):
+        return result
+    usage = result.get("usage")
+    if isinstance(usage, dict):
+        usage["retry_attempts"] = retry_attempts
+    return result
+
+
+def _attach_error_retry_count(error: Exception, retry_attempts: int) -> None:
+    """Preserve exhausted retry evidence without replacing the original error."""
+    try:
+        error.retry_attempts = retry_attempts
+    except (AttributeError, TypeError):
+        pass
 
 
 def is_retryable_error(error) -> tuple[bool, bool]:
@@ -230,7 +254,14 @@ class BaseAPIClient(ABC):
     """Base class for API clients."""
 
     @abstractmethod
-    def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+    def chat(
+        self,
+        messages,
+        system_prompt=None,
+        tools=None,
+        max_tokens=None,
+        request_options=None,
+    ):
         """Send a chat request and return the response.
 
         Args:
@@ -240,7 +271,14 @@ class BaseAPIClient(ABC):
         """
         pass
 
-    def stream_chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+    def stream_chat(
+        self,
+        messages,
+        system_prompt=None,
+        tools=None,
+        max_tokens=None,
+        request_options=None,
+    ):
         """Stream a chat request, yielding deltas and final response.
 
         Yields:
@@ -248,7 +286,13 @@ class BaseAPIClient(ABC):
             {"type": "final_response", "response": dict}
         """
         # Default implementation falls back to non-streaming
-        response = self.chat(messages, system_prompt, tools, max_tokens)
+        response = self.chat(
+            messages,
+            system_prompt,
+            tools,
+            max_tokens,
+            request_options=request_options,
+        )
 
         for block in response["content"]:
             if block["type"] == "text":
@@ -256,9 +300,23 @@ class BaseAPIClient(ABC):
 
         yield {"type": "final_response", "response": response}
 
+    def _supported_request_parameters(self) -> frozenset[str]:
+        """Return conservative request capabilities for this client."""
+        return frozenset()
+
+    def request_options_snapshot(self, options: RequestOptions) -> dict[str, Any]:
+        """Return the immutable requested-to-applied capability resolution."""
+        supported = self._supported_request_parameters()
+        return {
+            "supported_parameters": sorted(supported),
+            "applied": options.for_supported(supported),
+        }
+
 
 class ClaudeClient(BaseAPIClient):
     """Anthropic Claude API client."""
+
+    PROVIDER_NAME = "anthropic"
 
     def __init__(self, api_key, model="claude-opus-4-8", timeout=DEFAULT_TIMEOUT_SECONDS):
         try:
@@ -282,6 +340,7 @@ class ClaudeClient(BaseAPIClient):
         *,
         stream: bool = False,
         max_tokens: int | None = None,
+        request_options: RequestOptions | None = None,
     ) -> dict[str, Any]:
         """Build one Claude request without performing network I/O."""
         kwargs = {
@@ -294,41 +353,78 @@ class ClaudeClient(BaseAPIClient):
         if system_prompt:
             kwargs["system"] = system_prompt
         if tools:
-            kwargs["tools"] = tools
+            kwargs["tools"] = canonicalize_tool_schemas(tools)
+        if request_options is not None:
+            kwargs.update(request_options.for_supported(self._supported_request_parameters()))
         return kwargs
 
-    def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+    def _supported_request_parameters(self) -> frozenset[str]:
+        return frozenset({"temperature", "top_p"})
+
+    def chat(
+        self,
+        messages,
+        system_prompt=None,
+        tools=None,
+        max_tokens=None,
+        request_options=None,
+    ):
         """Send a chat request to Claude with retry logic."""
-        kwargs = self._build_request_kwargs(messages, system_prompt, tools, max_tokens=max_tokens)
+        kwargs = self._build_request_kwargs(
+            messages,
+            system_prompt,
+            tools,
+            max_tokens=max_tokens,
+            request_options=request_options,
+        )
         return self._chat_with_retry(**kwargs)
 
     @with_retry(max_retries=DEFAULT_MAX_RETRIES)
     def _chat_with_retry(self, **kwargs):
         """Internal method with retry decorator."""
         try:
+            started_at = time.perf_counter()
             response = self.client.messages.create(**kwargs)
-            return self._parse_response(response)
+            latency_ms = (time.perf_counter() - started_at) * 1000
+            return self._parse_response(response, latency_ms=latency_ms)
         except Exception as e:
             is_retryable, is_rate_limit = is_retryable_error(e)
             if is_retryable:
                 raise RetryableError(e, is_rate_limit=is_rate_limit) from e
             raise
 
-    def stream_chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+    def stream_chat(
+        self,
+        messages,
+        system_prompt=None,
+        tools=None,
+        max_tokens=None,
+        request_options=None,
+    ):
         """Stream a chat request to Claude."""
         kwargs = self._build_request_kwargs(
-            messages, system_prompt, tools, stream=True, max_tokens=max_tokens
+            messages,
+            system_prompt,
+            tools,
+            stream=True,
+            max_tokens=max_tokens,
+            request_options=request_options,
         )
         final_content = []
         current_tool_use = None
-        input_tokens = 0
-        output_tokens = 0
+        usage = normalize_usage(None)
         stop_reason = "end_turn"
+        started_at = time.perf_counter()
 
         with self.client.messages.create(**kwargs) as stream:
             for event in stream:
                 if event.type == "message_start":
-                    input_tokens = event.message.usage.input_tokens
+                    snapshot = normalize_usage(
+                        event.message.usage,
+                        provider="anthropic",
+                        response=event.message,
+                    )
+                    usage = merge_usage_snapshots(usage, snapshot)
                 elif event.type == "content_block_start":
                     if event.content_block.type == "tool_use":
                         current_tool_use = {
@@ -358,29 +454,32 @@ class ClaudeClient(BaseAPIClient):
                         current_tool_use = None
 
                 elif event.type == "message_delta":
-                    output_tokens = event.usage.output_tokens
+                    snapshot = normalize_usage(event.usage, provider="anthropic", response=event)
+                    usage = merge_usage_snapshots(usage, snapshot)
                     if getattr(event.delta, "stop_reason", None):
                         stop_reason = event.delta.stop_reason
+
+        latency = normalize_usage(None, latency_ms=(time.perf_counter() - started_at) * 1000)
+        usage = merge_usage_snapshots(usage, latency)
 
         response = {
             "content": final_content,
             "stop_reason": stop_reason,
-            "usage": {
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-            },
+            "usage": usage,
         }
         yield {"type": "final_response", "response": response}
 
-    def _parse_response(self, response):
+    def _parse_response(self, response, latency_ms=None):
         """Parse Claude's response into a standard format."""
         result = {
             "content": [],
             "stop_reason": response.stop_reason,
-            "usage": {
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens,
-            },
+            "usage": normalize_usage(
+                response.usage,
+                provider="anthropic",
+                response=response,
+                latency_ms=latency_ms,
+            ),
         }
 
         for block in response.content:
@@ -406,6 +505,8 @@ class ClaudeClient(BaseAPIClient):
 
 class OpenAIClient(BaseAPIClient):
     """OpenAI API client."""
+
+    PROVIDER_NAME = "openai"
 
     # OpenAI's chat completions API rejects `max_tokens` on its reasoning
     # models and wants `max_completion_tokens`, which counts reasoning tokens
@@ -464,6 +565,7 @@ class OpenAIClient(BaseAPIClient):
         *,
         stream: bool = False,
         max_tokens: int | None = None,
+        request_options: RequestOptions | None = None,
     ) -> dict[str, Any]:
         """Build one OpenAI request without performing network I/O."""
         kwargs = {"model": self.model, "messages": self._build_messages(messages, system_prompt)}
@@ -473,35 +575,69 @@ class OpenAIClient(BaseAPIClient):
             kwargs["tools"] = self._convert_tools(tools)
         if max_tokens:
             kwargs[self.MAX_OUTPUT_TOKENS_PARAM] = max_tokens
+        if request_options is not None:
+            kwargs.update(request_options.for_supported(self._supported_request_parameters()))
         return self._apply_reasoning(kwargs)
 
-    def chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+    def _supported_request_parameters(self) -> frozenset[str]:
+        """Return conservative model-specific request support."""
+        return frozenset()
+
+    def chat(
+        self,
+        messages,
+        system_prompt=None,
+        tools=None,
+        max_tokens=None,
+        request_options=None,
+    ):
         """Send a chat request to OpenAI with retry logic."""
-        kwargs = self._build_request_kwargs(messages, system_prompt, tools, max_tokens=max_tokens)
+        kwargs = self._build_request_kwargs(
+            messages,
+            system_prompt,
+            tools,
+            max_tokens=max_tokens,
+            request_options=request_options,
+        )
         return self._chat_with_retry(**kwargs)
 
     @with_retry(max_retries=DEFAULT_MAX_RETRIES)
     def _chat_with_retry(self, **kwargs):
         """Internal method with retry decorator."""
         try:
+            started_at = time.perf_counter()
             response = self.client.chat.completions.create(**kwargs)
-            return self._parse_response(response)
+            latency_ms = (time.perf_counter() - started_at) * 1000
+            return self._parse_response(response, latency_ms=latency_ms)
         except Exception as e:
             is_retryable, is_rate_limit = is_retryable_error(e)
             if is_retryable:
                 raise RetryableError(e, is_rate_limit=is_rate_limit) from e
             raise
 
-    def stream_chat(self, messages, system_prompt=None, tools=None, max_tokens=None):
+    def stream_chat(
+        self,
+        messages,
+        system_prompt=None,
+        tools=None,
+        max_tokens=None,
+        request_options=None,
+    ):
         """Stream a chat request to OpenAI."""
         kwargs = self._build_request_kwargs(
-            messages, system_prompt, tools, stream=True, max_tokens=max_tokens
+            messages,
+            system_prompt,
+            tools,
+            stream=True,
+            max_tokens=max_tokens,
+            request_options=request_options,
         )
+        started_at = time.perf_counter()
         stream = self.client.chat.completions.create(**kwargs)
 
         final_text = ""
         tool_calls_map = {}  # index -> tool_call
-        usage = {"input_tokens": 0, "output_tokens": 0}
+        usage = normalize_usage(None)
         finish_reason = "stop"
 
         for chunk in stream:
@@ -509,8 +645,12 @@ class OpenAIClient(BaseAPIClient):
             # chunk that also carries choices (some OpenRouter models), so
             # record it and keep processing the same chunk.
             if hasattr(chunk, "usage") and chunk.usage:
-                usage["input_tokens"] = chunk.usage.prompt_tokens
-                usage["output_tokens"] = chunk.usage.completion_tokens
+                snapshot = normalize_usage(
+                    chunk.usage,
+                    provider=self.PROVIDER_NAME,
+                    response=chunk,
+                )
+                usage = merge_usage_snapshots(usage, snapshot)
 
             if not chunk.choices:
                 continue
@@ -562,6 +702,8 @@ class OpenAIClient(BaseAPIClient):
                 }
             )
 
+        latency = normalize_usage(None, latency_ms=(time.perf_counter() - started_at) * 1000)
+        usage = merge_usage_snapshots(usage, latency)
         response = {"content": content, "stop_reason": finish_reason, "usage": usage}
         yield {"type": "final_response", "response": response}
 
@@ -642,7 +784,7 @@ class OpenAIClient(BaseAPIClient):
     def _convert_tools(self, tools):
         """Convert tool definitions to OpenAI format."""
         openai_tools = []
-        for tool in tools:
+        for tool in canonicalize_tool_schemas(tools):
             openai_tools.append(
                 {
                     "type": "function",
@@ -655,16 +797,18 @@ class OpenAIClient(BaseAPIClient):
             )
         return openai_tools
 
-    def _parse_response(self, response):
+    def _parse_response(self, response, latency_ms=None):
         """Parse OpenAI's response into a standard format."""
         message = response.choices[0].message
         result = {
             "content": [],
             "stop_reason": response.choices[0].finish_reason,
-            "usage": {
-                "input_tokens": response.usage.prompt_tokens,
-                "output_tokens": response.usage.completion_tokens,
-            },
+            "usage": normalize_usage(
+                response.usage,
+                provider=self.PROVIDER_NAME,
+                response=response,
+                latency_ms=latency_ms,
+            ),
         }
 
         if message.content:
@@ -703,6 +847,7 @@ class OpenRouterClient(OpenAIClient):
     # OpenRouter normalises `max_tokens` across every upstream provider it
     # routes to, so it is the portable field here.
     MAX_OUTPUT_TOKENS_PARAM = "max_tokens"
+    PROVIDER_NAME = "openrouter"
 
     def __init__(
         self,
@@ -743,8 +888,25 @@ class OpenRouterClient(OpenAIClient):
         }
         return kwargs
 
+    def _supported_request_parameters(self) -> frozenset[str]:
+        """Cache validated model capability metadata for this client."""
+        cached = getattr(self, "_request_parameter_support", None)
+        if cached is not None:
+            return cached
+        from .openrouter_models import get_model_request_parameters
 
-def create_client(provider, api_key, model=None, reasoning_effort=None):
+        supported = frozenset(get_model_request_parameters(self.model))
+        self._request_parameter_support = supported
+        return supported
+
+
+def create_client(
+    provider,
+    api_key,
+    model=None,
+    reasoning_effort=None,
+    timeout=DEFAULT_TIMEOUT_SECONDS,
+):
     """Create an API client for the specified provider."""
     clients = {
         "claude": ClaudeClient,
@@ -756,7 +918,7 @@ def create_client(provider, api_key, model=None, reasoning_effort=None):
         raise ValueError(f"Unknown provider: {provider}")
 
     client_class = clients[provider]
-    kwargs = {}
+    kwargs = {"timeout": timeout}
     if model:
         kwargs["model"] = model
     if reasoning_effort and provider in ("openai", "openrouter"):

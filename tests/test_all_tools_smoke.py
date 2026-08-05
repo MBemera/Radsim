@@ -22,17 +22,13 @@ def smoke_workspace(tmp_path, monkeypatch):
     """Hermetic workspace: all storage redirected, no network, tmp cwd."""
     import radsim.jobs
     import radsim.memory
-    import radsim.scheduler
     import radsim.skills
     import radsim.telegram
     import radsim.tools
 
     confdir = tmp_path / "confdir"
     monkeypatch.setattr(radsim.memory, "CONFIG_DIR", confdir)
-    monkeypatch.setattr(
-        radsim.scheduler, "SCHEDULES_FILE", confdir / "schedules.json"
-    )
-    # schedule_task/list_schedules now delegate to jobs.py; isolate its
+    # schedule_task/list_schedules delegate to jobs.py; isolate its
     # store and never let the smoke run touch the real crontab.
     monkeypatch.setattr(radsim.jobs, "JOBS_FILE", confdir / "jobs.json")
     monkeypatch.setattr("radsim.jobs.sync_crontab", lambda: None)

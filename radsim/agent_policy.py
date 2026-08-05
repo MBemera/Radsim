@@ -22,6 +22,35 @@ READ_TOOL_PATH_KEYS = {
     "read_many_files": "file_paths",
 }
 
+
+def _consume_trust_decision(tool_name, tool_input):
+    """Return the exact authorization ID produced during this dispatch."""
+    try:
+        from .trust_bandit_integration import consume_decision_id
+
+        return consume_decision_id(tool_name, tool_input)
+    except Exception:
+        logger.warning("Trust decision receipt unavailable", exc_info=True)
+        return None
+
+
+def _ensure_trust_decision(tool_name, tool_input, decision_id, accepted, config):
+    """Create a non-learning receipt for an otherwise approved mutation."""
+    if decision_id:
+        return decision_id
+    try:
+        from .trust_bandit_integration import record_execution_decision
+
+        return record_execution_decision(
+            tool_name,
+            tool_input,
+            accepted=accepted,
+            config=config,
+        )
+    except Exception:
+        logger.warning("Trust execution receipt unavailable", exc_info=True)
+        return None
+
 # Tools with a dedicated confirmation handler on the agent.
 # Every entry routes through a handler that asks the user (or honors
 # auto_confirm) before executing — never add a write-capable tool to
@@ -110,7 +139,7 @@ class AgentPolicyMixin:
 
             return confirm_with_bandit(tool_name, tool_input, message, config=self.config)
         except Exception:
-            logger.debug("Trust-bandit confirmation failed, using normal prompt", exc_info=True)
+            logger.warning("Trust-bandit confirmation failed, using normal prompt", exc_info=True)
             return confirm_action(message, config=self.config)
 
     def _warn_if_known_error(self, tool_name, tool_input):
@@ -193,9 +222,23 @@ class AgentPolicyMixin:
         pending_checkpoint = prepare_checkpoint(tool_name, tool_input)
 
         result = self._dispatch_tool(tool_name, tool_input)
+        decision_id = _consume_trust_decision(tool_name, tool_input)
+        stopped = isinstance(result, dict) and "STOPPED" in result.get("error", "")
+        succeeded = isinstance(result, dict) and result.get("success")
+        if tool_name not in READ_ONLY_TOOLS and tool_name not in {"todo_read", "todo_write"}:
+            if succeeded or stopped:
+                decision_id = _ensure_trust_decision(
+                    tool_name,
+                    tool_input,
+                    decision_id,
+                    bool(succeeded),
+                    self.config,
+                )
 
         if pending_checkpoint:
-            if isinstance(result, dict) and result.get("success"):
+            if succeeded:
+                if decision_id:
+                    pending_checkpoint["trust_decision_id"] = decision_id
                 commit_checkpoint(pending_checkpoint)
             else:
                 discard_checkpoint(pending_checkpoint)

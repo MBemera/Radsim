@@ -3,11 +3,15 @@
 RadSim Principle: Simple, Obvious Implementation
 """
 
+import logging
 import urllib.error
 import urllib.request
 
 from .constants import MAX_OUTPUT_SIZE
 from .net_guard import validate_egress_url
+
+logger = logging.getLogger(__name__)
+
 
 
 class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -150,7 +154,7 @@ def http_request(url, method="GET", headers=None, body="", timeout=30):
         try:
             error_body = e.read(2000).decode("utf-8", errors="ignore")
         except Exception:
-            pass
+            logger.debug("Reading the HTTP error body failed", exc_info=True)
         return {"success": False, "status": e.code, "error": f"HTTP {e.code}: {e.reason}", "body": error_body}
     except urllib.error.URLError as e:
         return {"success": False, "error": f"URL Error: {e.reason}"}

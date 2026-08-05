@@ -1,6 +1,8 @@
 """Core slash-command handlers."""
 
+import logging
 import sys
+from typing import Any
 
 from .config import setup_config
 from .output import (
@@ -11,6 +13,81 @@ from .output import (
     print_numbered_options,
     print_titled_block,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _append_input_token_rows(rows: list[tuple[str, str]], usage: dict[str, Any]) -> None:
+    """Break input tokens into uncached and cached so caching is visible.
+
+    Providers report total input inclusive of cached reads, so a single
+    "input tokens" figure hides whether the prefix cache is working at all.
+    """
+    input_tokens = usage.get("input_tokens", 0)
+    cache_read_tokens = usage.get("cache_read_input_tokens", 0)
+    cache_write_tokens = usage.get("cache_write_input_tokens", 0)
+
+    rows.append(("Input tokens:", f"{input_tokens:,}"))
+    if cache_read_tokens + cache_write_tokens > input_tokens:
+        rows.append(("  Uncached:", "not reported (cached exceeds total input)"))
+        rows.append(("  Cache reads:", f"{cache_read_tokens:,}"))
+        rows.append(("  Cache writes:", f"{cache_write_tokens:,}"))
+        return
+
+    uncached_tokens = input_tokens - cache_read_tokens - cache_write_tokens
+    rows.append(("  Uncached:", f"{uncached_tokens:,}"))
+    rows.append(("  Cache reads:", f"{cache_read_tokens:,}{_cache_share(cache_read_tokens, input_tokens)}"))
+    rows.append(("  Cache writes:", f"{cache_write_tokens:,}"))
+
+
+def _cache_share(cache_read_tokens: int, input_tokens: int) -> str:
+    """Return the cached share of input, or nothing when it is unknowable."""
+    if input_tokens <= 0:
+        return ""
+    return f"  ({cache_read_tokens / input_tokens * 100:.0f}% of input)"
+
+
+def _append_reported_cost(rows: list[tuple[str, str]], usage: dict[str, Any]) -> None:
+    """Append provider spend without presenting partial data as exact."""
+    reported_requests = usage.get("reported_cost_requests", 0)
+    if not reported_requests:
+        return
+
+    request_count = usage.get("request_count", 0)
+    reported_cost = usage.get("reported_cost_usd", 0.0)
+    if reported_requests == request_count:
+        rows.append(("Actual cost:", f"${reported_cost:.4f}  (provider reported)"))
+        return
+
+    coverage = f"{reported_requests}/{request_count} requests"
+    rows.append(("Reported cost:", f"${reported_cost:.4f}  (partial: {coverage})"))
+
+
+def _append_estimated_cost(
+    rows: list[tuple[str, str]],
+    usage: dict[str, Any],
+    model: str,
+    provider: str | None,
+) -> None:
+    """Append a cache-aware catalogue estimate with explicit provenance."""
+    from .config import get_model_pricing
+    from .pricing import describe_pricing_source, estimate_usage_cost
+
+    pricing = get_model_pricing(model, provider)
+    if pricing is None:
+        rows.append(("Est. cost:", "n/a (no pricing data for this model)"))
+        return
+    estimate = estimate_usage_cost(usage, pricing)
+    if estimate.total_usd is None:
+        rows.append(("Est. cost:", f"n/a ({estimate.unavailable_reason})"))
+        return
+    cache_cost = estimate.cache_read_usd + estimate.cache_write_usd
+    source = describe_pricing_source(pricing)
+    rows.append(("Est. cost:", f"${estimate.total_usd:.4f}  (catalogue estimate)"))
+    rows.append(("  Uncached in:", f"${estimate.uncached_input_usd:.4f}"))
+    rows.append(("  Cached in:", f"${cache_cost:.4f}"))
+    rows.append(("  Output:", f"${estimate.output_usd:.4f}"))
+    rows.append(("  Pricing:", source))
 
 
 class CoreCommandHandlersMixin:
@@ -248,10 +325,13 @@ class CoreCommandHandlersMixin:
         model = self.CHEAPEST_OPENROUTER_MODEL
         agent.update_config("openrouter", api_key, model)
 
-        pricing = get_model_pricing(model)
+        pricing = get_model_pricing(model, "openrouter")
         lines = [f"  ok Switched to cheapest model: {model}"]
         if pricing:
-            lines.append(f"    (${pricing[0]} input / ${pricing[1]} output per 1M tokens)")
+            lines.append(
+                f"    (${pricing.input_per_million_usd} input / "
+                f"${pricing.output_per_million_usd} output per 1M tokens)"
+            )
         print_block(lines, blank_after=False)
         print_header("openrouter", model)
 
@@ -553,27 +633,27 @@ class CoreCommandHandlersMixin:
 
     def _cmd_usage(self, agent):
         """Show session token usage and estimated cost."""
-        from .config import get_model_pricing
-
-        input_tokens = agent.usage_stats.get("input_tokens", 0)
-        output_tokens = agent.usage_stats.get("output_tokens", 0)
+        usage = agent.usage_stats
+        input_tokens = usage.get("input_tokens", 0)
+        output_tokens = usage.get("output_tokens", 0)
         model = agent.config.model
 
-        rows = [("Model:", model), ("Input tokens:", f"{input_tokens:,}")]
-        rows += [("Output tokens:", f"{output_tokens:,}"), ("Total tokens:", f"{input_tokens + output_tokens:,}")]
-        pricing = get_model_pricing(model)
-        if pricing is None:
-            rows.append(("Cost:", "n/a (no pricing data for this model)"))
-        else:
-            input_cost = (input_tokens / 1_000_000) * pricing[0]
-            output_cost = (output_tokens / 1_000_000) * pricing[1]
-            rows.append(
-                (
-                    "Est. cost:",
-                    f"${input_cost + output_cost:.4f}"
-                    f"  (in ${input_cost:.4f} / out ${output_cost:.4f})",
-                )
-            )
+        rows = [("Model:", model)]
+        _append_input_token_rows(rows, usage)
+        rows.extend(
+            [
+                ("Output tokens:", f"{output_tokens:,}"),
+                ("Reasoning:", f"{usage.get('reasoning_output_tokens', 0):,}"),
+                ("Total tokens:", f"{input_tokens + output_tokens:,}"),
+            ]
+        )
+        _append_reported_cost(rows, usage)
+        _append_estimated_cost(
+            rows,
+            usage,
+            model,
+            getattr(agent.config, "provider", None),
+        )
         print_labeled_values(rows, label_width=16)
 
     def _cmd_copy(self, agent, args=None):
@@ -668,6 +748,10 @@ class CoreCommandHandlersMixin:
             print_success(f"Removed (did not exist before): {deleted_path}")
         for skipped in result["skipped"]:
             print_warning(f"Skipped: {skipped}")
+        if result["restored"] or result["deleted"]:
+            from .trust_bandit_integration import record_matched_revert
+
+            record_matched_revert(result.get("trust_decision_id"), config=agent.config)
         try:
             from .agent_config import get_agent_config_manager
             from .learning import record_revert
@@ -680,7 +764,7 @@ class CoreCommandHandlersMixin:
                     )
                 )
         except Exception:
-            pass
+            logger.debug("Recording the revert for learning failed", exc_info=True)
 
 
 def _extract_last_code_block(text):
