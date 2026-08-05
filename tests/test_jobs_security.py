@@ -311,7 +311,9 @@ class TestCronScheduleInjection:
         assert job.command == chained_command
         entries = jobs._build_crontab_entries([job])
         assert len(entries.splitlines()) == 2
-        assert entries.splitlines()[1].endswith(chained_command)
+        # Containment, not position: Windows wraps the command in a
+        # powershell invocation, so the entry does not end with it.
+        assert chained_command in entries.splitlines()[1]
 
     def test_corrupt_store_is_not_treated_as_empty(self):
         self.jobs_file.write_text('{"jobs": "not-a-list"}')
