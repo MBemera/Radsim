@@ -1,9 +1,13 @@
 """Workflow, planning, analysis, and background slash-command handlers."""
 
 import json
+import logging
 
 from .output import print_block, print_error, print_info, print_success, print_titled_block
 from .runtime_context import get_runtime_context
+
+logger = logging.getLogger(__name__)
+
 
 
 class WorkflowCommandHandlersMixin:
@@ -322,7 +326,7 @@ class WorkflowCommandHandlersMixin:
                     f"Completed plan step: {step.description}"
                 )
             except Exception:
-                pass
+                logger.debug("Recording the completed plan step failed", exc_info=True)
 
             print(f"\n  ok Step {step_index + 1} completed.")
             print(plan_manager.get_status())
@@ -369,7 +373,7 @@ class WorkflowCommandHandlersMixin:
                         f"Completed plan step: {step.description}"
                     )
                 except Exception:
-                    pass
+                    logger.debug("Recording the completed plan step failed", exc_info=True)
 
                 print(f"  ok Step {step_index + 1} completed.")
 

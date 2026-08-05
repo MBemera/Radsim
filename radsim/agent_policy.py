@@ -30,7 +30,7 @@ def _consume_trust_decision(tool_name, tool_input):
 
         return consume_decision_id(tool_name, tool_input)
     except Exception:
-        logger.debug("Trust decision receipt unavailable", exc_info=True)
+        logger.warning("Trust decision receipt unavailable", exc_info=True)
         return None
 
 
@@ -48,7 +48,7 @@ def _ensure_trust_decision(tool_name, tool_input, decision_id, accepted, config)
             config=config,
         )
     except Exception:
-        logger.debug("Trust execution receipt unavailable", exc_info=True)
+        logger.warning("Trust execution receipt unavailable", exc_info=True)
         return None
 
 # Tools with a dedicated confirmation handler on the agent.
@@ -139,7 +139,7 @@ class AgentPolicyMixin:
 
             return confirm_with_bandit(tool_name, tool_input, message, config=self.config)
         except Exception:
-            logger.debug("Trust-bandit confirmation failed, using normal prompt", exc_info=True)
+            logger.warning("Trust-bandit confirmation failed, using normal prompt", exc_info=True)
             return confirm_action(message, config=self.config)
 
     def _warn_if_known_error(self, tool_name, tool_input):

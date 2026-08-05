@@ -1,11 +1,15 @@
 """Safety guardrails and confirmations for RadSim Agent."""
 
+import logging
 import os
 import select
 import sys
 from pathlib import Path
 
 from .terminal import escape_terminal_controls
+
+logger = logging.getLogger(__name__)
+
 
 # Commands that trigger immediate process termination from any prompt
 STOP_COMMANDS = {"/stop", "/kill", "/abort"}
@@ -38,7 +42,7 @@ def _flush_stdin_buffer():
         while select.select([sys.stdin], [], [], 0)[0]:
             sys.stdin.read(1)
     except Exception:
-        pass
+        logger.debug("Draining buffered stdin failed", exc_info=True)
 
 
 def _prompt_for_confirmation(prompt: str) -> str:
@@ -250,7 +254,7 @@ def _record_write_decision(file_path, accepted, config):
 
         record_user_decision("write_file", {"file_path": file_path}, accepted, config=config)
     except Exception:
-        pass
+        logger.warning("Write decision was not recorded for trust learning", exc_info=True)
 
 
 def confirm_write(file_path, content, config=None):
@@ -294,7 +298,7 @@ def confirm_write(file_path, content, config=None):
         from .modes import is_mode_active
         teach_active = is_mode_active("teach")
     except Exception:
-        pass
+        logger.debug("Teach-mode lookup failed; showing the plain preview", exc_info=True)
 
     if teach_active:
         from .output import print_code_content
@@ -334,7 +338,7 @@ def confirm_write(file_path, content, config=None):
                 if is_mode_active("teach"):
                     show_hint = "/s=show all"
             except Exception:
-                pass
+                logger.debug("Teach-mode lookup failed; hiding the show-all hint", exc_info=True)
 
             prompt_options = "[y/n/all]" if not show_hint else f"[y/n/all/{show_hint}]"
             response = _prompt_for_confirmation(f"Write this file? {prompt_options}: ")

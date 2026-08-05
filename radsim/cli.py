@@ -6,12 +6,16 @@
 
 import argparse
 import atexit
+import logging
 import os
 import signal
 import sys
 import warnings
 
 from .version import get_radsim_version
+
+logger = logging.getLogger(__name__)
+
 
 # Track Ctrl+C presses for emergency stop
 _interrupt_count = 0
@@ -70,14 +74,14 @@ def _cleanup_on_exit():
         try:
             modes_module.stop_caffeinate()
         except Exception:
-            pass
+            logger.debug("Stopping caffeinate at exit failed", exc_info=True)
 
     telegram_module = sys.modules.get("radsim.telegram")
     if telegram_module is not None:
         try:
             telegram_module.stop_listening()
         except Exception:
-            pass
+            logger.debug("Stopping the Telegram listener at exit failed", exc_info=True)
 
 def configure_runtime_warnings():
     """Apply warning filters only when the CLI runtime starts."""

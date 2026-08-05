@@ -344,14 +344,14 @@ class MCPClientManager:
             try:
                 await conn._session_ctx.__aexit__(None, None, None)
             except Exception:
-                pass
+                logger.debug("MCP session cleanup failed", exc_info=True)
             conn._session_ctx = None
 
         if conn._transport_ctx:
             try:
                 await conn._transport_ctx.__aexit__(None, None, None)
             except Exception:
-                pass
+                logger.debug("MCP transport cleanup failed", exc_info=True)
             conn._transport_ctx = None
 
     def connect_auto_servers(self) -> list[str]:

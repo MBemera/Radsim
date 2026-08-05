@@ -399,7 +399,7 @@ class AgentApiMixin:
                     status = "ok" if tool_success else "fail"
                     send_telegram_message(f"[{status}] {tool_name}")
                 except Exception:
-                    pass
+                    logger.debug("Telegram tool notification failed", exc_info=True)
 
             image_block = extract_image_block(result)
             if image_block:

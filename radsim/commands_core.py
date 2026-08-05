@@ -1,5 +1,6 @@
 """Core slash-command handlers."""
 
+import logging
 import sys
 from typing import Any
 
@@ -12,6 +13,8 @@ from .output import (
     print_numbered_options,
     print_titled_block,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _append_input_token_rows(rows: list[tuple[str, str]], usage: dict[str, Any]) -> None:
@@ -761,7 +764,7 @@ class CoreCommandHandlersMixin:
                     )
                 )
         except Exception:
-            pass
+            logger.debug("Recording the revert for learning failed", exc_info=True)
 
 
 def _extract_last_code_block(text):

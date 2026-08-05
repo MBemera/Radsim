@@ -4,6 +4,7 @@ RadSim Principle: Explicit Safety Checks
 """
 
 import fnmatch
+import logging
 import os
 from pathlib import Path
 from threading import RLock
@@ -11,6 +12,9 @@ from threading import RLock
 from ..terminal import is_unsafe_terminal_character
 from . import command_analysis
 from .constants import MAX_COMMAND_SIZE, PROTECTED_PATTERNS
+
+logger = logging.getLogger(__name__)
+
 
 _PATH_CACHE = {
     "cwd": None,
@@ -149,7 +153,11 @@ def _extra_secret_read_globs():
         if isinstance(extra, list):
             return tuple(str(item) for item in extra if item)
     except Exception:
-        pass
+        logger.warning(
+            "Configured protected-read patterns could not be loaded; "
+            "only the built-in patterns are enforced",
+            exc_info=True,
+        )
     return ()
 
 
