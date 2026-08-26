@@ -243,3 +243,143 @@ def test_static_glm_capabilities_cover_verified_sampling_parameters(fake_home):
 
 def test_static_catalogue_records_the_verified_snapshot_date():
     assert radsim.config.OPENROUTER_CATALOGUE_SNAPSHOT_DATE == "2026-08-28"
+
+
+def _catalogue_entry(model_id, created, **overrides):
+    entry = {
+        "id": model_id,
+        "name": overrides.get("name", model_id),
+        "created": created,
+        "architecture": {
+            "input_modalities": overrides.get("inputs", ["text"]),
+            "output_modalities": overrides.get("outputs", ["text"]),
+        },
+        "supported_parameters": overrides.get("parameters", ["tools"]),
+    }
+    return entry
+
+
+def test_normalize_model_keeps_release_date_and_text_support():
+    normalized = openrouter_models._normalize_model(
+        _catalogue_entry("vendor/model", 1_750_000_000)
+    )
+
+    assert normalized["created"] == 1_750_000_000
+    assert normalized["supports_text"] is True
+
+
+def test_normalize_model_flags_non_text_and_undated_models():
+    image_only = openrouter_models._normalize_model(
+        _catalogue_entry("vendor/image", 10, outputs=["image"])
+    )
+    undated = openrouter_models._normalize_model(
+        _catalogue_entry("vendor/undated", "not-a-timestamp")
+    )
+
+    assert image_only["supports_text"] is False
+    assert undated["created"] == 0
+
+
+def test_selectable_models_are_tool_capable_text_models_newest_first(fake_home, monkeypatch):
+    catalogue = [
+        openrouter_models._normalize_model(entry)
+        for entry in (
+            _catalogue_entry("vendor/older", 10),
+            _catalogue_entry("vendor/latest", 30, name="Latest"),
+            _catalogue_entry("vendor/queued:batch", 50),
+            _catalogue_entry("vendor/no-tools", 40, parameters=["temperature"]),
+            _catalogue_entry("vendor/image", 60, outputs=["image"]),
+        )
+    ]
+    monkeypatch.setattr(openrouter_models, "_fetch_from_api", lambda: catalogue)
+
+    selectable = openrouter_models.list_selectable_models()
+
+    assert [model["id"] for model in selectable] == ["vendor/latest", "vendor/older"]
+
+
+def test_selectable_models_keep_static_fallback_when_offline(fake_home, monkeypatch):
+    def fail():
+        raise TimeoutError("offline")
+
+    monkeypatch.setattr(openrouter_models, "_fetch_from_api", fail)
+
+    selectable = {model["id"] for model in openrouter_models.list_selectable_models()}
+
+    assert "anthropic/claude-opus-5" in selectable
+    assert "z-ai/glm-5.3" in selectable
+
+
+def test_full_openrouter_picker_lists_the_newest_models_first(fake_home, monkeypatch):
+    catalogue = [
+        openrouter_models._normalize_model(entry)
+        for entry in (
+            _catalogue_entry("vendor/older", 10, name="Older"),
+            _catalogue_entry("vendor/newest", 90, name="Newest"),
+            _catalogue_entry("vendor/no-tools", 95, parameters=["temperature"]),
+        )
+    ]
+    monkeypatch.setattr(openrouter_models, "_fetch_from_api", lambda: catalogue)
+
+    choices = radsim.config._build_openrouter_choices(top_only=False)
+
+    assert [model_id for model_id, _label in choices] == ["vendor/newest", "vendor/older"]
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._body = json.dumps(payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exception):
+        return False
+
+    def read(self, size):
+        return self._body[:size]
+
+
+def test_fetch_keeps_the_catalogue_when_one_model_is_priced_variably(monkeypatch):
+    payload = {
+        "data": [
+            _catalogue_entry("vendor/priced", 20)
+            | {"pricing": {"prompt": "0.000003", "completion": "0.000015"}},
+            _catalogue_entry("openrouter/auto", 10)
+            | {"pricing": {"prompt": "-1", "completion": "-1"}},
+        ]
+    }
+    monkeypatch.setattr(
+        openrouter_models.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: _FakeResponse(payload),
+    )
+
+    models = openrouter_models._fetch_from_api()
+
+    assert [model["id"] for model in models] == ["vendor/priced", "openrouter/auto"]
+    assert models[1]["input_price"] is None
+
+
+def test_fetch_rejects_a_catalogue_with_no_usable_models(monkeypatch):
+    payload = {"data": [{"id": "", "name": "Nameless"}]}
+    monkeypatch.setattr(
+        openrouter_models.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: _FakeResponse(payload),
+    )
+
+    with pytest.raises(ValueError):
+        openrouter_models._fetch_from_api()
+
+
+def test_curated_openrouter_list_offers_the_current_frontier_models():
+    curated = {model_id for model_id, _label in radsim.config.PROVIDER_MODELS["openrouter"]}
+
+    assert {
+        "anthropic/claude-opus-5",
+        "anthropic/claude-sonnet-5",
+        "z-ai/glm-5.3",
+        "x-ai/grok-4.6",
+        "google/gemini-3.7-flash",
+    } <= curated

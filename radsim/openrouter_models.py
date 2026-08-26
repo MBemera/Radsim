@@ -24,6 +24,8 @@ FETCH_TIMEOUT_SECONDS = 10
 MAX_CATALOGUE_MODELS = 5_000
 MAX_CACHE_BYTES = 5_000_000
 MAX_STRING_LENGTH = 512
+MAX_CREATED_TIMESTAMP = 4_000_000_000
+BATCH_MODEL_SUFFIX = ":batch"
 REASONING_EFFORT_ORDER = (
     "none",
     "minimal",
@@ -139,13 +141,20 @@ def _is_valid_model(model) -> bool:
         return False
     if not _is_optional_number(model.get("cache_write_price"), 0, 1):
         return False
+    if not _is_optional_number(model.get("created"), 0, MAX_CREATED_TIMESTAMP):
+        return False
     if not _is_valid_request_parameters(model.get("request_parameters")):
         return False
     if not _is_valid_reasoning_metadata(model):
         return False
     return all(
         field not in model or isinstance(model[field], bool)
-        for field in ("supports_reasoning", "supports_tools", "reasoning_mandatory")
+        for field in (
+            "supports_reasoning",
+            "supports_tools",
+            "supports_text",
+            "reasoning_mandatory",
+        )
     )
 
 
@@ -240,8 +249,9 @@ def _fetch_from_api() -> list[dict]:
     if not isinstance(entries, list) or len(entries) > MAX_CATALOGUE_MODELS:
         raise ValueError("OpenRouter model response has an invalid model list")
 
-    models = [_normalize_model(entry) for entry in entries if isinstance(entry, dict)]
-    if not _is_valid_models(models):
+    normalized = [_normalize_model(entry) for entry in entries if isinstance(entry, dict)]
+    models = [model for model in normalized if _is_valid_model(model)]
+    if not models or not _is_valid_models(models):
         raise ValueError("OpenRouter model response failed validation")
     return models
 
@@ -250,12 +260,15 @@ def _normalize_model(entry: dict) -> dict:
     """Reduce an OpenRouter model entry to the fields RadSim cares about."""
     pricing = entry.get("pricing") or {}
     top_provider = entry.get("top_provider") or {}
+    architecture = entry.get("architecture") or {}
     supported_params = entry.get("supported_parameters") or []
     reasoning = entry.get("reasoning") or {}
     if not isinstance(pricing, dict):
         pricing = {}
     if not isinstance(top_provider, dict):
         top_provider = {}
+    if not isinstance(architecture, dict):
+        architecture = {}
     if not isinstance(supported_params, list):
         supported_params = []
     if not isinstance(reasoning, dict):
@@ -278,6 +291,7 @@ def _normalize_model(entry: dict) -> dict:
     return {
         "id": entry.get("id", ""),
         "name": entry.get("name") or entry.get("id", ""),
+        "created": _safe_timestamp(entry.get("created")),
         "context_length": entry.get("context_length")
             or top_provider.get("context_length")
             or 0,
@@ -289,19 +303,42 @@ def _normalize_model(entry: dict) -> dict:
         "supports_reasoning": "reasoning" in supported_params
             or "reasoning_effort" in supported_params,
         "supports_tools": "tools" in supported_params,
+        "supports_text": _handles_text(architecture),
         "reasoning_efforts": reasoning_efforts,
         "default_reasoning_effort": default_reasoning_effort,
         "reasoning_mandatory": bool(reasoning.get("mandatory", False)),
     }
 
 
+def _handles_text(architecture: dict) -> bool:
+    """Report whether a model both reads and writes text."""
+    inputs = architecture.get("input_modalities")
+    outputs = architecture.get("output_modalities")
+    if not isinstance(inputs, list) or not isinstance(outputs, list):
+        return True
+    return "text" in inputs and "text" in outputs
+
+
+def _safe_timestamp(value) -> int:
+    """Return a bounded release timestamp, or 0 when OpenRouter omits it."""
+    if not _is_number_in_range(value, 0, MAX_CREATED_TIMESTAMP):
+        return 0
+    return int(value)
+
+
 def _safe_float(value) -> float | None:
+    """Return a usable price, or None when OpenRouter prices it variably.
+
+    Router models such as ``openrouter/auto`` advertise ``-1`` because the
+    real price depends on the model they pick, so there is no fixed rate.
+    """
     if value is None or isinstance(value, bool):
         return None
     try:
-        return float(value)
+        price = float(value)
     except (TypeError, ValueError, OverflowError):
         return None
+    return None if price < 0 else price
 
 
 def get_openrouter_catalogue(
@@ -363,6 +400,33 @@ def get_openrouter_models(
     return models
 
 
+def list_selectable_models(
+    force_refresh: bool = False, allow_network: bool = True
+) -> list[dict]:
+    """Return the models a RadSim turn can actually drive, newest first.
+
+    Mirrors the RADGUI catalogue filter: interactive text models that support
+    tool calling, with OpenRouter's async ``:batch`` endpoints removed.
+    """
+    models, _status = get_openrouter_catalogue(force_refresh, allow_network)
+    selectable = [model for model in models if _is_selectable_model(model)]
+    return sorted(selectable, key=_newest_first_key)
+
+
+def _is_selectable_model(model: dict) -> bool:
+    """Keep only tool-capable text models that answer a live request."""
+    if model["id"].endswith(BATCH_MODEL_SUFFIX):
+        return False
+    if not model.get("supports_tools"):
+        return False
+    return model.get("supports_text", True)
+
+
+def _newest_first_key(model: dict) -> tuple[int, str]:
+    """Sort by release date descending, then by label so ties stay stable."""
+    return (-(model.get("created") or 0), (model.get("name") or model["id"]).lower())
+
+
 def _static_fallback() -> list[dict]:
     from .config import (
         CONTEXT_LIMITS,
@@ -377,6 +441,7 @@ def _static_fallback() -> list[dict]:
         fallback.append({
             "id": model_id,
             "name": label,
+            "created": 0,
             "context_length": CONTEXT_LIMITS.get(model_id, 0),
             "input_price": _price_per_token(pricing, "input_per_million_usd"),
             "output_price": _price_per_token(pricing, "output_per_million_usd"),
@@ -390,6 +455,7 @@ def _static_fallback() -> list[dict]:
             "supports_reasoning": capabilities.get("supports_reasoning", False)
                 or capabilities.get("supports_extended_thinking", False),
             "supports_tools": capabilities.get("supports_tools", True),
+            "supports_text": True,
             "reasoning_efforts": list(capabilities.get("reasoning_efforts", ())),
             "default_reasoning_effort": capabilities.get("default_reasoning_effort"),
             "reasoning_mandatory": capabilities.get("reasoning_mandatory", False),
