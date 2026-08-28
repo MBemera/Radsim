@@ -55,6 +55,20 @@ def test_the_hit_rate_is_zero_before_any_lookup():
     assert BoundedCache().stats()["hit_rate"] == 0.0
 
 
+def test_the_hit_rate_keeps_four_decimal_places():
+    cache = BoundedCache()
+    cache.set("key", 1)
+    cache.get("key")
+    cache.get("key")
+    cache.get("absent")
+
+    assert cache.stats()["hit_rate"] == 0.6667
+
+
+def test_stats_reports_the_configured_bound():
+    assert BoundedCache(max_entries=7).stats()["max_entries"] == 7
+
+
 def test_the_least_recently_used_entry_is_evicted():
     cache = BoundedCache(max_entries=2)
     cache.set("a", 1)
@@ -115,9 +129,17 @@ def test_path_signature_distinguishes_a_missing_file(tmp_path):
     missing = path_signature(target)
     target.write_text("now here")
 
-    assert missing[1] is False
+    assert missing == (str(target), False, None, None)
+    assert path_signature(target)[0] == str(target)
     assert path_signature(target)[1] is True
     assert path_signature(None) is None
+
+
+def test_two_missing_files_have_different_signatures(tmp_path):
+    first = path_signature(tmp_path / "one.json")
+    second = path_signature(tmp_path / "two.json")
+
+    assert first != second
 
 
 def test_schema_canonicalisation_is_cached():

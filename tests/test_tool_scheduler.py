@@ -156,6 +156,36 @@ def test_a_leading_confirmation_requiring_read_disables_the_group():
     assert plan.is_parallel is False
 
 
+def test_the_confirmation_check_receives_the_real_tool_name():
+    """A predicate keyed on tool name must not be handed a placeholder."""
+    seen = []
+
+    def needs_confirmation(tool_name, tool_input):
+        seen.append((tool_name, tool_input["file_path"]))
+        return False
+
+    _plan(_reads(3), needs_confirmation=needs_confirmation)
+
+    assert seen == [("read_file", f"file-{index}.py") for index in range(3)]
+
+
+def test_a_confirmation_check_keyed_on_the_tool_name_is_honoured():
+    tool_uses = _reads(2) + [_call("git_log", limit=5)] + _reads(2)
+
+    plan = _plan(tool_uses, needs_confirmation=lambda name, _: name == "git_log")
+
+    assert plan.indexes == (0, 1)
+
+
+def test_a_skipped_plan_reserves_no_workers():
+    for plan in (
+        _plan(_reads(4), environ=OFF),
+        _plan(_reads(1)),
+        _plan(_reads(4), hooks_present=True),
+    ):
+        assert plan.worker_count == 0
+
+
 def test_order_sensitive_hooks_disable_the_group():
     plan = _plan(_reads(4), hooks_present=True)
 
@@ -302,6 +332,56 @@ def test_an_interrupt_mid_round_stops_further_dispatch():
 
     assert len(calls) < 12
     assert set(completed) <= set(plan.indexes)
+
+
+def test_an_interrupt_cancels_work_that_has_not_started():
+    """Queued futures must actually be cancelled, not merely not awaited."""
+    tool_uses = _reads(4)
+    plan = ParallelPlan(tuple(range(4)), 1, "")
+    interrupted = threading.Event()
+    started = []
+
+    def execute(tool_name, tool_input):
+        started.append(tool_input["file_path"])
+        interrupted.set()
+        return {"success": True}
+
+    completed = run_parallel_group(execute, tool_uses, plan, interrupted=interrupted)
+
+    # One worker, so the other three are queued when the interrupt lands.
+    assert started == ["file-0.py"]
+    assert set(completed) == {0}
+
+
+def test_reported_durations_track_real_elapsed_time():
+    tool_uses = _reads(2)
+    plan = _plan(tool_uses)
+
+    def execute(tool_name, tool_input):
+        time.sleep(0.05)
+        return {"success": True}
+
+    started_at = time.perf_counter()
+    completed = run_parallel_group(execute, tool_uses, plan)
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+
+    for _result, duration_ms in completed.values():
+        assert 25 <= duration_ms <= elapsed_ms
+
+
+def test_worker_threads_are_named_for_diagnosis():
+    tool_uses = _reads(3)
+    plan = _plan(tool_uses)
+    names = []
+
+    def execute(tool_name, tool_input):
+        names.append(threading.current_thread().name)
+        return {"success": True}
+
+    run_parallel_group(execute, tool_uses, plan)
+
+    assert names
+    assert all(name.startswith("radsim-tool") for name in names)
 
 
 def test_a_non_parallel_plan_executes_nothing():

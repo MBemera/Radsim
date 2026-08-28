@@ -60,7 +60,7 @@ event: `batch_size`, `inserted_events`, `duration_ms`, `queue_depth`,
 writing: **94 killed of 114 considered, 82.5%**, against the plan's 80% Tier 1
 target.
 
-All 20 survivors are equivalent mutants, verified individually:
+All 20 survivors were inspected as diffs and are equivalent mutants:
 
 - 18 mutate `logger.debug` message text or its arguments. They change no state,
   no return value, and no persisted row.

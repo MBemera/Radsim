@@ -94,6 +94,32 @@ def test_plan_skips_a_prefix_below_the_provider_minimum():
     assert plan.blocks is None
     assert plan.skipped_reason == "below_minimum"
     assert plan.minimum_tokens == 1_024
+    assert plan.prefix_tokens == 1
+
+
+def test_a_prefix_exactly_at_the_minimum_is_cached():
+    """The provider minimum is inclusive: equal is long enough."""
+    minimum = minimum_cacheable_tokens(CLAUDE_MODEL)
+
+    at_minimum = plan_system_cache(
+        "x" * (minimum * 4), model=CLAUDE_MODEL, environ={}
+    )
+    below_minimum = plan_system_cache(
+        "x" * ((minimum - 1) * 4), model=CLAUDE_MODEL, environ={}
+    )
+
+    assert at_minimum.prefix_tokens == minimum
+    assert at_minimum.is_cached
+    assert below_minimum.prefix_tokens == minimum - 1
+    assert below_minimum.skipped_reason == "below_minimum"
+
+
+def test_tool_schema_tokens_default_to_none_of_the_prefix():
+    prompt = get_static_prompt()
+
+    plan = plan_system_cache(prompt, model=CLAUDE_MODEL, environ={})
+
+    assert plan.prefix_tokens == estimate_tokens(prompt)
 
 
 def test_plan_skips_models_without_explicit_cache_control():
