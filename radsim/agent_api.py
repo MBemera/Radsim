@@ -16,6 +16,7 @@ from .output import (
     print_warning,
     reset_stream_state,
 )
+from .performance import PerformanceTelemetry, request_payload_metrics
 from .prompts import get_system_prompt
 from .rate_limiter import BudgetExceeded, CircuitBreakerOpen, RateLimitExceeded
 from .tools import TOOL_DEFINITIONS
@@ -75,7 +76,9 @@ class AgentApiMixin:
         """Call the API with current messages."""
         from .context_budget import DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS
 
+        prompt_started_at = time.perf_counter()
         self.system_prompt = get_system_prompt()
+        prompt_construction_ms = (time.perf_counter() - prompt_started_at) * 1000
         self.check_and_prune()
         output_reserve_tokens = getattr(
             self.config,
@@ -87,15 +90,37 @@ class AgentApiMixin:
         if warning:
             print_warning(warning)
 
+        assembly_started_at = time.perf_counter()
+        all_tools = self._get_all_tools()
+        telemetry = getattr(self, "performance_telemetry", None) or PerformanceTelemetry()
+        request_metrics = (
+            request_payload_metrics(self.system_prompt, all_tools) if telemetry.enabled else {}
+        )
+        request_assembly_ms = (time.perf_counter() - assembly_started_at) * 1000
+        self._performance_request_index = getattr(self, "_performance_request_index", 0) + 1
+        request_index = self._performance_request_index
+        telemetry.emit(
+            "provider_request",
+            turn_id=getattr(self, "_performance_turn_id", None),
+            provider=getattr(self.config, "provider", ""),
+            model=getattr(self.config, "model", ""),
+            request_index=request_index,
+            message_count=len(self.messages),
+            prompt_construction_ms=prompt_construction_ms,
+            request_assembly_ms=request_assembly_ms,
+            **request_metrics,
+        )
+
         spinner = Spinner("Thinking...")
         spinner.start()
+        provider_started_at = time.perf_counter()
+        first_chunk_ms = None
 
         try:
             if self.config.stream:
                 reset_stream_state()
                 response = None
                 first_chunk = True
-                all_tools = self._get_all_tools()
                 stream = self.client.stream_chat(
                     messages=self.messages,
                     system_prompt=self.system_prompt,
@@ -108,6 +133,7 @@ class AgentApiMixin:
                         break
 
                     if first_chunk:
+                        first_chunk_ms = (time.perf_counter() - provider_started_at) * 1000
                         spinner.stop()
                         print()
                         first_chunk = False
@@ -126,7 +152,6 @@ class AgentApiMixin:
                 if response is None:
                     response = {"content": [], "stop_reason": "error", "usage": {}}
             else:
-                all_tools = self._get_all_tools()
                 response = self.client.chat(
                     messages=self.messages,
                     system_prompt=self.system_prompt,
@@ -143,6 +168,24 @@ class AgentApiMixin:
                 budget_warning = self.protection.record_api_success(input_tokens, output_tokens)
                 if budget_warning:
                     print_warning(budget_warning)
+
+            usage = response.get("usage", {})
+            telemetry.emit(
+                "provider_response",
+                turn_id=getattr(self, "_performance_turn_id", None),
+                provider=getattr(self.config, "provider", ""),
+                model=getattr(self.config, "model", ""),
+                request_index=request_index,
+                duration_ms=(time.perf_counter() - provider_started_at) * 1000,
+                first_chunk_ms=first_chunk_ms,
+                success=True,
+                stop_reason=str(response.get("stop_reason", ""))[:80],
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
+                cache_read_input_tokens=usage.get("cache_read_input_tokens", 0),
+                cache_write_input_tokens=usage.get("cache_write_input_tokens", 0),
+                retry_attempts=usage.get("retry_attempts", 0),
+            )
 
             try:
                 from .hooks import HookContext, HookType, get_hooks_manager
@@ -166,9 +209,29 @@ class AgentApiMixin:
 
         except (RateLimitExceeded, CircuitBreakerOpen, BudgetExceeded):
             spinner.stop()
+            telemetry.emit(
+                "provider_response",
+                turn_id=getattr(self, "_performance_turn_id", None),
+                provider=getattr(self.config, "provider", ""),
+                model=getattr(self.config, "model", ""),
+                request_index=request_index,
+                duration_ms=(time.perf_counter() - provider_started_at) * 1000,
+                success=False,
+                error_type="protection_stop",
+            )
             raise
         except Exception as error:
             spinner.stop()
+            telemetry.emit(
+                "provider_response",
+                turn_id=getattr(self, "_performance_turn_id", None),
+                provider=getattr(self.config, "provider", ""),
+                model=getattr(self.config, "model", ""),
+                request_index=request_index,
+                duration_ms=(time.perf_counter() - provider_started_at) * 1000,
+                success=False,
+                error_type=type(error).__name__,
+            )
 
             error_text = str(error)
             if "401" in error_text or "User not found" in error_text:
@@ -337,7 +400,7 @@ class AgentApiMixin:
                     )
                 continue
 
-            tool_start_time = time.time()
+            tool_start_time = time.perf_counter()
             tool_handle = None
 
             if self.config.verbose or tool_name in READ_ONLY_TOOLS:
@@ -353,7 +416,7 @@ class AgentApiMixin:
             else:
                 result = self._execute_tool_guarded(tool_name, tool_input)
 
-            duration_ms = (time.time() - tool_start_time) * 1000
+            duration_ms = (time.perf_counter() - tool_start_time) * 1000
             tool_success = result.get("success", False)
             tool_error = result.get("error", "") if not tool_success else ""
 
@@ -405,11 +468,21 @@ class AgentApiMixin:
             if image_block:
                 image_blocks.append(image_block)
 
+            serialized_result = serialize_tool_result(result)
+            telemetry = getattr(self, "performance_telemetry", None) or PerformanceTelemetry()
+            telemetry.emit(
+                "tool_execution",
+                turn_id=getattr(self, "_performance_turn_id", None),
+                tool_name=tool_name,
+                duration_ms=duration_ms,
+                success=tool_success,
+                result_chars=len(serialized_result),
+            )
             tool_results.append(
                 {
                     "type": "tool_result",
                     "tool_use_id": tool_id,
-                    "content": serialize_tool_result(result),
+                    "content": serialized_result,
                 }
             )
 

@@ -57,6 +57,7 @@ coverage.xml
 # Generated files
 *.pdf
 eval_results/
+benchmark-results/
 
 # Logs
 *.log

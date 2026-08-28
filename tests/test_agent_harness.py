@@ -189,6 +189,45 @@ class TestToolRoundTrip:
         results_message = agent.messages[2]["content"]
         assert [r["tool_use_id"] for r in results_message] == ["tool_a", "tool_b"]
 
+    def test_performance_telemetry_has_correlated_content_free_events(
+        self, agent_factory, tmp_path
+    ):
+        from radsim.performance import PerformanceTelemetry
+
+        target = tmp_path / "private.txt"
+        target.write_text("sensitive tool result", encoding="utf-8")
+        telemetry_path = tmp_path / "performance.jsonl"
+        agent = agent_factory([
+            make_response(
+                tool_block("tool_1", "read_file", {"file_path": str(target)}),
+                stop_reason="tool_use",
+            ),
+            make_response(text_block("finished")),
+        ])
+        agent.performance_telemetry = PerformanceTelemetry(telemetry_path, enabled=True)
+
+        assert agent.process_message("private user request") == "finished"
+
+        serialized = telemetry_path.read_text(encoding="utf-8")
+        records = [json.loads(line) for line in serialized.splitlines()]
+        assert [record["event"] for record in records] == [
+            "turn_started",
+            "provider_request",
+            "provider_response",
+            "tool_execution",
+            "provider_request",
+            "provider_response",
+            "turn_completed",
+        ]
+        assert len({record["turn_id"] for record in records}) == 1
+        assert records[-1]["api_calls"] == 2
+        assert records[-1]["tool_calls"] == 1
+        assert records[-1]["input_tokens"] == 20
+        assert records[-1]["output_tokens"] == 10
+        assert "private user request" not in serialized
+        assert str(target) not in serialized
+        assert "sensitive tool result" not in serialized
+
     def test_tool_error_flows_back_to_model(self, agent_factory, tmp_path):
         agent = agent_factory([
             make_response(

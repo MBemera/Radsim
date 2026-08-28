@@ -31,5 +31,6 @@ mcp==1.28.1
 # pytest 9.0.2 was affected by CVE-2025-71176 (predictable /tmp pytest
 # directory under an insecure parent); pinned to a fixed release.
 pytest==9.1.1
+pytest-benchmark==5.1.0
 ruff==0.15.21
 pip-audit==2.10.1

@@ -12,6 +12,7 @@ Hooks allow code execution before or after specific agent actions:
 """
 
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -108,6 +109,8 @@ class HooksManager:
         Returns the final context after all hooks have run.
         """
         for hook_func in self._hooks[hook_type]:
+            started_at = time.perf_counter()
+            success = True
             try:
                 result = hook_func(context)
                 if result is not None:
@@ -119,7 +122,19 @@ class HooksManager:
 
             except Exception as e:
                 # Hook errors should not crash the system
+                success = False
                 context.metadata["hook_error"] = str(e)
+            finally:
+                from .performance import emit_active_performance_event
+
+                emit_active_performance_event(
+                    "hook_execution",
+                    hook_type=hook_type.value,
+                    hook_name=getattr(hook_func, "__name__", type(hook_func).__name__),
+                    hook_owner=self._owners.get(hook_func, "builtin"),
+                    duration_ms=(time.perf_counter() - started_at) * 1000,
+                    success=success,
+                )
 
         return context
 

@@ -290,6 +290,12 @@ class AgentConversationMixin:
 
     def process_message(self, user_input):
         """Process a user message and return the response."""
+        from .performance import (
+            PerformanceTelemetry,
+            bind_performance_context,
+            reset_performance_context,
+        )
+
         self._interrupted.clear()
         self._is_processing.set()
         config = getattr(self, "config", None)
@@ -299,9 +305,22 @@ class AgentConversationMixin:
             model=getattr(config, "model", ""),
         )
         usage_before = dict(getattr(self, "usage_stats", {}))
-        started_at = time.time()
+        started_at = time.perf_counter()
         result = ""
         task_error = None
+        telemetry = getattr(self, "performance_telemetry", None) or PerformanceTelemetry()
+        turn_id = telemetry.new_turn_id()
+        self._performance_turn_id = turn_id
+        self._performance_request_index = 0
+        telemetry_token = bind_performance_context(telemetry, turn_id)
+        telemetry.emit(
+            "turn_started",
+            turn_id=turn_id,
+            provider=getattr(config, "provider", ""),
+            model=getattr(config, "model", ""),
+            message_count=len(getattr(self, "messages", ())),
+            input_chars=len(user_input),
+        )
 
         from .escape_listener import start_escape_listener, stop_escape_listener
 
@@ -317,17 +336,57 @@ class AgentConversationMixin:
         finally:
             if self._interrupted.is_set() and self._task_outcome_tracker is not None:
                 self._task_outcome_tracker.mark_cancelled()
+            tracker = self._task_outcome_tracker
+            outcome = tracker.resolve(task_error).value if tracker is not None else "unknown"
+            tool_calls = len(tracker.tool_results) if tracker is not None else 0
             self._fire_post_message_hook(result, task_error)
             self._record_learning_outcome(
                 result=result,
                 error=task_error,
-                duration_ms=(time.time() - started_at) * 1000,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
                 usage_before=usage_before,
             )
             try:
                 flush_tool_optimizer()
             except Exception:
                 logger.debug("Tool optimizer flush failed at turn boundary", exc_info=True)
+            usage_after = getattr(self, "usage_stats", {})
+            telemetry.emit(
+                "turn_completed",
+                turn_id=turn_id,
+                provider=getattr(config, "provider", ""),
+                model=getattr(config, "model", ""),
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                outcome=outcome,
+                success=task_error is None,
+                interrupted=self._interrupted.is_set(),
+                error_type=type(task_error).__name__ if task_error is not None else "",
+                api_calls=max(
+                    0,
+                    usage_after.get("request_count", 0) - usage_before.get("request_count", 0),
+                ),
+                tool_calls=tool_calls,
+                input_tokens=max(
+                    0,
+                    usage_after.get("input_tokens", 0) - usage_before.get("input_tokens", 0),
+                ),
+                output_tokens=max(
+                    0,
+                    usage_after.get("output_tokens", 0) - usage_before.get("output_tokens", 0),
+                ),
+                cache_read_input_tokens=max(
+                    0,
+                    usage_after.get("cache_read_input_tokens", 0)
+                    - usage_before.get("cache_read_input_tokens", 0),
+                ),
+                cache_write_input_tokens=max(
+                    0,
+                    usage_after.get("cache_write_input_tokens", 0)
+                    - usage_before.get("cache_write_input_tokens", 0),
+                ),
+            )
+            reset_performance_context(telemetry_token)
+            self._performance_turn_id = None
             stop_escape_listener()
             self._is_processing.clear()
 
