@@ -37,7 +37,19 @@ REASONING_EFFORT_LEVELS = set(REASONING_EFFORT_ORDER)
 REQUEST_PARAMETER_ORDER = ("temperature", "top_p", "seed")
 REQUEST_PARAMETER_NAMES = set(REQUEST_PARAMETER_ORDER)
 STATIC_REQUEST_PARAMETERS = {
+    "z-ai/glm-5.3": ("temperature", "top_p"),
+    "z-ai/glm-5.3-flash": REQUEST_PARAMETER_ORDER,
     "z-ai/glm-5.2": REQUEST_PARAMETER_ORDER,
+    "anthropic/claude-opus-5": ("temperature",),
+    "anthropic/claude-sonnet-5": (),
+    "google/gemini-3.7-flash": REQUEST_PARAMETER_ORDER,
+    "x-ai/grok-4.6": REQUEST_PARAMETER_ORDER,
+    "qwen/qwen3.8-max": REQUEST_PARAMETER_ORDER,
+    "bytedance-seed/seed-2.0-code": ("temperature", "top_p"),
+    "moonshotai/kimi-k3": REQUEST_PARAMETER_ORDER,
+    "openai/gpt-5.6-sol": ("seed",),
+    "openai/gpt-5.6-terra": ("seed",),
+    "openai/gpt-5.6-luna": ("seed",),
 }
 
 _catalogue = None
