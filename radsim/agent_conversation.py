@@ -11,6 +11,9 @@ from .output import print_error, print_info, print_success, print_warning
 
 logger = logging.getLogger(__name__)
 
+MAX_RETAINED_MESSAGES = 400
+RETAINED_MEDIA_TEXT = "[Image omitted from retained history after processing]"
+
 
 def _emit_cache_stats(telemetry, turn_id):
     """Record each long-lived cache's hit rate at the turn boundary.
@@ -36,6 +39,30 @@ def _emit_cache_stats(telemetry, turn_id):
             )
     except Exception:
         logger.debug("Cache statistics could not be recorded", exc_info=True)
+
+
+def _emit_memory_stats(telemetry, turn_id, agent):
+    """Record bounded process state without retaining conversation content."""
+    if not telemetry.enabled:
+        return
+    try:
+        from .background import get_job_manager
+
+        job_stats = get_job_manager().stats()
+        telemetry.emit(
+            "memory_stats",
+            turn_id=turn_id,
+            retained_messages=len(getattr(agent, "messages", ())),
+            message_evictions=getattr(agent, "_memory_evicted_messages", 0),
+            released_media_blocks=getattr(agent, "_memory_released_media_blocks", 0),
+            injected_job_ids=len(getattr(agent, "_injected_job_ids", ())),
+            background_jobs=job_stats["jobs"],
+            background_running_jobs=job_stats["running"],
+            background_finished_jobs=job_stats["finished"],
+            background_job_evictions=job_stats["finished_evictions"],
+        )
+    except Exception:
+        logger.debug("Memory statistics could not be recorded", exc_info=True)
 
 
 class AgentConversationMixin:
@@ -111,6 +138,46 @@ class AgentConversationMixin:
         self._injected_job_ids = set()
         self._session_approve_shell = False
         self._pending_user_context = []
+
+    def _enforce_message_retention(self):
+        """Drop the oldest complete exchanges above the session message bound."""
+        messages = getattr(self, "messages", None)
+        if not isinstance(messages, list) or len(messages) <= MAX_RETAINED_MESSAGES:
+            return 0
+
+        cut_index = 2
+        while len(messages) - (cut_index - 2) > MAX_RETAINED_MESSAGES:
+            cut_index = self._pruning_unit_end(cut_index)
+            cut_index = self._skip_orphaned_results(cut_index)
+
+        removed = max(0, cut_index - 2)
+        if removed:
+            del messages[2:cut_index]
+            self._memory_evicted_messages = (
+                getattr(self, "_memory_evicted_messages", 0) + removed
+            )
+        return removed
+
+    def _release_processed_media(self):
+        """Replace submitted image bytes with a small history marker."""
+        released = 0
+        messages = getattr(self, "messages", ())
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            content = message.get("content")
+            if not isinstance(content, list):
+                continue
+            for index, block in enumerate(content):
+                if not isinstance(block, dict) or block.get("type") != "image":
+                    continue
+                content[index] = {"type": "text", "text": RETAINED_MEDIA_TEXT}
+                released += 1
+
+        self._memory_released_media_blocks = (
+            getattr(self, "_memory_released_media_blocks", 0) + released
+        )
+        return released
 
     def estimate_tokens(self, text):
         """Estimate token count for text (rough approximation)."""
@@ -300,6 +367,7 @@ class AgentConversationMixin:
 
     def check_and_prune(self):
         """Prune before the effective input cap or fail before provider I/O."""
+        self._enforce_message_retention()
         budget = self.get_context_budget()
         current_tokens, maximum, _percentage = self.get_context_usage(budget)
         if current_tokens <= maximum:
@@ -417,6 +485,9 @@ class AgentConversationMixin:
                 ),
             )
             _emit_cache_stats(telemetry, turn_id)
+            self._release_processed_media()
+            self._enforce_message_retention()
+            _emit_memory_stats(telemetry, turn_id, self)
             reset_performance_context(telemetry_token)
             self._performance_turn_id = None
             self._routed_tool_names = None

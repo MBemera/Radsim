@@ -5,6 +5,7 @@ import time
 import unittest
 
 from radsim.background import (
+    DEFAULT_MAX_FINISHED_JOBS,
     BackgroundJob,
     BackgroundJobManager,
     JobStatus,
@@ -207,6 +208,48 @@ class TestBackgroundJobManager(unittest.TestCase):
 
         assert len(callback_jobs) == 1
         assert callback_jobs[0].status == JobStatus.FAILED
+
+    def test_finished_jobs_are_automatically_bounded(self):
+        manager = BackgroundJobManager(max_finished_jobs=2)
+
+        def run():
+            return type("R", (), {"content": "done", "input_tokens": 0, "output_tokens": 0})()
+
+        for index in range(3):
+            job = manager.start_job(f"task {index}", run)
+            job._thread.join(timeout=2)
+
+        assert [job.job_id for job in manager.list_jobs()] == [3, 2]
+        assert manager.stats() == {
+            "jobs": 2,
+            "running": 0,
+            "finished": 2,
+            "max_finished": 2,
+            "finished_evictions": 1,
+        }
+
+    def test_running_jobs_are_never_evicted(self):
+        manager = BackgroundJobManager(max_finished_jobs=1)
+        release = threading.Event()
+
+        def wait_for_release():
+            release.wait(timeout=2)
+            return type("R", (), {"content": "done", "input_tokens": 0, "output_tokens": 0})()
+
+        running_job = manager.start_job("running", wait_for_release)
+        for index in range(2):
+            finished_job = manager.start_job(f"finished {index}", lambda: None)
+            finished_job._thread.join(timeout=2)
+
+        assert manager.get_job(running_job.job_id) is running_job
+        assert manager.stats()["running"] == 1
+        assert manager.stats()["finished"] == 1
+
+        release.set()
+        running_job._thread.join(timeout=2)
+
+    def test_default_finished_job_bound_is_explicit(self):
+        assert BackgroundJobManager().max_finished_jobs == DEFAULT_MAX_FINISHED_JOBS
 
 
 class TestSingleton(unittest.TestCase):

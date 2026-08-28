@@ -211,10 +211,12 @@ class TestToolRoundTrip:
 
         serialized = telemetry_path.read_text(encoding="utf-8")
         records = [json.loads(line) for line in serialized.splitlines()]
-        # Cache statistics are emitted per cache after the turn is accounted
-        # for, so the turn's own sequence is what is asserted here.
+        # Cache and memory statistics are emitted after turn accounting, so the
+        # turn's own sequence is what is asserted here.
         turn_events = [
-            record["event"] for record in records if record["event"] != "cache_stats"
+            record["event"]
+            for record in records
+            if record["event"] not in {"cache_stats", "memory_stats"}
         ]
         assert turn_events == [
             "turn_started",
@@ -229,9 +231,12 @@ class TestToolRoundTrip:
         assert {record["cache_name"] for record in cache_events} == {
             "project_detection",
             "prompt_fragment",
+            "repository_symbols",
+            "skill_docs",
             "tool_schema",
             "user_hooks",
         }
+        assert len([record for record in records if record["event"] == "memory_stats"]) == 1
         assert len({record["turn_id"] for record in records}) == 1
         completed = next(
             record for record in records if record["event"] == "turn_completed"

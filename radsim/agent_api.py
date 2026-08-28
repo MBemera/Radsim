@@ -32,6 +32,8 @@ from .usage import accumulate_usage
 
 logger = logging.getLogger(__name__)
 
+MAX_SERIALIZED_TOOL_RESULT_CHARS = 100_000
+
 
 def serialize_tool_result(result):
     """Serialize a tool result to JSON without ever crashing the turn.
@@ -41,9 +43,29 @@ def serialize_tool_result(result):
     intact so the conversation stays valid for the API.
     """
     try:
-        return json.dumps(result)
+        serialized = json.dumps(result)
     except (TypeError, ValueError):
-        return json.dumps(result, default=str)
+        serialized = json.dumps(result, default=str)
+    if len(serialized) <= MAX_SERIALIZED_TOOL_RESULT_CHARS:
+        return serialized
+    return _truncated_tool_result(result, serialized)
+
+
+def _truncated_tool_result(result, serialized):
+    """Return valid, bounded JSON with an explicit truncation marker."""
+    preview_size = MAX_SERIALIZED_TOOL_RESULT_CHARS // 2
+    while preview_size > 0:
+        payload = {
+            "success": bool(result.get("success", False)) if isinstance(result, dict) else False,
+            "truncated": True,
+            "original_chars": len(serialized),
+            "preview": serialized[:preview_size],
+        }
+        encoded = json.dumps(payload)
+        if len(encoded) <= MAX_SERIALIZED_TOOL_RESULT_CHARS:
+            return encoded
+        preview_size //= 2
+    return json.dumps({"success": False, "truncated": True})
 
 
 def extract_image_block(result):

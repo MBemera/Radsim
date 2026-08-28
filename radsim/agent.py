@@ -86,6 +86,8 @@ class RadSimAgent(
         # state, so they survive /clear, restarts, and primary model switches.
         self._session_approve_shell = False
         self._pending_user_context = []
+        self._memory_evicted_messages = 0
+        self._memory_released_media_blocks = 0
 
         # Background job manager — completion notifications and result tracking
         self._injected_job_ids = set()

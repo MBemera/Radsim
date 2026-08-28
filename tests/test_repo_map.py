@@ -8,13 +8,27 @@ import ast
 
 from radsim.repo_map import (
     _SYMBOL_CACHE,
+    MAX_SYMBOL_CACHE_ENTRIES,
+    _cache_symbols,
     _discover_files,
     _extract_js_symbols_regex,
     _extract_python_symbols,
     _rank_files,
     _render_map,
     generate_repo_map,
+    symbol_cache_stats,
 )
+
+
+def test_symbol_cache_uses_the_shared_lru_bound():
+    _SYMBOL_CACHE.clear()
+    evictions_before = symbol_cache_stats()["evictions"]
+
+    for index in range(MAX_SYMBOL_CACHE_ENTRIES + 3):
+        _cache_symbols((f"digest-{index}", 1, "python"), [{"name": str(index)}])
+
+    assert symbol_cache_stats()["entries"] == MAX_SYMBOL_CACHE_ENTRIES
+    assert symbol_cache_stats()["evictions"] == evictions_before + 3
 
 
 class TestGenerateRepoMap:

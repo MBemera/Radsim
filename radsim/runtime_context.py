@@ -93,18 +93,24 @@ class RuntimeContext:
 
     def cache_stats(self):
         """Return hit rate and size for every cache the context owns."""
+        from .repo_map import symbol_cache_stats
+        from .skill_registry import get_skill_registry
         from .tool_schema import schema_cache_stats
         from .user_hooks import hook_cache_stats
 
         return {
             "project_detection": self._project_detection_cache.stats(),
             "prompt_fragment": self._prompt_fragment_cache.stats(),
+            "repository_symbols": symbol_cache_stats(),
+            "skill_docs": get_skill_registry().cache_stats(),
             "tool_schema": schema_cache_stats(),
             "user_hooks": hook_cache_stats(),
         }
 
     def clear_all(self):
         """Drop every cache tracked by the runtime context."""
+        from .repo_map import clear_symbol_cache
+        from .skill_registry import get_skill_registry
         from .tool_schema import clear_schema_cache
         from .user_hooks import clear_hook_cache
 
@@ -115,6 +121,8 @@ class RuntimeContext:
             self._prompt_fragment_cache.clear()
         clear_schema_cache()
         clear_hook_cache()
+        clear_symbol_cache()
+        get_skill_registry().clear_cache()
 
 
 _runtime_context = RuntimeContext()

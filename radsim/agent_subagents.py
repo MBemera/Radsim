@@ -145,7 +145,10 @@ class AgentSubAgentMixin:
         injected_ids = getattr(self, "_injected_job_ids", set())
 
         parts = []
-        for job in manager.list_jobs():
+        jobs = manager.list_jobs()
+        visible_job_ids = {job.job_id for job in jobs}
+        injected_ids.intersection_update(visible_job_ids)
+        for job in jobs:
             if job.job_id in injected_ids:
                 continue
             if job.status.value == "completed" and job.result_content:

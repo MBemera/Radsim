@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from radsim.skill_registry import SkillRegistry
+from radsim.skill_registry import MAX_SKILL_CACHE_ENTRIES, SkillRegistry
 
 
 class TestSkillRegistry:
@@ -40,10 +40,30 @@ class TestSkillRegistry:
 
     def test_clear_cache(self):
         self.registry.get_skill_docs("search")
-        assert "search" in self.registry._cache
+        assert self.registry.cache_stats()["entries"] == 1
 
         self.registry.clear_cache()
-        assert "search" not in self.registry._cache
+        assert self.registry.cache_stats()["entries"] == 0
+
+    def test_cache_is_bounded(self, tmp_path):
+        for index in range(MAX_SKILL_CACHE_ENTRIES + 5):
+            (tmp_path / f"skill_{index}.md").write_text(str(index))
+        registry = SkillRegistry(skills_dir=tmp_path)
+
+        for skill_name in registry.list_available_skills():
+            registry.get_skill_docs(skill_name)
+
+        assert registry.cache_stats()["entries"] == MAX_SKILL_CACHE_ENTRIES
+        assert registry.cache_stats()["evictions"] == 5
+
+    def test_skill_name_cannot_escape_the_skills_directory(self, tmp_path):
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+        (tmp_path / "secret.md").write_text("not skill documentation")
+
+        registry = SkillRegistry(skills_dir=skills_dir)
+
+        assert registry.get_skill_docs("../secret") is None
 
     def test_get_skill_for_tool_direct_match(self):
         docs = self.registry.get_skill_for_tool("file_operations")

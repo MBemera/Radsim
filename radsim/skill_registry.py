@@ -13,12 +13,18 @@ When a tool is invoked, its skill docs are loaded into context.
 """
 
 import logging
+import re
 from pathlib import Path
+
+from .bounded_cache import MISSING, BoundedCache
 
 logger = logging.getLogger(__name__)
 
 # Skills directory location
 SKILLS_DIR = Path(__file__).parent / "skills"
+MAX_SKILL_CACHE_ENTRIES = 32
+MAX_AVAILABLE_SKILLS = 256
+SKILL_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
 class SkillRegistry:
@@ -29,7 +35,7 @@ class SkillRegistry:
 
     def __init__(self, skills_dir: Path = None):
         self.skills_dir = skills_dir or SKILLS_DIR
-        self._cache: dict[str, str] = {}
+        self._cache = BoundedCache(max_entries=MAX_SKILL_CACHE_ENTRIES)
         self._available_skills: list[str] | None = None
 
     def list_available_skills(self) -> list[str]:
@@ -37,10 +43,10 @@ class SkillRegistry:
         if self._available_skills is None:
             self._available_skills = []
             if self.skills_dir.exists():
-                for file in self.skills_dir.glob("*.md"):
+                for file in sorted(self.skills_dir.glob("*.md"))[:MAX_AVAILABLE_SKILLS]:
                     skill_name = file.stem
                     self._available_skills.append(skill_name)
-        return self._available_skills
+        return list(self._available_skills)
 
     def get_skill_docs(self, skill_name: str) -> str | None:
         """Load skill documentation by name.
@@ -48,9 +54,13 @@ class SkillRegistry:
         Returns None if skill doesn't exist.
         Uses caching to avoid re-reading files.
         """
+        if not isinstance(skill_name, str) or not SKILL_NAME_PATTERN.fullmatch(skill_name):
+            return None
+
         # Check cache first
-        if skill_name in self._cache:
-            return self._cache[skill_name]
+        cached_docs = self._cache.get(skill_name)
+        if cached_docs is not MISSING:
+            return cached_docs
 
         # Look for skill file
         skill_file = self.skills_dir / f"{skill_name}.md"
@@ -60,7 +70,7 @@ class SkillRegistry:
 
         try:
             content = skill_file.read_text(encoding="utf-8")
-            self._cache[skill_name] = content
+            self._cache.set(skill_name, content)
             return content
         except Exception:
             logger.debug(f"Failed to load skill file: {skill_file}")
@@ -122,8 +132,12 @@ class SkillRegistry:
 
     def clear_cache(self):
         """Clear the skill documentation cache."""
-        self._cache = {}
+        self._cache.clear()
         self._available_skills = None
+
+    def cache_stats(self):
+        """Return documentation-cache hit rate and eviction counts."""
+        return self._cache.stats()
 
 
 # Global registry instance

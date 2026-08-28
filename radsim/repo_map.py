@@ -17,6 +17,8 @@ import os
 import re
 from pathlib import Path
 
+from .bounded_cache import MISSING, BoundedCache
+
 logger = logging.getLogger(__name__)
 
 # Directories to always skip during discovery
@@ -44,7 +46,7 @@ LANGUAGE_EXTENSIONS = {
 
 PARSER_VERSION = 2
 MAX_SYMBOL_CACHE_ENTRIES = 512
-_SYMBOL_CACHE = {}
+_SYMBOL_CACHE = BoundedCache(max_entries=MAX_SYMBOL_CACHE_ENTRIES)
 
 
 def generate_repo_map(
@@ -165,7 +167,7 @@ def _extract_python_symbols(filepath):
 
     cache_key = _build_cache_key(file_bytes, "python")
     cached_symbols = _SYMBOL_CACHE.get(cache_key)
-    if cached_symbols is not None:
+    if cached_symbols is not MISSING:
         return _copy_symbols(cached_symbols)
 
     source = file_bytes.decode("utf-8", errors="replace")
@@ -235,11 +237,18 @@ def _build_cache_key(file_bytes, parser_options):
 
 
 def _cache_symbols(cache_key, symbols):
-    """Cache symbols and evict the oldest entry when the bound is reached."""
-    if cache_key not in _SYMBOL_CACHE and len(_SYMBOL_CACHE) >= MAX_SYMBOL_CACHE_ENTRIES:
-        oldest_key = next(iter(_SYMBOL_CACHE))
-        del _SYMBOL_CACHE[oldest_key]
-    _SYMBOL_CACHE[cache_key] = _copy_symbols(symbols)
+    """Cache symbols under the shared LRU bound with eviction telemetry."""
+    _SYMBOL_CACHE.set(cache_key, _copy_symbols(symbols))
+
+
+def symbol_cache_stats():
+    """Return repository symbol-cache hit rate and eviction counts."""
+    return _SYMBOL_CACHE.stats()
+
+
+def clear_symbol_cache():
+    """Drop cached repository symbols while preserving lifetime counters."""
+    _SYMBOL_CACHE.clear()
 
 
 def _copy_symbols(symbols):
@@ -292,7 +301,7 @@ def _extract_js_symbols_regex(filepath):
 
     cache_key = _build_cache_key(file_bytes, f"regex:{filepath.suffix}")
     cached_symbols = _SYMBOL_CACHE.get(cache_key)
-    if cached_symbols is not None:
+    if cached_symbols is not MISSING:
         return _copy_symbols(cached_symbols)
 
     source = file_bytes.decode("utf-8", errors="replace")

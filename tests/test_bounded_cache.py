@@ -329,7 +329,14 @@ def test_project_detection_results_are_isolated_copies(tmp_path):
 def test_cache_stats_reports_every_cache():
     stats = RuntimeContext().cache_stats()
 
-    assert set(stats) == {"project_detection", "prompt_fragment", "tool_schema", "user_hooks"}
+    assert set(stats) == {
+        "project_detection",
+        "prompt_fragment",
+        "repository_symbols",
+        "skill_docs",
+        "tool_schema",
+        "user_hooks",
+    }
     for entry in stats.values():
         assert {"entries", "hits", "misses", "evictions", "hit_rate"} <= set(entry)
 
@@ -365,6 +372,8 @@ def test_turn_cache_statistics_are_emitted(tmp_path):
     assert {record["cache_name"] for record in records} == {
         "project_detection",
         "prompt_fragment",
+        "repository_symbols",
+        "skill_docs",
         "tool_schema",
         "user_hooks",
     }
