@@ -20,6 +20,7 @@ TELEMETRY_SCHEMA_VERSION = 1
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 _EVENT_NAMES = {
     "hook_execution",
+    "prompt_cache",
     "provider_request",
     "provider_response",
     "tool_execution",
@@ -45,6 +46,10 @@ _ALLOWED_FIELDS = {
     "model",
     "outcome",
     "output_tokens",
+    "prompt_cache_applied",
+    "prompt_cache_minimum_tokens",
+    "prompt_cache_prefix_tokens",
+    "prompt_cache_skipped_reason",
     "prompt_construction_ms",
     "provider",
     "request_assembly_ms",

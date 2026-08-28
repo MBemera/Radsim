@@ -10,6 +10,7 @@ from radsim.learning.events import LearningEvent, TaskOutcome
 from radsim.learning.retrieval import rank_learning_events
 from radsim.learning.store import LearningStore
 from radsim.performance import PerformanceTelemetry, request_payload_metrics
+from radsim.prompt_cache import plan_system_cache
 from radsim.prompts import get_system_prompt
 from radsim.tool_router import estimate_schema_tokens, route_tool_schemas
 from radsim.tool_schema import canonicalize_tool_schemas
@@ -76,6 +77,17 @@ def test_tool_schema_routing(benchmark, request_text):
     decision = benchmark(route_tool_schemas, TOOL_DEFINITIONS, request_text)
     assert decision.failed is False
     assert decision.schema_tokens < estimate_schema_tokens(list(TOOL_DEFINITIONS))
+
+
+def test_system_cache_planning(benchmark):
+    prompt = get_system_prompt()
+    plan = benchmark(
+        plan_system_cache,
+        prompt,
+        model="claude-opus-4-8",
+        tool_schema_tokens=1_675,
+    )
+    assert plan.is_cached
 
 
 def test_provider_payload_metrics(benchmark):

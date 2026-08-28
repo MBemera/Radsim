@@ -14,6 +14,7 @@ TIER_ONE_PATHS = {
     "radsim/learning/retrieval.py",
     "radsim/learning/store.py",
     "radsim/performance.py",
+    "radsim/prompt_cache.py",
     "radsim/rate_limiter.py",
     "radsim/response_validator.py",
     "radsim/safety.py",
