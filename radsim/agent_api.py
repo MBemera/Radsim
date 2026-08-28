@@ -19,6 +19,13 @@ from .output import (
 from .performance import PerformanceTelemetry, request_payload_metrics
 from .prompts import get_system_prompt
 from .rate_limiter import BudgetExceeded, CircuitBreakerOpen, RateLimitExceeded
+from .tool_router import (
+    group_for_tool,
+    route_tool_schemas,
+    routing_enabled,
+    schema_budget_tokens,
+    tools_in_group,
+)
 from .tools import TOOL_DEFINITIONS
 from .usage import accumulate_usage
 
@@ -72,6 +79,71 @@ class AgentApiMixin:
                 tools.extend(mcp_tools)
         return tools
 
+    def _get_request_tools(self):
+        """Return the schemas for this request, honouring the turn's routing."""
+        tools = self._get_all_tools()
+        routed_names = getattr(self, "_routed_tool_names", None)
+        if not routed_names:
+            return tools
+        return [tool for tool in tools if tool.get("name") in routed_names]
+
+    def _route_tool_schemas_for_turn(self, user_input, telemetry, turn_id):
+        """Choose one stable schema set for the whole turn.
+
+        Routing is opt-in and filters schemas only: permission tiers,
+        confirmation prompts, and policy checks are unchanged, and any
+        registry the router cannot classify keeps every schema.
+        """
+        self._routed_tool_names = None
+        if not routing_enabled():
+            return
+
+        decision = route_tool_schemas(
+            self._get_all_tools(),
+            user_input,
+            budget_tokens=schema_budget_tokens(),
+        )
+        if not decision.failed:
+            self._routed_tool_names = decision.tool_names
+
+        telemetry.emit(
+            "tool_routing",
+            turn_id=turn_id,
+            routing_enabled=True,
+            routing_failed=decision.failed,
+            routed_groups=",".join(decision.group_names),
+            routed_group_count=len(decision.group_names),
+            routing_dropped_groups=",".join(decision.dropped_group_names),
+            routed_tool_count=len(decision.tools),
+            routed_schema_tokens=decision.schema_tokens,
+            routing_budget_tokens=decision.budget_tokens,
+        )
+
+    def _recover_routed_tool(self, tool_name):
+        """Add an omitted tool's capability group back for the rest of the turn.
+
+        The model can still name a tool whose schema was routed away. The
+        call is never blocked by routing, so recovery only restores the
+        group's schemas and records how often routing was too narrow.
+        """
+        routed_names = getattr(self, "_routed_tool_names", None)
+        if not routed_names or tool_name in routed_names:
+            return
+
+        available_names = {tool.get("name") for tool in self._get_all_tools()}
+        group_name = group_for_tool(tool_name, available_names)
+        recovered = tools_in_group(group_name, available_names) if group_name else ()
+        self._routed_tool_names = routed_names | set(recovered) | {tool_name}
+
+        telemetry = getattr(self, "performance_telemetry", None) or PerformanceTelemetry()
+        telemetry.emit(
+            "tool_routing_recovery",
+            turn_id=getattr(self, "_performance_turn_id", None),
+            tool_name=tool_name,
+            routing_recovered_group=group_name or "",
+            routed_tool_count=len(self._routed_tool_names),
+        )
+
     def _call_api(self):
         """Call the API with current messages."""
         from .context_budget import DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS
@@ -91,7 +163,7 @@ class AgentApiMixin:
             print_warning(warning)
 
         assembly_started_at = time.perf_counter()
-        all_tools = self._get_all_tools()
+        all_tools = self._get_request_tools()
         telemetry = getattr(self, "performance_telemetry", None) or PerformanceTelemetry()
         request_metrics = (
             request_payload_metrics(self.system_prompt, all_tools) if telemetry.enabled else {}
@@ -399,6 +471,8 @@ class AgentApiMixin:
                         error=f"Tool input parse error: {tool_input.get('__parse_error__')}",
                     )
                 continue
+
+            self._recover_routed_tool(tool_name)
 
             tool_start_time = time.perf_counter()
             tool_handle = None

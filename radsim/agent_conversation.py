@@ -133,11 +133,15 @@ class AgentConversationMixin:
         return max(0, maximum - used)
 
     def _fixed_context_tokens(self):
-        """Estimate the system prompt and canonical tool schema prefix."""
+        """Estimate the system prompt and canonical tool schema prefix.
+
+        Uses the routed schema set so pruning is measured against what the
+        request actually sends, not the full registry.
+        """
         from .tool_schema import canonicalize_tool_schemas
 
         prompt = getattr(self, "system_prompt", "")
-        tools = canonicalize_tool_schemas(self._get_all_tools())
+        tools = canonicalize_tool_schemas(self._get_request_tools())
         prompt_tokens = self.estimate_tokens(prompt) if prompt else 0
         if not tools:
             return prompt_tokens
@@ -313,6 +317,7 @@ class AgentConversationMixin:
         self._performance_turn_id = turn_id
         self._performance_request_index = 0
         telemetry_token = bind_performance_context(telemetry, turn_id)
+        self._route_tool_schemas_for_turn(user_input, telemetry, turn_id)
         telemetry.emit(
             "turn_started",
             turn_id=turn_id,
@@ -387,6 +392,7 @@ class AgentConversationMixin:
             )
             reset_performance_context(telemetry_token)
             self._performance_turn_id = None
+            self._routed_tool_names = None
             stop_escape_listener()
             self._is_processing.clear()
 

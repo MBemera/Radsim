@@ -17,6 +17,7 @@ TIER_ONE_PATHS = {
     "radsim/rate_limiter.py",
     "radsim/response_validator.py",
     "radsim/safety.py",
+    "radsim/tool_router.py",
     "radsim/tool_schema.py",
     "radsim/tools/command_policy.py",
     "radsim/tools/validation.py",

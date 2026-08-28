@@ -11,6 +11,7 @@ from radsim.learning.retrieval import rank_learning_events
 from radsim.learning.store import LearningStore
 from radsim.performance import PerformanceTelemetry, request_payload_metrics
 from radsim.prompts import get_system_prompt
+from radsim.tool_router import estimate_schema_tokens, route_tool_schemas
 from radsim.tool_schema import canonicalize_tool_schemas
 from radsim.tools import TOOL_DEFINITIONS
 
@@ -62,6 +63,19 @@ def test_warm_prompt_construction(benchmark):
 def test_tool_schema_canonicalisation(benchmark):
     result = benchmark(canonicalize_tool_schemas, TOOL_DEFINITIONS)
     assert len(result) == len(TOOL_DEFINITIONS)
+
+
+@pytest.mark.parametrize(
+    "request_text",
+    [
+        "read the config and run the failing tests",
+        "commit the branch then deploy the docker container",
+    ],
+)
+def test_tool_schema_routing(benchmark, request_text):
+    decision = benchmark(route_tool_schemas, TOOL_DEFINITIONS, request_text)
+    assert decision.failed is False
+    assert decision.schema_tokens < estimate_schema_tokens(list(TOOL_DEFINITIONS))
 
 
 def test_provider_payload_metrics(benchmark):

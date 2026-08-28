@@ -56,6 +56,9 @@ class RadSimAgent(
         self.performance_telemetry = PerformanceTelemetry.from_environment()
         self._performance_request_index = 0
 
+        # Tool-schema routing: None means every registered schema is sent.
+        self._routed_tool_names = None
+
         # Learning system attributes
         self._last_response = ""  # For feedback commands (/good, /improve)
         self._current_task_start = None  # For task timing
