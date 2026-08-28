@@ -211,7 +211,12 @@ class TestToolRoundTrip:
 
         serialized = telemetry_path.read_text(encoding="utf-8")
         records = [json.loads(line) for line in serialized.splitlines()]
-        assert [record["event"] for record in records] == [
+        # Cache statistics are emitted per cache after the turn is accounted
+        # for, so the turn's own sequence is what is asserted here.
+        turn_events = [
+            record["event"] for record in records if record["event"] != "cache_stats"
+        ]
+        assert turn_events == [
             "turn_started",
             "provider_request",
             "provider_response",
@@ -220,11 +225,21 @@ class TestToolRoundTrip:
             "provider_response",
             "turn_completed",
         ]
+        cache_events = [record for record in records if record["event"] == "cache_stats"]
+        assert {record["cache_name"] for record in cache_events} == {
+            "project_detection",
+            "prompt_fragment",
+            "tool_schema",
+            "user_hooks",
+        }
         assert len({record["turn_id"] for record in records}) == 1
-        assert records[-1]["api_calls"] == 2
-        assert records[-1]["tool_calls"] == 1
-        assert records[-1]["input_tokens"] == 20
-        assert records[-1]["output_tokens"] == 10
+        completed = next(
+            record for record in records if record["event"] == "turn_completed"
+        )
+        assert completed["api_calls"] == 2
+        assert completed["tool_calls"] == 1
+        assert completed["input_tokens"] == 20
+        assert completed["output_tokens"] == 10
         assert "private user request" not in serialized
         assert str(target) not in serialized
         assert "sensitive tool result" not in serialized

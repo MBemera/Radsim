@@ -12,6 +12,32 @@ from .output import print_error, print_info, print_success, print_warning
 logger = logging.getLogger(__name__)
 
 
+def _emit_cache_stats(telemetry, turn_id):
+    """Record each long-lived cache's hit rate at the turn boundary.
+
+    A cache that never hits is invisible without this; a cache that evicts
+    constantly is sized wrong. Both show up here rather than in a guess.
+    """
+    if not telemetry.enabled:
+        return
+    try:
+        from .runtime_context import get_runtime_context
+
+        for cache_name, stats in get_runtime_context().cache_stats().items():
+            telemetry.emit(
+                "cache_stats",
+                turn_id=turn_id,
+                cache_name=cache_name,
+                cache_entries=stats["entries"],
+                cache_hits=stats["hits"],
+                cache_misses=stats["misses"],
+                cache_evictions=stats["evictions"],
+                cache_hit_rate=stats["hit_rate"],
+            )
+    except Exception:
+        logger.debug("Cache statistics could not be recorded", exc_info=True)
+
+
 class AgentConversationMixin:
     """Conversation state and lifecycle methods for the main agent."""
 
@@ -390,6 +416,7 @@ class AgentConversationMixin:
                     - usage_before.get("cache_write_input_tokens", 0),
                 ),
             )
+            _emit_cache_stats(telemetry, turn_id)
             reset_performance_context(telemetry_token)
             self._performance_turn_id = None
             self._routed_tool_names = None

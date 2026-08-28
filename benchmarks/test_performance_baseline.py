@@ -61,7 +61,19 @@ def test_warm_prompt_construction(benchmark):
     assert result
 
 
-def test_tool_schema_canonicalisation(benchmark):
+def test_tool_schema_canonicalisation_cold(benchmark):
+    from radsim.tool_schema import clear_schema_cache
+
+    def canonicalise_uncached():
+        clear_schema_cache()
+        return canonicalize_tool_schemas(TOOL_DEFINITIONS)
+
+    result = benchmark(canonicalise_uncached)
+    assert len(result) == len(TOOL_DEFINITIONS)
+
+
+def test_tool_schema_canonicalisation_warm(benchmark):
+    canonicalize_tool_schemas(TOOL_DEFINITIONS)
     result = benchmark(canonicalize_tool_schemas, TOOL_DEFINITIONS)
     assert len(result) == len(TOOL_DEFINITIONS)
 

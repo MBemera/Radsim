@@ -113,6 +113,7 @@ also_copy = ["install.py", "scripts"]
 only_mutate = [
     "radsim/agent_api.py",
     "radsim/agent_policy.py",
+    "radsim/bounded_cache.py",
     "radsim/context_budget.py",
     "radsim/learning/buffer.py",
     "radsim/learning/retrieval.py",

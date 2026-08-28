@@ -19,6 +19,7 @@ TELEMETRY_SCHEMA_VERSION = 1
 
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 _EVENT_NAMES = {
+    "cache_stats",
     "hook_execution",
     "learning_flush",
     "prompt_cache",
@@ -34,6 +35,12 @@ _EVENT_NAMES = {
 _ALLOWED_FIELDS = {
     "api_calls",
     "batch_size",
+    "cache_entries",
+    "cache_evictions",
+    "cache_hit_rate",
+    "cache_hits",
+    "cache_misses",
+    "cache_name",
     "cache_read_input_tokens",
     "cache_write_input_tokens",
     "dropped_events",

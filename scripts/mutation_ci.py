@@ -10,6 +10,7 @@ from pathlib import Path
 TIER_ONE_PATHS = {
     "radsim/agent_api.py",
     "radsim/agent_policy.py",
+    "radsim/bounded_cache.py",
     "radsim/context_budget.py",
     "radsim/learning/buffer.py",
     "radsim/learning/retrieval.py",

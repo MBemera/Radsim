@@ -5,18 +5,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 
+from .bounded_cache import MISSING, BoundedCache, path_signature
+
+# One entry per working directory and cache key. A session that moves between
+# projects accumulates entries, so the bound matters even though each is small.
+MAX_CACHE_ENTRIES = 32
+
 
 def _get_path_signature(path):
     """Build a small signature that changes when a file changes."""
-    if path is None:
-        return None
-
-    path = Path(path)
-    if not path.exists():
-        return (str(path), False, None, None)
-
-    stat_result = path.stat()
-    return (str(path), True, stat_result.st_mtime_ns, stat_result.st_size)
+    return path_signature(path)
 
 
 @dataclass
@@ -42,8 +40,8 @@ class RuntimeContext:
         self._lock = RLock()
         self._memory = None
         self._memory_key = None
-        self._project_detection_cache = {}
-        self._prompt_fragment_cache = {}
+        self._project_detection_cache = BoundedCache(max_entries=MAX_CACHE_ENTRIES)
+        self._prompt_fragment_cache = BoundedCache(max_entries=MAX_CACHE_ENTRIES)
 
     def get_memory(self):
         """Return one shared Memory instance per working directory."""
@@ -66,19 +64,15 @@ class RuntimeContext:
         signatures = tuple(_get_path_signature(path) for path in paths)
         cache_id = (Path.cwd().resolve(), cache_key)
 
-        with self._lock:
-            cached_entry = self._project_detection_cache.get(cache_id)
-            if cached_entry and cached_entry.signatures == signatures:
-                return deepcopy(cached_entry.result)
+        cached_entry = self._project_detection_cache.get(cache_id)
+        if cached_entry is not MISSING and cached_entry.signatures == signatures:
+            return deepcopy(cached_entry.result)
 
         result = builder()
-
-        with self._lock:
-            self._project_detection_cache[cache_id] = CachedProjectDetection(
-                signatures=signatures,
-                result=deepcopy(result),
-            )
-
+        self._project_detection_cache.set(
+            cache_id,
+            CachedProjectDetection(signatures=signatures, result=deepcopy(result)),
+        )
         return deepcopy(result)
 
     def get_cached_prompt_fragment(self, cache_key, paths, builder):
@@ -86,28 +80,41 @@ class RuntimeContext:
         signatures = tuple(_get_path_signature(path) for path in paths)
         cache_id = (Path.cwd().resolve(), cache_key)
 
-        with self._lock:
-            cached_entry = self._prompt_fragment_cache.get(cache_id)
-            if cached_entry and cached_entry.signatures == signatures:
-                return cached_entry.content
+        cached_entry = self._prompt_fragment_cache.get(cache_id)
+        if cached_entry is not MISSING and cached_entry.signatures == signatures:
+            return cached_entry.content
 
         content = builder()
-
-        with self._lock:
-            self._prompt_fragment_cache[cache_id] = CachedPromptFragment(
-                signatures=signatures,
-                content=content,
-            )
-
+        self._prompt_fragment_cache.set(
+            cache_id,
+            CachedPromptFragment(signatures=signatures, content=content),
+        )
         return content
+
+    def cache_stats(self):
+        """Return hit rate and size for every cache the context owns."""
+        from .tool_schema import schema_cache_stats
+        from .user_hooks import hook_cache_stats
+
+        return {
+            "project_detection": self._project_detection_cache.stats(),
+            "prompt_fragment": self._prompt_fragment_cache.stats(),
+            "tool_schema": schema_cache_stats(),
+            "user_hooks": hook_cache_stats(),
+        }
 
     def clear_all(self):
         """Drop every cache tracked by the runtime context."""
+        from .tool_schema import clear_schema_cache
+        from .user_hooks import clear_hook_cache
+
         with self._lock:
             self._memory = None
             self._memory_key = None
-            self._project_detection_cache = {}
-            self._prompt_fragment_cache = {}
+            self._project_detection_cache.clear()
+            self._prompt_fragment_cache.clear()
+        clear_schema_cache()
+        clear_hook_cache()
 
 
 _runtime_context = RuntimeContext()
