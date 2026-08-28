@@ -26,6 +26,7 @@ from .tool_router import (
     schema_budget_tokens,
     tools_in_group,
 )
+from .tool_scheduler import plan_parallel_group, run_parallel_group
 from .tools import TOOL_DEFINITIONS
 from .usage import accumulate_usage
 
@@ -407,6 +408,73 @@ class AgentApiMixin:
                 ),
             }
 
+    def _run_independent_reads(self, tool_uses):
+        """Execute the round's leading independent read-only calls concurrently.
+
+        Returns (result, duration_ms) by original index for whatever ran ahead
+        of time. The serial loop still owns every ordered side effect — output,
+        telemetry, learning, and outcome tracking — so parallelism changes when
+        a read happens, never the order anything is recorded in.
+        """
+        plan = plan_parallel_group(
+            tool_uses,
+            needs_confirmation=self._read_needs_confirmation,
+            hooks_present=self._order_sensitive_hooks_present(),
+        )
+        if not plan.is_parallel:
+            return {}
+
+        started_at = time.perf_counter()
+        try:
+            completed = run_parallel_group(
+                self._execute_tool_guarded,
+                tool_uses,
+                plan,
+                interrupted=self._interrupted,
+            )
+        except (RateLimitExceeded, CircuitBreakerOpen, BudgetExceeded):
+            raise
+        except Exception:
+            logger.exception("Parallel tool round failed; falling back to serial execution")
+            return {}
+
+        telemetry = getattr(self, "performance_telemetry", None) or PerformanceTelemetry()
+        telemetry.emit(
+            "tool_parallel_round",
+            turn_id=getattr(self, "_performance_turn_id", None),
+            tool_calls=len(tool_uses),
+            parallel_group_size=len(plan.indexes),
+            parallel_worker_count=plan.worker_count,
+            parallel_completed=len(completed),
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+        )
+        return completed
+
+    def _read_needs_confirmation(self, tool_name, tool_input):
+        """Return whether a read would prompt, so it is never dispatched blind."""
+        try:
+            return bool(self._protected_read_targets(tool_name, tool_input))
+        except Exception:
+            logger.debug("Protected-read screening failed; treating as unsafe", exc_info=True)
+            return True
+
+    def _order_sensitive_hooks_present(self):
+        """Return whether any tool hook would have its ordering disturbed."""
+        try:
+            from .hooks import HookType, get_hooks_manager
+            from .user_hooks import load_user_hooks
+
+            manager = get_hooks_manager()
+            if manager.count(HookType.PRE_TOOL) or manager.count(HookType.POST_TOOL):
+                return True
+            return any(
+                hook.enabled and hook.event in ("pre_tool", "post_tool")
+                for hook in load_user_hooks()
+            )
+        except Exception:
+            logger.debug("Hook inspection failed; assuming hooks are present", exc_info=True)
+            return True
+
     def _process_tool_calls(self, response, tool_uses, text_output):
         """Run one round of tool calls.
 
@@ -420,8 +488,9 @@ class AgentApiMixin:
         tool_results = []
         image_blocks = []
         user_rejected = False
+        completed = self._run_independent_reads(tool_uses)
 
-        for tool_use in tool_uses:
+        for index, tool_use in enumerate(tool_uses):
             tool_name = tool_use["name"]
             tool_input = tool_use["input"]
             tool_id = tool_use["id"]
@@ -480,17 +549,19 @@ class AgentApiMixin:
             if self.config.verbose or tool_name in READ_ONLY_TOOLS:
                 tool_handle = print_tool_call(tool_name, tool_input, style="compact")
 
-            if tool_name in READ_ONLY_TOOLS:
+            if index in completed:
+                result, duration_ms = completed[index]
+            elif tool_name in READ_ONLY_TOOLS:
                 spinner = Spinner("Executing...")
                 spinner.start()
                 try:
                     result = self._execute_tool_guarded(tool_name, tool_input)
                 finally:
                     spinner.stop()
+                duration_ms = (time.perf_counter() - tool_start_time) * 1000
             else:
                 result = self._execute_tool_guarded(tool_name, tool_input)
-
-            duration_ms = (time.perf_counter() - tool_start_time) * 1000
+                duration_ms = (time.perf_counter() - tool_start_time) * 1000
             tool_success = result.get("success", False)
             tool_error = result.get("error", "") if not tool_success else ""
 

@@ -100,6 +100,14 @@ class HooksManager:
                 removed.append((hook_type, hook))
         return removed
 
+    def count(self, hook_type: HookType) -> int:
+        """Return how many hooks are registered for one type.
+
+        Callers that must not reorder hook side effects use this to decide
+        whether an optimisation is safe to apply.
+        """
+        return len(self._hooks[hook_type])
+
     def execute(self, hook_type: HookType, context: HookContext) -> HookContext:
         """Execute all hooks of a given type.
 

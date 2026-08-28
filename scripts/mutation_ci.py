@@ -21,6 +21,7 @@ TIER_ONE_PATHS = {
     "radsim/safety.py",
     "radsim/tool_router.py",
     "radsim/tool_schema.py",
+    "radsim/tool_scheduler.py",
     "radsim/tools/command_policy.py",
     "radsim/tools/validation.py",
 }
