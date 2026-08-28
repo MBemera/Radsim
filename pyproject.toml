@@ -51,6 +51,13 @@ code-intel = [
 mcp = [
     "mcp>=1.0.0",
 ]
+mutation = [
+    "mutmut>=3.7.0,<4.0",
+]
+profiling = [
+    "py-spy>=0.4.2,<0.5",
+    "scalene>=2.3.0,<3.0",
+]
 # Everything a full-featured install needs.
 all = [
     "radsimcli[browser,documents,code-intel,mcp]",
@@ -61,6 +68,8 @@ dev = [
     "pytest>=9.0.3",
     "pytest-randomly>=3.15.0",
     "pytest-benchmark>=5.1.0,<6.0",
+    "pytest-cov>=7.1.0,<8.0",
+    "hypothesis>=6.165.10,<7.0",
     "ruff>=0.4.0",
     "pip-audit>=2.7.0",
 ]
@@ -97,3 +106,27 @@ known-first-party = ["radsim"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
+
+[tool.mutmut]
+source_paths = ["radsim"]
+also_copy = ["install.py", "scripts"]
+only_mutate = [
+    "radsim/agent_api.py",
+    "radsim/agent_policy.py",
+    "radsim/context_budget.py",
+    "radsim/learning/retrieval.py",
+    "radsim/learning/store.py",
+    "radsim/performance.py",
+    "radsim/rate_limiter.py",
+    "radsim/response_validator.py",
+    "radsim/safety.py",
+    "radsim/tool_schema.py",
+    "radsim/tools/command_policy.py",
+    "radsim/tools/validation.py",
+]
+pytest_add_cli_args = ["-p", "no:randomly", "--tb=short"]
+pytest_add_cli_args_test_selection = ["tests"]
+mutate_only_covered_lines = true
+timeout_multiplier = 4.0
+timeout_constant = 1.0
+use_git_change_detection = true

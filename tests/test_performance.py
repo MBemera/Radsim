@@ -26,6 +26,15 @@ def test_disabled_telemetry_does_not_create_a_file(tmp_path):
     assert not path.exists()
 
 
+def test_telemetry_is_disabled_by_default(tmp_path):
+    path = tmp_path / "performance.jsonl"
+    telemetry = PerformanceTelemetry(path)
+
+    assert telemetry.enabled is False
+    assert telemetry.emit("turn_started", turn_id="turn-default") is False
+    assert not path.exists()
+
+
 def test_telemetry_writes_only_allowlisted_bounded_scalars(tmp_path):
     path = tmp_path / "performance.jsonl"
     telemetry = PerformanceTelemetry(path, enabled=True)

@@ -49,6 +49,7 @@ Desktop.ini
 # Linters & Testing
 .ruff_cache/
 .pytest_cache/
+.hypothesis/
 .mypy_cache/
 .coverage
 htmlcov/
@@ -58,6 +59,9 @@ coverage.xml
 *.pdf
 eval_results/
 benchmark-results/
+mutation-results/
+profile-results/
+mutants/
 
 # Logs
 *.log

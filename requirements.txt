@@ -32,5 +32,10 @@ mcp==1.28.1
 # directory under an insecure parent); pinned to a fixed release.
 pytest==9.1.1
 pytest-benchmark==5.1.0
+pytest-cov==7.1.0
+hypothesis==6.165.10
+mutmut==3.7.0
+py-spy==0.4.2
+scalene==2.3.0
 ruff==0.15.21
 pip-audit==2.10.1
