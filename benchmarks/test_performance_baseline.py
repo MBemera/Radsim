@@ -97,6 +97,32 @@ def test_provider_payload_metrics(benchmark):
 
 
 @pytest.mark.parametrize("event_count", [500, 2_000])
+def test_fts5_candidate_retrieval(benchmark, tmp_path, event_count):
+    from radsim.learning.retrieval import tokenize
+    from radsim.learning.store import fts5_available
+
+    if not fts5_available():
+        pytest.skip("SQLite build has no FTS5 support")
+
+    store = LearningStore(
+        storage_dir=tmp_path / f"fts5-{event_count}",
+        max_events=10_000,
+        migrate_legacy=False,
+    )
+    store.append_many(_learning_events(event_count))
+    terms = tokenize("fix validation failure and run tests")
+    store.search_events(terms, event_types={"task_completion"}, limit=20)
+
+    result = benchmark(
+        store.search_events,
+        terms,
+        event_types={"task_completion"},
+        limit=20,
+    )
+    assert len(result) <= 20
+
+
+@pytest.mark.parametrize("event_count", [500, 2_000])
 def test_learning_ranking(benchmark, event_count):
     events = _learning_events(event_count)
     result = benchmark(
@@ -144,6 +170,29 @@ def test_twenty_batched_learning_writes(benchmark, tmp_path):
         return store.append_many(events)
 
     result = benchmark.pedantic(append_batch, rounds=10, iterations=1)
+    assert result == 20
+
+
+def test_buffered_learning_writes(benchmark, tmp_path):
+    from radsim.learning.buffer import LearningEventBuffer
+
+    store = LearningStore(
+        storage_dir=tmp_path / "buffered",
+        max_events=10_000,
+        migrate_legacy=False,
+    )
+    buffer = LearningEventBuffer(store, flush_threshold=1_000)
+    offset = 0
+
+    def buffer_and_flush():
+        nonlocal offset
+        events = _fresh_events(20, offset)
+        offset += 1
+        for event in events:
+            buffer.add(event)
+        return buffer.flush()
+
+    result = benchmark.pedantic(buffer_and_flush, rounds=10, iterations=1)
     assert result == 20
 
 

@@ -77,6 +77,9 @@ def test_system_carries_exactly_one_breakpoint_when_cached(prompt, model, tool_t
     assert breakpoints[0] is plan.blocks[0]
     assert breakpoints[0]["cache_control"] == EPHEMERAL_CACHE_CONTROL
     assert len(plan.blocks) <= MAX_CACHE_BREAKPOINTS
+    for block in plan.blocks:
+        assert block["type"] == "text"
+        assert set(block) <= {"type", "text", "cache_control"}
 
 
 @PROPERTY_TEST_SETTINGS

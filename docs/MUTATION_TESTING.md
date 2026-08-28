@@ -12,7 +12,7 @@ Run deterministic property tests:
 python -m pytest tests/property -q -p no:randomly
 ```
 
-Run the Tier 1 mutation set on Linux or WSL:
+Run the Tier 1 mutation set on Linux, macOS, or WSL:
 
 ```bash
 mutmut run --max-children 4
@@ -39,5 +39,9 @@ CI selects changed Tier 1 modules for pull requests and requires those selected
 modules to kill every checked mutant. It runs the complete Tier 1 set nightly
 or by manual dispatch.
 
-Mutation execution requires process forking. Use Linux CI or WSL when working
-from Windows. Generated mutant files and reports are excluded from Git.
+Mutation execution requires process forking, so it runs on Linux and macOS
+directly. Use Linux CI or WSL when working from Windows. Generated mutant files
+and reports are excluded from Git.
+
+Per-module results for the modules changed by the performance work are archived
+in `benchmarks/mutation-changed-modules.json`.

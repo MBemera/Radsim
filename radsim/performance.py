@@ -20,6 +20,7 @@ TELEMETRY_SCHEMA_VERSION = 1
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 _EVENT_NAMES = {
     "hook_execution",
+    "learning_flush",
     "prompt_cache",
     "provider_request",
     "provider_response",
@@ -31,10 +32,13 @@ _EVENT_NAMES = {
 }
 _ALLOWED_FIELDS = {
     "api_calls",
+    "batch_size",
     "cache_read_input_tokens",
     "cache_write_input_tokens",
+    "dropped_events",
     "duration_ms",
     "error_type",
+    "inserted_events",
     "first_chunk_ms",
     "hook_name",
     "hook_owner",
@@ -52,6 +56,7 @@ _ALLOWED_FIELDS = {
     "prompt_cache_skipped_reason",
     "prompt_construction_ms",
     "provider",
+    "queue_depth",
     "request_assembly_ms",
     "request_index",
     "result_chars",

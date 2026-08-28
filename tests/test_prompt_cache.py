@@ -41,18 +41,28 @@ def test_plan_marks_the_static_policy_and_leaves_runtime_layers_uncached():
     plan = plan_system_cache(system_prompt, model=CLAUDE_MODEL, environ={})
 
     assert plan.is_cached
-    assert plan.blocks[0]["cache_control"] == EPHEMERAL_CACHE_CONTROL
-    assert plan.blocks[0]["text"] == get_static_prompt()
-    assert "cache_control" not in plan.blocks[1]
-    assert plan.blocks[1]["text"] == "\n\n## Runtime layer\nProject memory."
+    assert plan.blocks[0] == {
+        "type": "text",
+        "text": get_static_prompt(),
+        "cache_control": EPHEMERAL_CACHE_CONTROL,
+    }
+    assert plan.blocks[1] == {
+        "type": "text",
+        "text": "\n\n## Runtime layer\nProject memory.",
+    }
     assert "".join(_text_blocks(plan)) == system_prompt
 
 
 def test_plan_emits_one_block_when_there_is_no_runtime_remainder():
     plan = plan_system_cache(get_static_prompt(), model=CLAUDE_MODEL, environ={})
 
-    assert len(plan.blocks) == 1
-    assert plan.blocks[0]["cache_control"] == EPHEMERAL_CACHE_CONTROL
+    assert plan.blocks == [
+        {
+            "type": "text",
+            "text": get_static_prompt(),
+            "cache_control": EPHEMERAL_CACHE_CONTROL,
+        }
+    ]
 
 
 def test_plan_never_alters_prompt_text():

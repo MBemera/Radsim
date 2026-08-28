@@ -11,6 +11,7 @@ TIER_ONE_PATHS = {
     "radsim/agent_api.py",
     "radsim/agent_policy.py",
     "radsim/context_budget.py",
+    "radsim/learning/buffer.py",
     "radsim/learning/retrieval.py",
     "radsim/learning/store.py",
     "radsim/performance.py",

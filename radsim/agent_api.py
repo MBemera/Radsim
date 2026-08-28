@@ -5,7 +5,7 @@ import logging
 import time
 
 from .agent_constants import READ_ONLY_TOOLS
-from .learning import record_error, track_tool_execution
+from .learning import flush_tool_optimizer, record_error, track_tool_execution
 from .output import (
     Spinner,
     finish_stream,
@@ -559,6 +559,12 @@ class AgentApiMixin:
                     "content": serialized_result,
                 }
             )
+
+        # One learning transaction per tool round rather than one per tool call.
+        try:
+            flush_tool_optimizer()
+        except Exception:
+            logger.debug("Learning flush failed at tool-round boundary", exc_info=True)
 
         # tool_result blocks must precede other content in the user message.
         self.messages.append({"role": "user", "content": tool_results + image_blocks})
