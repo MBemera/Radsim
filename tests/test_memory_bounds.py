@@ -83,6 +83,50 @@ def test_serialized_tool_results_are_valid_bounded_json():
     assert decoded["original_chars"] > MAX_SERIALIZED_TOOL_RESULT_CHARS
 
 
+def test_serialized_tool_result_at_exact_limit_is_not_truncated():
+    result = "x" * (MAX_SERIALIZED_TOOL_RESULT_CHARS - 2)
+
+    serialized = serialize_tool_result(result)
+
+    assert len(serialized) == MAX_SERIALIZED_TOOL_RESULT_CHARS
+    assert json.loads(serialized) == result
+
+
+def test_truncated_tool_result_preserves_preview_and_failure_default():
+    result = {"content": "x" * 200_000}
+    original = json.dumps(result)
+
+    decoded = json.loads(serialize_tool_result(result))
+
+    assert decoded == {
+        "success": False,
+        "truncated": True,
+        "original_chars": len(original),
+        "preview": original[: MAX_SERIALIZED_TOOL_RESULT_CHARS // 2],
+    }
+
+
+def test_truncated_non_mapping_result_defaults_to_failure():
+    decoded = json.loads(serialize_tool_result("x" * 200_000))
+
+    assert decoded["success"] is False
+
+
+def test_truncated_tool_result_accepts_inclusive_encoded_boundary():
+    escape_count = 24_959
+    result = {
+        "success": True,
+        "content": "\\" * escape_count + "x" * (120_000 - escape_count),
+    }
+
+    serialized = serialize_tool_result(result)
+
+    assert len(serialized) == MAX_SERIALIZED_TOOL_RESULT_CHARS
+    assert json.loads(serialized)["preview"] == json.dumps(result)[
+        : MAX_SERIALIZED_TOOL_RESULT_CHARS // 2
+    ]
+
+
 def test_tool_outcome_evidence_is_bounded_without_losing_failure_state():
     tracker = TaskOutcomeTracker("long tool turn")
     tracker.record_tool("run_tests", False, error="failed")

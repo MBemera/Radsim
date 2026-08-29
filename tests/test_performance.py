@@ -68,6 +68,42 @@ def test_unknown_event_is_rejected(tmp_path):
     assert not path.exists()
 
 
+def test_memory_stats_write_every_count_field_without_payloads(tmp_path):
+    path = tmp_path / "performance.jsonl"
+    telemetry = PerformanceTelemetry(path, enabled=True)
+
+    assert telemetry.emit(
+        "memory_stats",
+        turn_id="turn-memory",
+        retained_messages=400,
+        message_evictions=12,
+        released_media_blocks=3,
+        injected_job_ids=100,
+        background_jobs=100,
+        background_running_jobs=4,
+        background_finished_jobs=96,
+        background_job_evictions=7,
+        raw_prompt="must not be recorded",
+    )
+
+    record = _records(path)[0]
+    assert record == {
+        "schema_version": 1,
+        "timestamp": record["timestamp"],
+        "event": "memory_stats",
+        "turn_id": "turn-memory",
+        "retained_messages": 400,
+        "message_evictions": 12,
+        "released_media_blocks": 3,
+        "injected_job_ids": 100,
+        "background_jobs": 100,
+        "background_running_jobs": 4,
+        "background_finished_jobs": 96,
+        "background_job_evictions": 7,
+    }
+    assert "must not be recorded" not in path.read_text(encoding="utf-8")
+
+
 def test_small_telemetry_file_rotates(tmp_path):
     path = tmp_path / "performance.jsonl"
     telemetry = PerformanceTelemetry(path, enabled=True, max_bytes=1_024, backup_count=1)
