@@ -39,14 +39,20 @@ python3 -m benchmarks.memory_soak --turns 1000 --warmup-turns 1000
 
 The 28 August 2026 macOS run passed every check. After warm-up, resident memory
 grew 1.0755%, live Python allocations fell 6.0753%, and file descriptors,
-threads, subprocesses, and SQLite connection counts did not increase. Messages,
-background jobs, injected identifiers, and every exercised cache remained at or
-below their configured limits. Machine-readable evidence is stored in
+threads, subprocesses, and SQLite connection counts did not increase. Its
+machine-readable evidence is stored in
 `benchmarks/memory-soak-1000-turns.json`.
 
+The 29 August 2026 Linux run on Python 3.12.13 also passed every check. After
+warm-up, resident memory grew 0.8374%, live Python allocations fell 6.1106%, and
+the file-descriptor count stayed at four. Threads, subprocesses, SQLite
+connections, messages, background jobs, injected identifiers, and every
+exercised cache stayed within their limits. Its evidence is stored in
+`benchmarks/memory-soak-linux-python312.json`.
+
 The soak uses mocked provider turns and tool results. It proves process-state
-retention, not live provider SDK behaviour or every operating system. Linux and
-Windows integration runs remain release-gate evidence to collect in CI.
+retention, not live provider SDK behaviour or every operating system. Native
+Windows evidence remains to be collected in a Windows environment.
 
 ## Security and rollback
 

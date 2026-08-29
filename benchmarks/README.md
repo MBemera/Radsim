@@ -26,6 +26,10 @@ This records resident memory, Python allocations, cache sizes, file descriptors,
 threads, subprocesses, SQLite connections, retained messages, and background
 job state after the process has reached its configured bounds.
 
+Archived release-gate evidence is available for macOS in
+`memory-soak-1000-turns.json` and Linux with Python 3.12 in
+`memory-soak-linux-python312.json`.
+
 Re-run the optional Rust admission profile with:
 
 ```bash

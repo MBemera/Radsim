@@ -46,6 +46,13 @@ and reports are excluded from Git.
 Per-module results for the modules changed by the performance work are archived
 in `benchmarks/mutation-changed-modules.json`.
 
+The final Linux optimisation sweep is archived in
+`benchmarks/mutation-optimisation-final-linux.json`. Its complete configured
+set killed 2,445 of 4,624 mutants for a score of 52.8763%, passing the 15%
+ratchet. The 240 timeouts from the earlier high-concurrency pass remain counted
+as failures. Focused item 9 reruns used at most four workers and had no
+timeouts.
+
 ## Current scores
 
 | Module | Score | Origin |
@@ -83,3 +90,12 @@ message text, plus dead default values that reach the same branch either way.
 Two of the real gaps mattered: the parallel scheduler could have passed `None`
 instead of a tool name to the confirmation predicate, and its interrupt check
 could be neutered without any existing test failing.
+
+The final item 9 review inspected the new result-serialization paths separately.
+Of 39 mutants, 35 were killed and four surviving comparison/default changes
+were equivalent on every reachable input. The added boundary and metadata
+tests killed all 17 meaningful survivors found during triage. The
+`radsim.performance` result remained exactly at its archived 124 killed and 57
+survived mutants; item 9 only changed its module-level telemetry allowlists, and
+a functional test now proves that every permitted count is written without a
+raw payload.
