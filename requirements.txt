@@ -13,7 +13,7 @@ rich==15.0.0
 prompt_toolkit==3.0.52
 
 # --- Documents feature (read_document PDF support) ---
-pypdf==6.14.2
+pypdf==6.16.2
 
 # --- Browser feature (Playwright automation) ---
 playwright==1.61.0
