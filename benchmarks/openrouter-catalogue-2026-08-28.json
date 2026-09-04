@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-08-28",
+  "source": "https://openrouter.ai/api/v1/models",
+  "live_model_count": 387,
+  "curated_model_count": 25,
+  "default_model": "z-ai/glm-5.3",
+  "default_available": true,
+  "missing_curated_models": [],
+  "curated_models_without_tools": [],
+  "new_curated_models": [
+    {
+      "id": "z-ai/glm-5.3",
+      "context_length": 1048576,
+      "input_per_million_usd": 1.4,
+      "output_per_million_usd": 4.4,
+      "cache_read_per_million_usd": 0.26,
+      "reasoning_efforts": ["low", "high", "max"],
+      "default_reasoning_effort": "max",
+      "reasoning_mandatory": true,
+      "coding_index": 74.8,
+      "agentic_index": 59.1
+    },
+    {
+      "id": "z-ai/glm-5.3-flash",
+      "context_length": 1310720,
+      "input_per_million_usd": 0.075,
+      "output_per_million_usd": 0.25,
+      "cache_read_per_million_usd": 0.015,
+      "reasoning_efforts": ["low", "high", "max"],
+      "default_reasoning_effort": "max",
+      "reasoning_mandatory": true,
+      "coding_index": 71.5,
+      "agentic_index": 58.2
+    },
+    {
+      "id": "anthropic/claude-opus-5",
+      "context_length": 1000000,
+      "input_per_million_usd": 5.0,
+      "output_per_million_usd": 25.0,
+      "cache_read_per_million_usd": 0.5,
+      "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"],
+      "default_reasoning_effort": "high",
+      "reasoning_mandatory": false,
+      "coding_index": 78.0,
+      "agentic_index": 59.2
+    },
+    {
+      "id": "anthropic/claude-sonnet-5",
+      "context_length": 1000000,
+      "input_per_million_usd": 2.0,
+      "output_per_million_usd": 10.0,
+      "cache_read_per_million_usd": 0.2,
+      "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"],
+      "default_reasoning_effort": "high",
+      "reasoning_mandatory": false,
+      "coding_index": 71.5,
+      "agentic_index": 49.7
+    },
+    {
+      "id": "google/gemini-3.7-flash",
+      "context_length": 1048576,
+      "input_per_million_usd": 0.375,
+      "output_per_million_usd": 1.875,
+      "cache_read_per_million_usd": 0.0375,
+      "reasoning_efforts": ["low", "medium", "high"],
+      "default_reasoning_effort": "medium",
+      "reasoning_mandatory": true,
+      "coding_index": 76.1,
+      "agentic_index": 45.1
+    },
+    {
+      "id": "x-ai/grok-4.6",
+      "context_length": 500000,
+      "input_per_million_usd": 2.0,
+      "output_per_million_usd": 6.0,
+      "cache_read_per_million_usd": 0.5,
+      "reasoning_efforts": ["low", "medium", "high", "xhigh"],
+      "default_reasoning_effort": "high",
+      "reasoning_mandatory": true,
+      "coding_index": 76.8,
+      "agentic_index": 58.7
+    },
+    {
+      "id": "qwen/qwen3.8-max",
+      "context_length": 1000000,
+      "input_per_million_usd": 2.0,
+      "output_per_million_usd": 6.0,
+      "cache_read_per_million_usd": 0.25,
+      "reasoning_efforts": ["minimal", "low", "medium", "high", "xhigh"],
+      "default_reasoning_effort": "xhigh",
+      "reasoning_mandatory": true,
+      "coding_index": 71.8,
+      "agentic_index": 58.4
+    },
+    {
+      "id": "bytedance-seed/seed-2.0-code",
+      "context_length": 262144,
+      "input_per_million_usd": 0.5,
+      "output_per_million_usd": 3.0,
+      "cache_read_per_million_usd": null,
+      "reasoning_efforts": ["low", "medium", "high"],
+      "default_reasoning_effort": "medium",
+      "reasoning_mandatory": false,
+      "coding_index": null,
+      "agentic_index": null
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import json
 import logging
 import shutil
 import sqlite3
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,32 @@ STORE_SCHEMA_VERSION = 1
 MAX_EVENTS = 2_000
 MAX_METADATA_CHARS = 4_000
 LEGACY_MIGRATION_ID = "legacy-json-v1"
+
+SEARCH_TABLE = "learning_events_fts"
+MAX_SEARCH_TERMS = 32
+
+# The searchable projection mirrors the fields the Python ranker scores on.
+_SEARCH_TEXT_SQL = (
+    "coalesce({source}.summary, '') || ' ' || coalesce({source}.tool_name, '') || ' ' || "
+    "coalesce({source}.error_type, '') || ' ' || coalesce({source}.error_message, '') || "
+    "' ' || coalesce({source}.metadata, '')"
+)
+
+_fts5_supported: bool | None = None
+
+
+def fts5_available() -> bool:
+    """Return whether this SQLite build provides the FTS5 extension."""
+    global _fts5_supported
+    if _fts5_supported is None:
+        try:
+            with sqlite3.connect(":memory:") as probe:
+                probe.execute("CREATE VIRTUAL TABLE fts5_probe USING fts5(value)")
+            _fts5_supported = True
+        except sqlite3.Error:
+            logger.debug("SQLite build has no FTS5 support; using the Python retriever")
+            _fts5_supported = False
+    return _fts5_supported
 
 _EVENT_COLUMNS = (
     "event_id",
@@ -48,7 +75,56 @@ _EVENT_COLUMNS = (
     "schema_version",
 )
 
+_INSERT_EVENT_STATEMENT = (
+    f"INSERT OR IGNORE INTO learning_events ({', '.join(_EVENT_COLUMNS)}) "
+    f"VALUES ({', '.join('?' for _ in _EVENT_COLUMNS)})"
+)
+
 _SECRET_KEY_PARTS = ("secret", "password", "token", "api_key", "credential")
+
+
+def _match_expression(terms: Iterable[str]) -> str:
+    """Build a safe FTS5 MATCH expression from already-tokenized search terms.
+
+    Each term is emitted as a quoted string literal, so FTS5 operators and
+    punctuation inside a term are matched as text rather than parsed as syntax.
+    """
+    usable = sorted(
+        {
+            term.strip()
+            for term in terms
+            if isinstance(term, str) and term.strip() and '"' not in term
+        }
+    )
+    return " OR ".join(f'"{term}"' for term in usable[:MAX_SEARCH_TERMS])
+
+
+def _event_row(event: LearningEvent) -> tuple[Any, ...]:
+    """Return one event as bound parameters in _EVENT_COLUMNS order."""
+    metadata = json.dumps(_sanitize_metadata(event.metadata), sort_keys=True)
+    if len(metadata) > MAX_METADATA_CHARS:
+        metadata = json.dumps({"truncated": True, "preview": metadata[:MAX_METADATA_CHARS]})
+    return (
+        event.event_id,
+        event.task_id,
+        event.event_type,
+        event.task_category,
+        event.tool_name,
+        event.action_signature,
+        event.outcome,
+        event.duration_ms,
+        event.model,
+        event.provider,
+        event.input_tokens,
+        event.output_tokens,
+        event.error_type,
+        event.error_message,
+        event.user_decision,
+        event.created_at,
+        event.summary,
+        metadata,
+        event.schema_version,
+    )
 
 
 class LearningStore:
@@ -65,6 +141,7 @@ class LearningStore:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.storage_dir / "learning_events.sqlite3"
         self.max_events = max(1, int(max_events))
+        self._search_index_ready = False
         self._initialize()
         try:
             self.db_path.chmod(0o600)
@@ -132,82 +209,22 @@ class LearningStore:
 
     def append(self, event: LearningEvent) -> bool:
         """Insert one event idempotently and enforce the storage bound."""
-        metadata = json.dumps(_sanitize_metadata(event.metadata), sort_keys=True)
-        if len(metadata) > MAX_METADATA_CHARS:
-            metadata = json.dumps({"truncated": True, "preview": metadata[:MAX_METADATA_CHARS]})
-        values = (
-            event.event_id,
-            event.task_id,
-            event.event_type,
-            event.task_category,
-            event.tool_name,
-            event.action_signature,
-            event.outcome,
-            event.duration_ms,
-            event.model,
-            event.provider,
-            event.input_tokens,
-            event.output_tokens,
-            event.error_type,
-            event.error_message,
-            event.user_decision,
-            event.created_at,
-            event.summary,
-            metadata,
-            event.schema_version,
-        )
-        placeholders = ", ".join("?" for _ in _EVENT_COLUMNS)
         with self._connect() as connection:
-            cursor = connection.execute(
-                f"""
-                INSERT OR IGNORE INTO learning_events ({", ".join(_EVENT_COLUMNS)})
-                VALUES ({placeholders})
-                """,
-                values,
-            )
+            cursor = connection.execute(_INSERT_EVENT_STATEMENT, _event_row(event))
             inserted = cursor.rowcount > 0
             self._trim(connection)
         return inserted
 
     def append_many(self, events: list[LearningEvent]) -> int:
-        """Insert a migration batch idempotently."""
+        """Insert a batch idempotently in one transaction, preserving order.
+
+        The batch commits once on success and writes nothing on failure, so a
+        caller can safely retry the whole batch.
+        """
         inserted = 0
         with self._connect() as connection:
-            placeholders = ", ".join("?" for _ in _EVENT_COLUMNS)
-            statement = (
-                f"INSERT OR IGNORE INTO learning_events ({', '.join(_EVENT_COLUMNS)}) "
-                f"VALUES ({placeholders})"
-            )
             for event in events:
-                metadata = json.dumps(_sanitize_metadata(event.metadata), sort_keys=True)
-                if len(metadata) > MAX_METADATA_CHARS:
-                    metadata = json.dumps(
-                        {"truncated": True, "preview": metadata[:MAX_METADATA_CHARS]}
-                    )
-                cursor = connection.execute(
-                    statement,
-                    (
-                        event.event_id,
-                        event.task_id,
-                        event.event_type,
-                        event.task_category,
-                        event.tool_name,
-                        event.action_signature,
-                        event.outcome,
-                        event.duration_ms,
-                        event.model,
-                        event.provider,
-                        event.input_tokens,
-                        event.output_tokens,
-                        event.error_type,
-                        event.error_message,
-                        event.user_decision,
-                        event.created_at,
-                        event.summary,
-                        metadata,
-                        event.schema_version,
-                    ),
-                )
+                cursor = connection.execute(_INSERT_EVENT_STATEMENT, _event_row(event))
                 inserted += int(cursor.rowcount > 0)
             self._trim(connection)
         return inserted
@@ -262,6 +279,97 @@ class LearningStore:
                 values,
             ).fetchall()
         return [LearningEvent.from_record(dict(row)) for row in rows]
+
+    def search_events(
+        self,
+        terms: Iterable[str],
+        *,
+        event_types: set[str] | None = None,
+        outcomes: set[str] | None = None,
+        limit: int = 20,
+    ) -> list[LearningEvent]:
+        """Return FTS5 candidates best-first, or nothing when search is unusable.
+
+        This is a candidate generator, not a ranker. An empty result means the
+        caller should fall back to :meth:`query`; it never means "no relevant
+        events exist".
+        """
+        match_expression = _match_expression(terms)
+        if not match_expression or not self._ensure_search_index():
+            return []
+
+        clauses = [f"{SEARCH_TABLE} MATCH ?"]
+        values: list[Any] = [match_expression]
+        if event_types:
+            placeholders = ", ".join("?" for _ in event_types)
+            clauses.append(f"events.event_type IN ({placeholders})")
+            values.extend(sorted(event_types))
+        if outcomes:
+            placeholders = ", ".join("?" for _ in outcomes)
+            clauses.append(f"events.outcome IN ({placeholders})")
+            values.extend(sorted(outcomes))
+        values.append(max(1, min(int(limit), self.max_events)))
+
+        columns = ", ".join(f"events.{column}" for column in _EVENT_COLUMNS)
+        try:
+            with self._connect() as connection:
+                rows = connection.execute(
+                    f"""
+                    SELECT {columns}
+                    FROM {SEARCH_TABLE}
+                    JOIN learning_events AS events
+                        ON events.event_id = {SEARCH_TABLE}.event_id
+                    WHERE {" AND ".join(clauses)}
+                    ORDER BY bm25({SEARCH_TABLE}), events.event_id
+                    LIMIT ?
+                    """,
+                    values,
+                ).fetchall()
+        except sqlite3.Error:
+            logger.debug("FTS5 candidate search failed; falling back", exc_info=True)
+            return []
+        return [LearningEvent.from_record(dict(row)) for row in rows]
+
+    def _ensure_search_index(self) -> bool:
+        """Create the FTS5 index and its sync triggers once, then backfill."""
+        if self._search_index_ready:
+            return True
+        if not fts5_available():
+            return False
+
+        inserted = _SEARCH_TEXT_SQL.format(source="new")
+        backfill = _SEARCH_TEXT_SQL.format(source="learning_events")
+        try:
+            with self._connect() as connection:
+                connection.executescript(
+                    f"""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS {SEARCH_TABLE}
+                        USING fts5(event_id UNINDEXED, search_text, tokenize='unicode61');
+                    CREATE TRIGGER IF NOT EXISTS {SEARCH_TABLE}_insert
+                    AFTER INSERT ON learning_events BEGIN
+                        INSERT INTO {SEARCH_TABLE}(event_id, search_text)
+                        VALUES (new.event_id, {inserted});
+                    END;
+                    CREATE TRIGGER IF NOT EXISTS {SEARCH_TABLE}_delete
+                    AFTER DELETE ON learning_events BEGIN
+                        DELETE FROM {SEARCH_TABLE} WHERE event_id = old.event_id;
+                    END;
+                    """
+                )
+                connection.execute(
+                    f"""
+                    INSERT INTO {SEARCH_TABLE}(event_id, search_text)
+                    SELECT event_id, {backfill}
+                    FROM learning_events
+                    WHERE event_id NOT IN (SELECT event_id FROM {SEARCH_TABLE})
+                    """
+                )
+        except sqlite3.Error:
+            logger.debug("Could not build the FTS5 learning index", exc_info=True)
+            return False
+
+        self._search_index_ready = True
+        return True
 
     def count(
         self,

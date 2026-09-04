@@ -1,0 +1,44 @@
+{
+  "billed_prefix_projection": [
+    {
+      "cached_billed_prefix_tokens": 5811.2,
+      "change_percent": 25.0,
+      "provider_requests_per_turn": 1,
+      "uncached_billed_prefix_tokens": 4649
+    },
+    {
+      "cached_billed_prefix_tokens": 6276.1,
+      "change_percent": -32.5,
+      "provider_requests_per_turn": 2,
+      "uncached_billed_prefix_tokens": 9298
+    },
+    {
+      "cached_billed_prefix_tokens": 6741.1,
+      "change_percent": -51.7,
+      "provider_requests_per_turn": 3,
+      "uncached_billed_prefix_tokens": 13947
+    },
+    {
+      "cached_billed_prefix_tokens": 7670.9,
+      "change_percent": -67.0,
+      "provider_requests_per_turn": 5,
+      "uncached_billed_prefix_tokens": 23245
+    },
+    {
+      "cached_billed_prefix_tokens": 9065.5,
+      "change_percent": -75.6,
+      "provider_requests_per_turn": 8,
+      "uncached_billed_prefix_tokens": 37192
+    }
+  ],
+  "cacheable_prefix_tokens": 4649,
+  "environment": {
+    "os": "Darwin",
+    "python": "3.14.2"
+  },
+  "method": "modelled from published cache multipliers (write 1.25x, read 0.1x); not a live provider measurement",
+  "model": "claude-opus-4-8",
+  "provider_minimum_cacheable_tokens": 1024,
+  "routed_tool_schema_tokens": 1675,
+  "static_policy_tokens": 2974
+}

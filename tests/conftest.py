@@ -76,6 +76,7 @@ def _hermetic_state(tmp_path_factory, monkeypatch):
     config_directory = home / ".radsim"
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.delenv("RADSIM_PERFORMANCE_TELEMETRY", raising=False)
     monkeypatch.setattr(radsim.config, "CONFIG_DIR", config_directory)
     monkeypatch.setattr(radsim.config, "ENV_FILE", config_directory / ".env")
     monkeypatch.setattr(

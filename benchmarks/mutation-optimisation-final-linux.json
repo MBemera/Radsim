@@ -1,0 +1,60 @@
+{
+  "base_commit": "82a3ee7a7382b3383fcda33d3de10d083b6a326c",
+  "changed_scope": {
+    "radsim/agent_api.py": {
+      "equivalent_mutants": [
+        "radsim.agent_api.x__truncated_tool_result__mutmut_4",
+        "radsim.agent_api.x__truncated_tool_result__mutmut_5",
+        "radsim.agent_api.x__truncated_tool_result__mutmut_11",
+        "radsim.agent_api.x__truncated_tool_result__mutmut_13"
+      ],
+      "functions": [
+        "serialize_tool_result",
+        "_truncated_tool_result"
+      ],
+      "killed": 35,
+      "meaningful_survivors_killed": 17,
+      "survived": 4,
+      "timeout": 0,
+      "total": 39
+    },
+    "radsim/performance.py": {
+      "killed": 124,
+      "matches_archived_baseline": true,
+      "note": "Item 9 changes are module-level allowlist entries; functional coverage exercises every allowed count field without retaining payloads.",
+      "survived": 57,
+      "timeout": 0,
+      "total": 181
+    }
+  },
+  "commit": "2771db24d57bf585854f8caec077fc99fbce53a5",
+  "environment": {
+    "machine": "x86_64",
+    "os": "Linux",
+    "python": "3.12.13",
+    "release": "6.18.35"
+  },
+  "generated_at": "2026-08-29",
+  "notes": [
+    "The 240 full-set timeouts are retained classifications from an earlier high-concurrency Linux execution; they remain failures in the aggregate gate and are not counted as kills.",
+    "Focused item 9 reruns used at most four workers, plus one isolated retry, and have no timeouts.",
+    "Raw full-set totals differ from the archived macOS and Python 3.14 module results because coverage and mutation generation vary by Python version and platform."
+  ],
+  "schema_version": 1,
+  "scope": "Configured Tier 1 mutation set after item 9 survivor triage",
+  "score": 0.528763,
+  "stats": {
+    "check_was_interrupted_by_user": 0,
+    "killed": 2445,
+    "no_tests": 13,
+    "segfault": 0,
+    "skipped": 0,
+    "suspicious": 0,
+    "survived": 1926,
+    "timeout": 240,
+    "total": 4624
+  },
+  "target_score": 0.8,
+  "tier_one_baseline_score": 0.15,
+  "tool": "mutmut 3.7.0"
+}

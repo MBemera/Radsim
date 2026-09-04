@@ -1,0 +1,32 @@
+{
+  "environment": {
+    "machine": "x86_64",
+    "os": "Darwin",
+    "python": "3.14.2",
+    "release": "23.6.0"
+  },
+  "flush_threshold": 20,
+  "method": "measured locally; wall-clock over 10 rounds per configuration",
+  "results": [
+    {
+      "buffered_ms_mean": 4.125,
+      "buffered_ms_median": 4.097,
+      "events_per_round": 20,
+      "individual_ms_mean": 51.468,
+      "individual_ms_median": 51.7,
+      "speedup": 12.5
+    },
+    {
+      "buffered_ms_mean": 12.246,
+      "buffered_ms_median": 11.708,
+      "events_per_round": 100,
+      "individual_ms_mean": 278.959,
+      "individual_ms_median": 278.656,
+      "speedup": 22.8
+    }
+  ],
+  "transactions_per_round": {
+    "buffered": "one per flush",
+    "individual": "one per event"
+  }
+}

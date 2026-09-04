@@ -1,6 +1,7 @@
 """Security and lifecycle tests for trusted extension loading."""
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -289,6 +290,37 @@ def test_reload_removes_stale_owned_tools(enabled_loader):
     assert enabled_loader.reload("clean-reload")["success"] is True
     assert execute_tool("removed_tool", {})["success"] is False
     assert execute_tool("replacement_tool", {})["version"] == "new"
+
+
+def test_repeated_reload_releases_old_module_references(enabled_loader):
+    directory = write_extension(
+        enabled_loader.global_root,
+        "module-retention",
+        source=extension_source("module_retention_tool", "zero"),
+    )
+    enabled_loader.approve("module-retention")
+    enabled_loader.load("module-retention")
+
+    for version in range(1, 6):
+        manifest = json.loads((directory / "manifest.json").read_text())
+        manifest["version"] = f"1.{version}.0"
+        (directory / "manifest.json").write_text(json.dumps(manifest))
+        (directory / "extension.py").write_text(
+            extension_source("module_retention_tool", str(version))
+        )
+        enabled_loader.approve("module-retention")
+        assert enabled_loader.reload("module-retention")["success"] is True
+
+        retained = [
+            name for name in sys.modules
+            if name.startswith("_radsim_extension_module_retention_")
+        ]
+        assert retained == [enabled_loader.loaded["module-retention"].module_name]
+
+    enabled_loader.unload("module-retention")
+    assert not any(
+        name.startswith("_radsim_extension_module_retention_") for name in sys.modules
+    )
 
 
 def test_duplicate_ids_are_deterministic_and_never_execute(enabled_loader):

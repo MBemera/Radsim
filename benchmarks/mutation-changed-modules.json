@@ -1,0 +1,131 @@
+{
+  "base_commit": "addcb07c3780af09a7b62f72fce2da9b968a2b30",
+  "environment": {
+    "machine": "x86_64",
+    "os": "Darwin",
+    "python": "3.14.2",
+    "release": "23.6.0"
+  },
+  "modules": {
+    "radsim/agent_api.py": {
+      "authored_by_this_branch": false,
+      "considered": 865,
+      "killed": 422,
+      "meets_tier_one_target": false,
+      "no_tests": 0,
+      "score": 0.4879,
+      "survived": 438,
+      "timeout": 5
+    },
+    "radsim/bounded_cache.py": {
+      "authored_by_this_branch": true,
+      "considered": 61,
+      "killed": 60,
+      "meets_tier_one_target": true,
+      "no_tests": 0,
+      "score": 0.9836,
+      "survived": 1,
+      "timeout": 0
+    },
+    "radsim/learning/buffer.py": {
+      "authored_by_this_branch": true,
+      "considered": 114,
+      "killed": 94,
+      "meets_tier_one_target": true,
+      "no_tests": 0,
+      "score": 0.8246,
+      "survived": 20,
+      "timeout": 0
+    },
+    "radsim/learning/retrieval.py": {
+      "authored_by_this_branch": false,
+      "considered": 939,
+      "killed": 370,
+      "meets_tier_one_target": false,
+      "no_tests": 4,
+      "score": 0.394,
+      "survived": 550,
+      "timeout": 15
+    },
+    "radsim/learning/store.py": {
+      "authored_by_this_branch": false,
+      "considered": 753,
+      "killed": 364,
+      "meets_tier_one_target": false,
+      "no_tests": 5,
+      "score": 0.4834,
+      "survived": 363,
+      "timeout": 21
+    },
+    "radsim/performance.py": {
+      "authored_by_this_branch": false,
+      "considered": 181,
+      "killed": 124,
+      "meets_tier_one_target": false,
+      "no_tests": 0,
+      "score": 0.6851,
+      "survived": 57,
+      "timeout": 0
+    },
+    "radsim/prompt_cache.py": {
+      "authored_by_this_branch": true,
+      "considered": 126,
+      "killed": 122,
+      "meets_tier_one_target": true,
+      "no_tests": 0,
+      "score": 0.9683,
+      "survived": 3,
+      "timeout": 1
+    },
+    "radsim/tool_router.py": {
+      "authored_by_this_branch": true,
+      "considered": 233,
+      "killed": 209,
+      "meets_tier_one_target": true,
+      "no_tests": 0,
+      "score": 0.897,
+      "survived": 23,
+      "timeout": 1
+    },
+    "radsim/tool_scheduler.py": {
+      "authored_by_this_branch": true,
+      "considered": 116,
+      "killed": 113,
+      "meets_tier_one_target": true,
+      "no_tests": 0,
+      "score": 0.9741,
+      "survived": 3,
+      "timeout": 0
+    }
+  },
+  "schema_version": 1,
+  "scope": "Tier 1 modules changed by plan commits 3-8",
+  "summary": {
+    "authored_modules": 5,
+    "authored_modules_meeting_target": 5,
+    "modules_measured": 9,
+    "pre_existing_modules_below_target": [
+      "radsim/agent_api.py",
+      "radsim/learning/retrieval.py",
+      "radsim/learning/store.py",
+      "radsim/performance.py"
+    ]
+  },
+  "survivor_triage": {
+    "equivalent_categories": {
+      "comparison_boundary_with_identical_reachable_state": 1,
+      "dead_default_values_reaching_the_same_branch": 5,
+      "logger_debug_message_text": 18,
+      "sub_resolution_duration_scaling": 2
+    },
+    "equivalent_mutants_accepted": 26,
+    "method": "every survivor in an authored module was inspected as a diff, not inferred",
+    "notable_gaps": [
+      "plan_parallel_group could pass None instead of the tool name to the confirmation predicate; a predicate keyed on tool name would have been bypassed in the parallel path",
+      "the interrupt check in run_parallel_group could be neutered without any existing test noticing, so queued futures were never truly cancelled"
+    ],
+    "real_gaps_found_and_killed": 16
+  },
+  "target_score": 0.8,
+  "tool": "mutmut 3.7.0"
+}

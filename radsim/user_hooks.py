@@ -28,6 +28,8 @@ import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .bounded_cache import MISSING, BoundedCache, path_signature
+
 logger = logging.getLogger(__name__)
 
 HOOKS_FILE = Path.home() / ".radsim" / "hooks.json"
@@ -37,6 +39,10 @@ BLOCKING_EVENTS = ("pre_tool",)
 TOOL_EVENTS = ("pre_tool", "post_tool", "on_error")
 
 MAX_USER_HOOKS = 20
+
+# Keyed by the hooks file's modification signature, so only a handful of
+# entries can ever exist: the current file, and any signature seen before it.
+_hook_cache = BoundedCache(max_entries=4)
 MIN_TIMEOUT_SECONDS = 1
 MAX_TIMEOUT_SECONDS = 120
 DEFAULT_TIMEOUT_SECONDS = 10
@@ -99,6 +105,33 @@ def validate_hook_definition(name, event, matcher, command, timeout):
 
 
 def load_user_hooks():
+    """Return the enabled hook definitions, re-reading only when the file changes.
+
+    Every tool call fires pre_tool and post_tool hooks, so this used to parse
+    and validate hooks.json twice per tool. The parsed result is cached against
+    the file's modification signature, so an external edit is still picked up.
+    """
+    signature = path_signature(HOOKS_FILE)
+    cached = _hook_cache.get(signature)
+    if cached is not MISSING:
+        return list(cached)
+
+    hooks = _read_user_hooks()
+    _hook_cache.set(signature, hooks)
+    return list(hooks)
+
+
+def clear_hook_cache():
+    """Drop cached hook definitions."""
+    _hook_cache.clear()
+
+
+def hook_cache_stats():
+    """Return hook-cache hit rate and size."""
+    return _hook_cache.stats()
+
+
+def _read_user_hooks():
     """Load hooks from disk, silently skipping entries that fail validation."""
     if not HOOKS_FILE.exists():
         return []
@@ -149,6 +182,9 @@ def save_user_hooks(hooks):
     """Persist the full hook list to disk."""
     HOOKS_FILE.parent.mkdir(parents=True, exist_ok=True)
     HOOKS_FILE.write_text(json.dumps([asdict(hook) for hook in hooks], indent=2) + "\n")
+    # A write within the filesystem's timestamp resolution could otherwise
+    # produce the signature the cache already holds.
+    clear_hook_cache()
 
 
 def add_user_hook(name, event, matcher, command, timeout=DEFAULT_TIMEOUT_SECONDS):

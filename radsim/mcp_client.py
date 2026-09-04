@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .persistence import atomic_write_json
+from .tool_schema import clear_schema_cache
 
 logger = logging.getLogger(__name__)
 
@@ -322,6 +323,7 @@ class MCPClientManager:
             len(conn.tools),
             conn.config.name,
         )
+        clear_schema_cache()
 
     def disconnect(self, name: str):
         """Disconnect from a named MCP server."""
@@ -333,6 +335,7 @@ class MCPClientManager:
             self._run_async(self._async_disconnect(conn))
         except Exception as exc:
             logger.debug("Error during MCP disconnect for '%s': %s", name, exc)
+        clear_schema_cache()
 
         conn.connected = False
         conn.session = None

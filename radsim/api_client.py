@@ -8,7 +8,14 @@ from abc import ABC, abstractmethod
 from functools import wraps
 from typing import Any
 
+from .performance import emit_active_performance_event
+from .prompt_cache import (
+    SystemCachePlan,
+    mark_conversation_breakpoint,
+    plan_system_cache,
+)
 from .request_options import RequestOptions
+from .tool_router import estimate_schema_tokens
 from .tool_schema import canonicalize_tool_schemas
 from .usage import merge_usage_snapshots, normalize_usage
 
@@ -29,6 +36,19 @@ DEFAULT_EXPONENTIAL_BASE = 2
 DEFAULT_MAX_OUTPUT_TOKENS = 16000
 
 logger = logging.getLogger(__name__)
+
+
+def _report_prompt_cache_plan(plan: SystemCachePlan, *, provider: str, model: str) -> None:
+    """Record how one request's cache breakpoints were placed."""
+    emit_active_performance_event(
+        "prompt_cache",
+        provider=provider,
+        model=model,
+        prompt_cache_applied=plan.is_cached,
+        prompt_cache_prefix_tokens=plan.prefix_tokens,
+        prompt_cache_minimum_tokens=plan.minimum_tokens,
+        prompt_cache_skipped_reason=plan.skipped_reason,
+    )
 
 
 class RetryableError(Exception):
@@ -350,10 +370,18 @@ class ClaudeClient(BaseAPIClient):
         }
         if stream:
             kwargs["stream"] = True
-        if system_prompt:
-            kwargs["system"] = system_prompt
         if tools:
             kwargs["tools"] = canonicalize_tool_schemas(tools)
+        if system_prompt:
+            plan = plan_system_cache(
+                system_prompt,
+                model=self.model,
+                tool_schema_tokens=estimate_schema_tokens(kwargs.get("tools", [])),
+            )
+            kwargs["system"] = plan.blocks if plan.is_cached else system_prompt
+            if plan.is_cached:
+                kwargs["messages"] = mark_conversation_breakpoint(messages)
+            _report_prompt_cache_plan(plan, provider=self.PROVIDER_NAME, model=self.model)
         if request_options is not None:
             kwargs.update(request_options.for_supported(self._supported_request_parameters()))
         return kwargs
@@ -887,6 +915,29 @@ class OpenRouterClient(OpenAIClient):
             "reasoning": {"effort": self.reasoning_effort},
         }
         return kwargs
+
+    def _build_messages(
+        self,
+        messages: list[dict[str, Any]],
+        system_prompt: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Convert messages, caching the system prefix on Anthropic models.
+
+        OpenRouter forwards `cache_control` to Anthropic upstreams, which need
+        the explicit breakpoint. Only the system message is marked: conversation
+        block placement differs by upstream provider, so RadSim does not guess.
+        """
+        formatted_messages = super()._build_messages(messages, system_prompt)
+        if not system_prompt or not formatted_messages:
+            return formatted_messages
+
+        plan = plan_system_cache(system_prompt, model=self.model)
+        _report_prompt_cache_plan(plan, provider=self.PROVIDER_NAME, model=self.model)
+        if not plan.is_cached:
+            return formatted_messages
+
+        system_message = {**formatted_messages[0], "content": plan.blocks}
+        return [system_message] + formatted_messages[1:]
 
     def _supported_request_parameters(self) -> frozenset[str]:
         """Cache validated model capability metadata for this client."""

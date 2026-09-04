@@ -13,7 +13,7 @@ rich==15.0.0
 prompt_toolkit==3.0.52
 
 # --- Documents feature (read_document PDF support) ---
-pypdf==6.14.2
+pypdf==6.16.2
 
 # --- Browser feature (Playwright automation) ---
 playwright==1.61.0
@@ -31,5 +31,11 @@ mcp==1.28.1
 # pytest 9.0.2 was affected by CVE-2025-71176 (predictable /tmp pytest
 # directory under an insecure parent); pinned to a fixed release.
 pytest==9.1.1
+pytest-benchmark==5.1.0
+pytest-cov==7.1.0
+hypothesis==6.165.10
+mutmut==3.7.0
+py-spy==0.4.2
+scalene==2.3.0
 ruff==0.15.21
 pip-audit==2.10.1

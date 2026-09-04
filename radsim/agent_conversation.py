@@ -11,6 +11,59 @@ from .output import print_error, print_info, print_success, print_warning
 
 logger = logging.getLogger(__name__)
 
+MAX_RETAINED_MESSAGES = 400
+RETAINED_MEDIA_TEXT = "[Image omitted from retained history after processing]"
+
+
+def _emit_cache_stats(telemetry, turn_id):
+    """Record each long-lived cache's hit rate at the turn boundary.
+
+    A cache that never hits is invisible without this; a cache that evicts
+    constantly is sized wrong. Both show up here rather than in a guess.
+    """
+    if not telemetry.enabled:
+        return
+    try:
+        from .runtime_context import get_runtime_context
+
+        for cache_name, stats in get_runtime_context().cache_stats().items():
+            telemetry.emit(
+                "cache_stats",
+                turn_id=turn_id,
+                cache_name=cache_name,
+                cache_entries=stats["entries"],
+                cache_hits=stats["hits"],
+                cache_misses=stats["misses"],
+                cache_evictions=stats["evictions"],
+                cache_hit_rate=stats["hit_rate"],
+            )
+    except Exception:
+        logger.debug("Cache statistics could not be recorded", exc_info=True)
+
+
+def _emit_memory_stats(telemetry, turn_id, agent):
+    """Record bounded process state without retaining conversation content."""
+    if not telemetry.enabled:
+        return
+    try:
+        from .background import get_job_manager
+
+        job_stats = get_job_manager().stats()
+        telemetry.emit(
+            "memory_stats",
+            turn_id=turn_id,
+            retained_messages=len(getattr(agent, "messages", ())),
+            message_evictions=getattr(agent, "_memory_evicted_messages", 0),
+            released_media_blocks=getattr(agent, "_memory_released_media_blocks", 0),
+            injected_job_ids=len(getattr(agent, "_injected_job_ids", ())),
+            background_jobs=job_stats["jobs"],
+            background_running_jobs=job_stats["running"],
+            background_finished_jobs=job_stats["finished"],
+            background_job_evictions=job_stats["finished_evictions"],
+        )
+    except Exception:
+        logger.debug("Memory statistics could not be recorded", exc_info=True)
+
 
 class AgentConversationMixin:
     """Conversation state and lifecycle methods for the main agent."""
@@ -86,6 +139,46 @@ class AgentConversationMixin:
         self._session_approve_shell = False
         self._pending_user_context = []
 
+    def _enforce_message_retention(self):
+        """Drop the oldest complete exchanges above the session message bound."""
+        messages = getattr(self, "messages", None)
+        if not isinstance(messages, list) or len(messages) <= MAX_RETAINED_MESSAGES:
+            return 0
+
+        cut_index = 2
+        while len(messages) - (cut_index - 2) > MAX_RETAINED_MESSAGES:
+            cut_index = self._pruning_unit_end(cut_index)
+            cut_index = self._skip_orphaned_results(cut_index)
+
+        removed = max(0, cut_index - 2)
+        if removed:
+            del messages[2:cut_index]
+            self._memory_evicted_messages = (
+                getattr(self, "_memory_evicted_messages", 0) + removed
+            )
+        return removed
+
+    def _release_processed_media(self):
+        """Replace submitted image bytes with a small history marker."""
+        released = 0
+        messages = getattr(self, "messages", ())
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            content = message.get("content")
+            if not isinstance(content, list):
+                continue
+            for index, block in enumerate(content):
+                if not isinstance(block, dict) or block.get("type") != "image":
+                    continue
+                content[index] = {"type": "text", "text": RETAINED_MEDIA_TEXT}
+                released += 1
+
+        self._memory_released_media_blocks = (
+            getattr(self, "_memory_released_media_blocks", 0) + released
+        )
+        return released
+
     def estimate_tokens(self, text):
         """Estimate token count for text (rough approximation)."""
         return (len(text) + 3) // 4 if text else 0
@@ -133,11 +226,15 @@ class AgentConversationMixin:
         return max(0, maximum - used)
 
     def _fixed_context_tokens(self):
-        """Estimate the system prompt and canonical tool schema prefix."""
+        """Estimate the system prompt and canonical tool schema prefix.
+
+        Uses the routed schema set so pruning is measured against what the
+        request actually sends, not the full registry.
+        """
         from .tool_schema import canonicalize_tool_schemas
 
         prompt = getattr(self, "system_prompt", "")
-        tools = canonicalize_tool_schemas(self._get_all_tools())
+        tools = canonicalize_tool_schemas(self._get_request_tools())
         prompt_tokens = self.estimate_tokens(prompt) if prompt else 0
         if not tools:
             return prompt_tokens
@@ -270,6 +367,7 @@ class AgentConversationMixin:
 
     def check_and_prune(self):
         """Prune before the effective input cap or fail before provider I/O."""
+        self._enforce_message_retention()
         budget = self.get_context_budget()
         current_tokens, maximum, _percentage = self.get_context_usage(budget)
         if current_tokens <= maximum:
@@ -290,6 +388,12 @@ class AgentConversationMixin:
 
     def process_message(self, user_input):
         """Process a user message and return the response."""
+        from .performance import (
+            PerformanceTelemetry,
+            bind_performance_context,
+            reset_performance_context,
+        )
+
         self._interrupted.clear()
         self._is_processing.set()
         config = getattr(self, "config", None)
@@ -299,9 +403,23 @@ class AgentConversationMixin:
             model=getattr(config, "model", ""),
         )
         usage_before = dict(getattr(self, "usage_stats", {}))
-        started_at = time.time()
+        started_at = time.perf_counter()
         result = ""
         task_error = None
+        telemetry = getattr(self, "performance_telemetry", None) or PerformanceTelemetry()
+        turn_id = telemetry.new_turn_id()
+        self._performance_turn_id = turn_id
+        self._performance_request_index = 0
+        telemetry_token = bind_performance_context(telemetry, turn_id)
+        self._route_tool_schemas_for_turn(user_input, telemetry, turn_id)
+        telemetry.emit(
+            "turn_started",
+            turn_id=turn_id,
+            provider=getattr(config, "provider", ""),
+            model=getattr(config, "model", ""),
+            message_count=len(getattr(self, "messages", ())),
+            input_chars=len(user_input),
+        )
 
         from .escape_listener import start_escape_listener, stop_escape_listener
 
@@ -317,17 +435,62 @@ class AgentConversationMixin:
         finally:
             if self._interrupted.is_set() and self._task_outcome_tracker is not None:
                 self._task_outcome_tracker.mark_cancelled()
+            tracker = self._task_outcome_tracker
+            outcome = tracker.resolve(task_error).value if tracker is not None else "unknown"
+            tool_calls = len(tracker.tool_results) if tracker is not None else 0
             self._fire_post_message_hook(result, task_error)
             self._record_learning_outcome(
                 result=result,
                 error=task_error,
-                duration_ms=(time.time() - started_at) * 1000,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
                 usage_before=usage_before,
             )
             try:
                 flush_tool_optimizer()
             except Exception:
                 logger.debug("Tool optimizer flush failed at turn boundary", exc_info=True)
+            usage_after = getattr(self, "usage_stats", {})
+            telemetry.emit(
+                "turn_completed",
+                turn_id=turn_id,
+                provider=getattr(config, "provider", ""),
+                model=getattr(config, "model", ""),
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                outcome=outcome,
+                success=task_error is None,
+                interrupted=self._interrupted.is_set(),
+                error_type=type(task_error).__name__ if task_error is not None else "",
+                api_calls=max(
+                    0,
+                    usage_after.get("request_count", 0) - usage_before.get("request_count", 0),
+                ),
+                tool_calls=tool_calls,
+                input_tokens=max(
+                    0,
+                    usage_after.get("input_tokens", 0) - usage_before.get("input_tokens", 0),
+                ),
+                output_tokens=max(
+                    0,
+                    usage_after.get("output_tokens", 0) - usage_before.get("output_tokens", 0),
+                ),
+                cache_read_input_tokens=max(
+                    0,
+                    usage_after.get("cache_read_input_tokens", 0)
+                    - usage_before.get("cache_read_input_tokens", 0),
+                ),
+                cache_write_input_tokens=max(
+                    0,
+                    usage_after.get("cache_write_input_tokens", 0)
+                    - usage_before.get("cache_write_input_tokens", 0),
+                ),
+            )
+            _emit_cache_stats(telemetry, turn_id)
+            self._release_processed_media()
+            self._enforce_message_retention()
+            _emit_memory_stats(telemetry, turn_id, self)
+            reset_performance_context(telemetry_token)
+            self._performance_turn_id = None
+            self._routed_tool_names = None
             stop_escape_listener()
             self._is_processing.clear()
 

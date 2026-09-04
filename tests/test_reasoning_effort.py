@@ -224,7 +224,7 @@ def test_requested_models_expose_live_reasoning_levels():
     assert get_reasoning_effort_options(
         "openrouter",
         "moonshotai/kimi-k3",
-    ) == ("max",)
+    ) == ("low", "high", "max")
     assert get_reasoning_effort_options(
         "openrouter",
         "anthropic/claude-fable-5",
@@ -235,15 +235,16 @@ def test_requested_models_expose_live_reasoning_levels():
     ) == ("none", "low", "medium", "high", "xhigh", "max")
 
 
-def test_kimi_k3_maps_saved_effort_to_required_max():
+def test_kimi_k3_keeps_a_supported_saved_effort():
     assert resolve_reasoning_effort(
         "openrouter",
         "moonshotai/kimi-k3",
         "low",
-    ) == "max"
+    ) == "low"
 
 
-def test_kimi_k3_selector_persists_required_max(fake_settings):
+def test_kimi_k3_selector_persists_the_catalogue_default(fake_settings, monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda _prompt: "")
     _maybe_prompt_reasoning_effort("openrouter", "moonshotai/kimi-k3")
     assert load_reasoning_effort() == "max"
 

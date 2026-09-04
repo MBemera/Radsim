@@ -80,7 +80,7 @@ def test_high_level_memory_batch_rejects_empty_content_without_writing(tmp_path)
     assert not collection_path.exists()
 
 
-def test_tool_optimizer_writes_canonical_events_synchronously(tmp_path):
+def test_tool_optimizer_buffers_then_writes_canonical_events(tmp_path):
     optimizer = ToolOptimizer(storage_dir=tmp_path)
 
     for index in range(10):
@@ -91,8 +91,13 @@ def test_tool_optimizer_writes_canonical_events_synchronously(tmp_path):
             input_data={"index": index},
             output_data={"success": index != 9},
         )
+
+    assert optimizer.pending_event_count == 10
+    assert optimizer.store.count(event_types={"tool_execution"}) == 0
+
     optimizer.complete_task_chain("batch persistence", success=True)
 
+    assert optimizer.pending_event_count == 0
     assert optimizer.flush() is False
     assert optimizer.store.count(event_types={"tool_execution"}) == 10
     assert optimizer.store.count(event_types={"task_completion"}) == 1

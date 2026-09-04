@@ -80,11 +80,12 @@ print(json.dumps({name: name in sys.modules for name in module_names}))
     assert all(not is_loaded for is_loaded in loaded_modules.values())
 
 
-def test_package_export_loads_on_first_access():
+def test_package_export_loads_on_first_access(monkeypatch):
     """Accessing a lazily exported name should load only its source module."""
     import radsim
 
     sys.modules.pop("radsim.skill_registry", None)
+    monkeypatch.delattr(radsim, "load_skill", raising=False)
 
     load_skill = radsim.load_skill
 
