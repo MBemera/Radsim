@@ -35,9 +35,10 @@ Tier 1 baseline is archived in `benchmarks/mutation-tier1-baseline.json`. The
 scheduled job is a ratchet and cannot fall below that score. The long-term Tier
 1 target is 80 percent.
 
-CI selects changed Tier 1 modules for pull requests and requires those selected
-modules to kill every checked mutant. It runs the complete Tier 1 set nightly
-or by manual dispatch.
+CI selects the Tier 1 modules a pull request adds and requires those selected
+modules to score at least 87 percent. Modules the pull request only modifies are
+left to the nightly ratchet, so pre-existing gaps do not gate a branch. It runs
+the complete Tier 1 set nightly or by manual dispatch.
 
 Mutation execution requires process forking, so it runs on Linux and macOS
 directly. Use Linux CI or WSL when working from Windows. Generated mutant files

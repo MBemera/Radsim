@@ -16,7 +16,7 @@ def _module():
     return module
 
 
-def test_changed_targets_selects_only_tier_one_files(monkeypatch):
+def test_added_targets_selects_only_tier_one_files(monkeypatch):
     module = _module()
 
     class Completed:
@@ -24,13 +24,36 @@ def test_changed_targets_selects_only_tier_one_files(monkeypatch):
 
     monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: Completed())
 
-    assert module.changed_targets("base", "head") == [
+    assert module.added_targets("base", "head") == [
         "radsim.context_budget.*",
         "radsim.tool_schema.*",
     ]
 
 
-def test_changed_targets_uses_smoke_target_when_no_critical_file_changed(monkeypatch):
+def test_added_targets_asks_git_for_added_files_only(monkeypatch):
+    module = _module()
+    recorded = {}
+
+    class Completed:
+        stdout = ""
+
+    def fake_run(command, **kwargs):
+        recorded["command"] = command
+        return Completed()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    module.added_targets("base", "head")
+
+    assert recorded["command"] == [
+        "git",
+        "diff",
+        "--name-only",
+        "--diff-filter=A",
+        "base...head",
+    ]
+
+
+def test_added_targets_uses_smoke_target_when_no_critical_file_added(monkeypatch):
     module = _module()
 
     class Completed:
@@ -38,7 +61,7 @@ def test_changed_targets_uses_smoke_target_when_no_critical_file_changed(monkeyp
 
     monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: Completed())
 
-    assert module.changed_targets("base", "head") == ["radsim.performance.*"]
+    assert module.added_targets("base", "head") == ["radsim.performance.*"]
 
 
 def test_mutation_score_counts_unsafe_outcomes_as_failures():

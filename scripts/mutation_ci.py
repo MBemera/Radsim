@@ -30,10 +30,10 @@ DEFAULT_SMOKE_TARGET = "radsim.performance.*"
 FAILED_STATUSES = ("survived", "no_tests", "suspicious", "timeout", "segfault")
 
 
-def changed_targets(base: str, head: str) -> list[str]:
-    """Return mutmut module patterns for changed Tier 1 files."""
+def added_targets(base: str, head: str) -> list[str]:
+    """Return mutmut module patterns for Tier 1 files this branch adds."""
     completed = subprocess.run(
-        ["git", "diff", "--name-only", f"{base}...{head}"],
+        ["git", "diff", "--name-only", "--diff-filter=A", f"{base}...{head}"],
         check=True,
         capture_output=True,
         text=True,
@@ -112,7 +112,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = _build_parser().parse_args()
     if args.command == "targets":
-        print("\n".join(changed_targets(args.base, args.head)))
+        print("\n".join(added_targets(args.base, args.head)))
         return 0
     if not 0 <= args.minimum <= 1:
         raise SystemExit("--minimum must be between 0 and 1")

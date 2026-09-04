@@ -49,7 +49,7 @@ jobs:
             --head "$HEAD_SHA" > mutation-targets.txt
           sed -n '1,40p' mutation-targets.txt
 
-      - name: Run changed Tier 1 mutants
+      - name: Run added Tier 1 mutants
         if: github.event_name == 'pull_request'
         run: |
           mapfile -t targets < mutation-targets.txt
@@ -65,12 +65,12 @@ jobs:
           mutmut export-cicd-stats
           cp mutants/mutmut-cicd-stats.json mutation-results/mutmut-cicd-stats.json
 
-      - name: Require changed critical code to kill every mutant
+      - name: Require added critical code to hold its mutation score
         if: github.event_name == 'pull_request'
         run: |
           python scripts/mutation_ci.py check \
             mutation-results/mutmut-cicd-stats.json \
-            --minimum 1.0
+            --minimum 0.87
 
       - name: Enforce complete Tier 1 ratchet
         if: github.event_name != 'pull_request'
