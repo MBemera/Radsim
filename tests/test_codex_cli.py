@@ -303,6 +303,20 @@ def test_account_menu_switches_the_live_session(monkeypatch):
     assert agent.switched == [("chatgpt", None, "gpt-6-astra")]
 
 
+def test_switch_to_subscription_ignores_saved_api_model(monkeypatch):
+    from radsim import config
+
+    config.save_config("synthetic-api-key", "openrouter", "custom-provider/model")
+    monkeypatch.setenv("RADSIM_MODEL", "custom-provider/model")
+    monkeypatch.setenv("RADSIM_API_KEY", "synthetic-api-key")
+    agent = AgentStub()
+
+    _switch_handler()._switch_to_subscription(agent)
+
+    assert agent.switched == [("chatgpt", None, config.DEFAULT_SUBSCRIPTION_MODEL)]
+    assert config.load_config(provider_override="chatgpt").api_key is None
+
+
 def test_account_menu_covers_every_subscription_command():
     from radsim.commands_core import CoreCommandHandlersMixin
 

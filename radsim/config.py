@@ -1513,6 +1513,15 @@ def load_config(
         )
         model = None
 
+    if provider == SUBSCRIPTION_PROVIDER:
+        api_key = None
+        saved_model = (
+            env_config.get("model")
+            if env_config.get("provider") == SUBSCRIPTION_PROVIDER
+            else None
+        )
+        model = model_override or last_model or saved_model or DEFAULT_SUBSCRIPTION_MODEL
+
     # Global flags
     final_verbose = verbose or settings_config.get("verbose", False)
 

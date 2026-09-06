@@ -353,10 +353,11 @@ class CoreCommandHandlersMixin:
     def _switch_to_subscription(agent):
         """Point the running session at the subscription, keeping the frame."""
         from .codex_transport import CodexError
-        from .config import SUBSCRIPTION_PROVIDER, load_env_file
+        from .config import SUBSCRIPTION_PROVIDER, load_config
 
         try:
-            agent.update_config(SUBSCRIPTION_PROVIDER, None, load_env_file().get("model"))
+            selection = load_config(provider_override=SUBSCRIPTION_PROVIDER)
+            agent.update_config(SUBSCRIPTION_PROVIDER, None, selection.model)
         except CodexError as error:
             print_block((f"  {error}",), blank_after=False)
 
