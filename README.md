@@ -264,6 +264,36 @@ radsim "Add input validation to the API handler"
 radsim --yes "Format the project and fix lint errors"
 ```
 
+## Using a ChatGPT subscription instead of an API key
+
+RadSim can run a session on your ChatGPT plan through the Codex app server, so
+the work counts against your subscription instead of a Platform API key.
+
+```bash
+radsim login chatgpt        # browser sign-in (--device-code for headless hosts)
+radsim status chatgpt       # plan and remaining quota
+radsim models chatgpt       # models your account can use
+radsim --provider chatgpt "Explain the failing test"
+radsim --provider chatgpt --resume   # continue this directory's conversation
+radsim logout chatgpt
+```
+
+To make it the default, set `RADSIM_PROVIDER="chatgpt"` in `~/.radsim/.env`.
+
+What is different from the API providers:
+
+- The Codex CLI must be installed and on your `PATH`. RadSim pins the tested
+  version and refuses to start against an untested one.
+- Sign-in is stored under `~/.radsim/chatgpt/`, separate from Codex's own login
+  and from your API keys. No API key is read or needed.
+- Codex owns the session and runs the tools, restricted to the current
+  directory. Every command, file change and permission request needs a typed
+  `yes`; `--yes` and `--api-key` are refused.
+- There is no API fallback. When the subscription quota runs out, the session
+  stops and says so.
+- Models come from your account catalogue (`--model` or `/model`), not from
+  RadSim's static provider lists.
+
 ## Where RadSim looks for `.env`
 
 In priority order, highest first:

@@ -1335,20 +1335,16 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
     return model not in other_provider_models
 
 
-def load_config(
-    provider_override=None,
-    api_key_override=None,
-    model_override=None,
-    auto_confirm=False,
-    verbose=False,
-    stream=True,
-):
-    """Load configuration from environment or overrides."""
-    # Load from env files and settings.json
-    env_config = load_env_file()
-    settings_config = load_settings_file()
+def resolve_provider(provider_override=None, env_config=None, settings_config=None):
+    """Return the selected provider name from overrides, env files and settings.
 
-    agent_config = settings_config.get("agent_config", {})
+    Callers that already read the env/settings files pass them in; the CLI
+    calls this before loading a full config to learn which runtime to start.
+    """
+    if env_config is None:
+        env_config = load_env_file()
+    if settings_config is None:
+        settings_config = load_settings_file()
 
     project_provider = (
         env_config["provider"]
@@ -1365,7 +1361,7 @@ def load_config(
         last_provider = None
 
     # Explicit project/process choices win. Otherwise reuse the last selection.
-    provider = (
+    return (
         provider_override
         or os.getenv("RADSIM_PROVIDER")
         or project_provider
@@ -1374,6 +1370,24 @@ def load_config(
         or settings_config.get("default_provider")
         or "openrouter"
     )
+
+
+def load_config(
+    provider_override=None,
+    api_key_override=None,
+    model_override=None,
+    auto_confirm=False,
+    verbose=False,
+    stream=True,
+):
+    """Load configuration from environment or overrides."""
+    # Load from env files and settings.json
+    env_config = load_env_file()
+    settings_config = load_settings_file()
+
+    agent_config = settings_config.get("agent_config", {})
+
+    provider = resolve_provider(provider_override, env_config, settings_config)
 
     # Determine API key
     # Priority: 1) CLI override, 2) env files (provider-specific), 3) env files (RADSIM_API_KEY),
