@@ -219,7 +219,12 @@ class AgentSubAgentMixin:
 
     def _handle_delegate_task(self, tool_input):
         """Handle delegation to a sub-agent under a locked capability profile."""
+        from .sub_agent import SUBSCRIPTION_LOCKOUT_MESSAGE, subagents_locked
         from .sub_agent_profiles import ProfileError, resolve_profile_name
+
+        if subagents_locked(getattr(self.config, "provider", None)):
+            print_error(SUBSCRIPTION_LOCKOUT_MESSAGE)
+            return {"success": False, "error": f"STOPPED: {SUBSCRIPTION_LOCKOUT_MESSAGE}"}
 
         task_description = tool_input.get("task_description", "")
         context = tool_input.get("context", "")

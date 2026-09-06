@@ -550,6 +550,12 @@ class WorkflowCommandHandlersMixin:
 
     def _cmd_subagent(self, agent, args=None):
         """Manage the persistent sub-agent model and instruction profiles."""
+        from .sub_agent import SUBSCRIPTION_LOCKOUT_MESSAGE, subagents_locked
+
+        if subagents_locked(getattr(agent.config, "provider", None)):
+            print_info(SUBSCRIPTION_LOCKOUT_MESSAGE)
+            return
+
         parts = list(args) if args else self._prompt_subagent_action()
         if not parts:
             return
