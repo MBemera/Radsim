@@ -406,7 +406,14 @@ class WorkflowCommandHandlersMixin:
                 )
                 print_block(lines, blank_before=False, blank_after=False)
         else:
-            print("  warning: No response from agent. Check your API key and provider.")
+            from .config import SUBSCRIPTION_PROVIDER
+
+            credential = (
+                "ChatGPT sign-in"
+                if getattr(agent.config, "provider", None) == SUBSCRIPTION_PROVIDER
+                else "API key"
+            )
+            print(f"  warning: No response from agent. Check your {credential} and provider.")
 
     def _cmd_panning(self, agent, args=None):
         """Brain-dump processing & synthesis."""

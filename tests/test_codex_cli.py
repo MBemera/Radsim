@@ -416,3 +416,105 @@ def test_switching_away_drops_the_subscription_model(monkeypatch):
     config.save_config("test-key", "openrouter", None)
 
     assert config.load_env_file()["model"] != "gpt-6-astra"
+
+
+def test_login_menu_offers_the_subscription_and_signs_in(monkeypatch):
+    """The in-session menu reaches the subscription, not only API keys."""
+    from radsim import codex_cli
+
+    handler = _switch_handler()
+    agent = AgentStub()
+    calls = []
+    monkeypatch.setattr("builtins.input", lambda _: "4")
+    monkeypatch.setattr(
+        codex_cli, "run_account_command", lambda name, device_code=False: calls.append(name) or 0
+    )
+    monkeypatch.setattr(handler, "_switch_to_subscription", lambda passed: calls.append(passed))
+
+    handler._cmd_login(agent)
+
+    assert calls == ["login", agent]
+
+
+def test_login_by_name_reaches_the_subscription(monkeypatch):
+    from radsim import codex_cli
+
+    handler = _switch_handler()
+    agent = AgentStub()
+    calls = []
+    monkeypatch.setattr(
+        codex_cli, "run_account_command", lambda name, device_code=False: calls.append(name) or 0
+    )
+    monkeypatch.setattr(handler, "_switch_to_subscription", lambda _agent: None)
+
+    handler._cmd_login(agent, ["chatgpt"])
+
+    assert calls == ["login"]
+
+
+def test_logout_by_name_reaches_the_subscription(monkeypatch):
+    from radsim import codex_cli, login
+
+    handler = _switch_handler()
+    calls = []
+    monkeypatch.setattr(
+        codex_cli, "run_account_command", lambda name, device_code=False: calls.append(name) or 0
+    )
+    monkeypatch.setattr(
+        login, "run_logout", lambda _provider: pytest.fail("must not use the key wizard")
+    )
+
+    handler._cmd_logout(AgentStub(), ["chatgpt"])
+
+    assert calls == ["logout"]
+
+
+def test_an_out_of_range_account_choice_is_refused(monkeypatch):
+    from radsim import codex_cli, login
+
+    monkeypatch.setattr("builtins.input", lambda _: "0")
+    monkeypatch.setattr(
+        codex_cli, "run_account_command", lambda *_a, **_k: pytest.fail("must not sign in")
+    )
+    monkeypatch.setattr(login, "run_login", lambda _p: pytest.fail("must not sign in"))
+
+    _switch_handler()._cmd_login(AgentStub())
+
+
+def test_setup_config_selects_the_subscription_without_a_key(monkeypatch):
+    """Choosing the subscription in /config never asks for an API key."""
+    from radsim import config
+
+    monkeypatch.setattr("builtins.input", lambda _: "4")
+    monkeypatch.setattr(config, "load_last_model_selection", lambda _provider: "gpt-6-astra")
+    monkeypatch.setattr("radsim.chatgpt_tokens.read_tokens", lambda: {"access_token": "marker"})
+
+    api_key, provider, model = config.setup_config(first_time=False)
+
+    assert (api_key, provider, model) == (None, "chatgpt", "gpt-6-astra")
+
+
+def test_config_command_applies_the_keyless_subscription(monkeypatch):
+    from radsim import commands_core
+
+    handler = _switch_handler()
+    agent = AgentStub()
+    switched = []
+    monkeypatch.setattr(
+        commands_core, "setup_config", lambda **_kwargs: (None, "chatgpt", "gpt-6-astra")
+    )
+    monkeypatch.setattr(handler, "_switch_to_subscription", switched.append)
+
+    handler._cmd_config(agent)
+
+    assert switched == [agent]
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected"),
+    [("chatgpt", "Subscription requests"), ("openrouter", "API calls"), (None, "API calls")],
+)
+def test_a_turn_spends_the_right_kind_of_request(provider, expected):
+    from radsim.commands_core import _request_noun
+
+    assert _request_noun(provider) == expected

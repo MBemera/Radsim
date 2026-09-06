@@ -63,6 +63,15 @@ def _append_reported_cost(rows: list[tuple[str, str]], usage: dict[str, Any]) ->
     rows.append(("Reported cost:", f"${reported_cost:.4f}  (partial: {coverage})"))
 
 
+def _request_noun(provider: str | None) -> str:
+    """Name what a turn spends: API calls, or subscription requests."""
+    from .config import SUBSCRIPTION_PROVIDER
+
+    if provider == SUBSCRIPTION_PROVIDER:
+        return "Subscription requests"
+    return "API calls"
+
+
 def _append_estimated_cost(
     rows: list[tuple[str, str]],
     usage: dict[str, Any],
@@ -144,9 +153,16 @@ class CoreCommandHandlersMixin:
         print_info("Fresh start: conversation, tasks, background jobs, and limits reset.")
 
     def _cmd_config(self, agent):
+        from .config import SUBSCRIPTION_PROVIDER
         from .output import print_header
 
         api_key, provider, model = setup_config(first_time=False)
+        # The subscription signs in instead of holding a key, so it is applied
+        # by provider and model alone.
+        if provider == SUBSCRIPTION_PROVIDER and model:
+            self._switch_to_subscription(agent)
+            print_header(provider, model)
+            return
         if api_key and provider and model:
             agent.update_config(provider, api_key, model)
             print_header(provider, model)
@@ -174,33 +190,62 @@ class CoreCommandHandlersMixin:
         else:
             print_info("Setup cancelled or incomplete.")
 
+    SUBSCRIPTION_ACCOUNT_LABEL = "ChatGPT subscription (sign in, no API key)"
+
+    @staticmethod
+    def _account_choices():
+        """Every account RadSim signs in to: API keys and the subscription."""
+        from .config import SUBSCRIPTION_PROVIDER
+        from .login import PROVIDERS
+
+        choices = [(name, PROVIDERS[name]["label"]) for name in PROVIDERS]
+        choices.append(
+            (SUBSCRIPTION_PROVIDER, CoreCommandHandlersMixin.SUBSCRIPTION_ACCOUNT_LABEL)
+        )
+        return choices
+
+    @staticmethod
+    def _pick_account(title, choices):
+        """Return the chosen account name, or None when the user declines."""
+        print_numbered_options(title, [label for _name, label in choices])
+        try:
+            choice = input(f"  Enter 1-{len(choices)}: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\n  Cancelled.")
+            return None
+        if not choice.isdigit() or not 1 <= int(choice) <= len(choices):
+            print("  Invalid choice.")
+            return None
+        return choices[int(choice) - 1][0]
+
     def _cmd_login(self, agent, args=None):
         """Log in to a provider from inside the REPL.
 
         Usage:
           /login                → pick from a numbered menu
-          /login <provider>     → API-key wizard for that provider
+          /login <provider>     → API-key wizard, or the subscription sign-in
         """
         from . import login as login_module
+        from .config import SUBSCRIPTION_PROVIDER
         from .login import PROVIDERS
 
+        choices = self._account_choices()
         provider = (args[0].lower() if args else "").strip()
         if not provider:
-            keys = list(PROVIDERS)
-            print_numbered_options("Log in - Select provider:", [PROVIDERS[name]["label"] for name in keys])
-            try:
-                choice = input(f"  Enter 1-{len(keys)}: ").strip()
-            except (KeyboardInterrupt, EOFError):
-                print("\n  Cancelled.")
-                return
-            try:
-                provider = keys[int(choice) - 1]
-            except (ValueError, IndexError):
-                print("  Invalid choice.")
+            provider = self._pick_account("Log in - Select provider:", choices)
+            if provider is None:
                 return
 
+        if provider == SUBSCRIPTION_PROVIDER:
+            from .codex_cli import run_account_command
+
+            if run_account_command("login") == 0:
+                self._switch_to_subscription(agent)
+            return
+
         if provider not in PROVIDERS:
-            lines = (f"  Unknown provider: {provider}", f"  Choices: {', '.join(PROVIDERS)}")
+            names = [name for name, _label in choices]
+            lines = (f"  Unknown provider: {provider}", f"  Choices: {', '.join(names)}")
             print_block(lines, blank_before=False, blank_after=False)
             return
 
@@ -216,24 +261,23 @@ class CoreCommandHandlersMixin:
             agent.update_config(provider, new_keys[env_var], None)
 
     def _cmd_logout(self, agent, args=None):
-        """Remove a provider's API key and any cached OAuth tokens."""
+        """Sign out of a provider: an API key, or the ChatGPT subscription."""
         from . import login as login_module
+        from .config import SUBSCRIPTION_PROVIDER
         from .login import PROVIDERS
 
+        choices = self._account_choices()
         provider = (args[0].lower() if args else "").strip()
         if not provider:
-            keys = list(PROVIDERS)
-            print_numbered_options("Log out - Select provider:", [PROVIDERS[name]["label"] for name in keys])
-            try:
-                choice = input(f"  Enter 1-{len(keys)}: ").strip()
-            except (KeyboardInterrupt, EOFError):
-                print("\n  Cancelled.")
+            provider = self._pick_account("Log out - Select provider:", choices)
+            if provider is None:
                 return
-            try:
-                provider = keys[int(choice) - 1]
-            except (ValueError, IndexError):
-                print("  Invalid choice.")
-                return
+
+        if provider == SUBSCRIPTION_PROVIDER:
+            from .codex_cli import run_account_command
+
+            run_account_command("logout")
+            return
 
         if provider not in PROVIDERS:
             print(f"  Unknown provider: {provider}")
@@ -401,7 +445,7 @@ class CoreCommandHandlersMixin:
         print_header("openrouter", model)
 
     def _cmd_ratelimit(self, agent, args=None):
-        """Set API call limit per turn (rate limiting tier)."""
+        """Set the model request limit per turn (rate limiting tier)."""
         from .config import (
             DEFAULT_RATE_LIMIT_TIER,
             RATE_LIMIT_TIERS,
@@ -410,10 +454,11 @@ class CoreCommandHandlersMixin:
         )
 
         current_tier = load_settings_file().get("rate_limit_tier", DEFAULT_RATE_LIMIT_TIER)
+        request_noun = _request_noun(getattr(agent.config, "provider", None))
 
         tier_keys = list(RATE_LIMIT_TIERS.keys())
         print_numbered_options(
-            "Rate Limit - API calls allowed per turn:",
+            f"Rate Limit - {request_noun} allowed per turn:",
             [
                 f"{RATE_LIMIT_TIERS[key]['label']} - {RATE_LIMIT_TIERS[key]['description']}"
                 f"{' (current)' if key == current_tier else ''}"
@@ -446,7 +491,7 @@ class CoreCommandHandlersMixin:
 
         lines = (
             f"  ok Rate limit set to: {RATE_LIMIT_TIERS[selected_tier]['label']}",
-            f"    {new_max} API calls per turn (saved for future sessions)",
+            f"    {new_max} {request_noun.lower()} per turn (saved for future sessions)",
         )
         print_block(lines, blank_after=False)
 
