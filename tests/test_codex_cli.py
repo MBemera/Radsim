@@ -231,6 +231,83 @@ def test_wizard_saves_the_subscription_choice(monkeypatch):
     assert config.resolve_provider() == "chatgpt"
 
 
+def _switch_handler():
+    from radsim.commands_core import CoreCommandHandlersMixin
+
+    return CoreCommandHandlersMixin()
+
+
+def test_switch_menu_offers_the_subscription_and_opens_its_menu(monkeypatch, capsys):
+    """Every ChatGPT account action is reachable from /switch and /model."""
+    handler = _switch_handler()
+    agent = SimpleNamespace(config=SimpleNamespace(provider="openrouter"))
+    monkeypatch.setattr("builtins.input", lambda _: "4")
+    opened = []
+    monkeypatch.setattr(handler, "_chatgpt_account_menu", lambda passed: opened.append(passed))
+
+    handler._cmd_switch(agent)
+
+    assert opened == [agent]
+    assert "ChatGPT subscription" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "action,expected",
+    [
+        ("login", ("login", False)),
+        ("login-device", ("login", True)),
+        ("status", ("status", False)),
+        ("models", ("models", False)),
+        ("logout", ("logout", False)),
+    ],
+)
+def test_account_menu_runs_each_action(monkeypatch, capsys, action, expected):
+    from radsim import menu
+
+    handler = _switch_handler()
+    agent = SimpleNamespace(config=SimpleNamespace(provider="openrouter"))
+    calls = []
+    monkeypatch.setattr(
+        codex_cli,
+        "run_account_command",
+        lambda name, device_code=False: calls.append((name, device_code)) or 0,
+    )
+    monkeypatch.setattr(
+        menu, "interactive_menu_loop", lambda _title, _options, run: run(action)
+    )
+
+    handler._chatgpt_account_menu(agent)
+
+    assert calls == [expected]
+    restart_notice = "Restart radsim" in capsys.readouterr().out
+    assert restart_notice is action.startswith("login")
+
+
+def test_account_menu_covers_every_subscription_command():
+    from radsim.commands_core import CoreCommandHandlersMixin
+
+    assert [key for key, _ in CoreCommandHandlersMixin.CHATGPT_ACCOUNT_ACTIONS] == [
+        "login",
+        "login-device",
+        "status",
+        "models",
+        "logout",
+    ]
+
+
+def test_account_menu_stays_quiet_when_sign_in_fails(monkeypatch, capsys):
+    from radsim import menu
+
+    handler = _switch_handler()
+    agent = SimpleNamespace(config=SimpleNamespace(provider="openrouter"))
+    monkeypatch.setattr(codex_cli, "run_account_command", lambda *_, **__: 1)
+    monkeypatch.setattr(menu, "interactive_menu_loop", lambda _t, _o, run: run("login"))
+
+    handler._chatgpt_account_menu(agent)
+
+    assert "Restart radsim" not in capsys.readouterr().out
+
+
 def test_setup_reopens_the_wizard_when_the_subscription_is_saved(monkeypatch):
     """A saved subscription must not trap the user out of --setup."""
     saved = SimpleNamespace(provider=None, setup=True)

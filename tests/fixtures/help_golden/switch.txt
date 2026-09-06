@@ -12,8 +12,10 @@
 
   Details:
     Opens an interactive menu to select a new provider (Claude, GPT-5,
-    Gemini, Vertex AI, OpenRouter) and then pick a model. Requires an
-    API key already configured in your .env file.
+    OpenRouter) and then pick a model. Requires an API key already
+    configured in your .env file. The ChatGPT subscription entry opens
+    its own menu for sign in, sign out, plan and quota, and models; it
+    is a separate runtime, so it starts with the next radsim session.
 
   Examples:
     $ /switch
