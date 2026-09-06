@@ -264,7 +264,6 @@ class AgentStub:
         ("login", ("login", False), True),
         ("login-device", ("login", True), True),
         ("status", ("status", False), False),
-        ("models", ("models", False), False),
         ("logout", ("logout", False), False),
     ],
 )
@@ -301,6 +300,17 @@ def test_account_menu_switches_the_live_session(monkeypatch):
     handler._chatgpt_account_menu(agent)
 
     assert agent.switched == [("chatgpt", None, "gpt-6-astra")]
+
+
+def test_account_menu_opens_model_selection(monkeypatch):
+    from radsim import chatgpt_models, menu
+
+    agent = AgentStub()
+    selected = []
+    monkeypatch.setattr(chatgpt_models, "select_model", selected.append)
+    monkeypatch.setattr(menu, "interactive_menu_loop", lambda _t, _o, run: run("models"))
+    _switch_handler()._chatgpt_account_menu(agent)
+    assert selected == [agent]
 
 
 def test_switch_to_subscription_ignores_saved_api_model(monkeypatch):

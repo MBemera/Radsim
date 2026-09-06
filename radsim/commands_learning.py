@@ -318,14 +318,16 @@ class LearningCommandHandlersMixin:
             print_info(f"{model} supports: {', '.join(options)}")
             return
 
+        from .codex_transport import CodexError
+
+        try:
+            client = create_client(provider, agent.config.api_key, model, reasoning_effort=effort)
+        except CodexError as error:
+            print_info(str(error))
+            return
         save_reasoning_effort(effort)
         agent.config.reasoning_effort = effort
-        agent.client = create_client(
-            provider,
-            agent.config.api_key,
-            model,
-            reasoning_effort=effort,
-        )
+        agent.client = client
         print_block((f"  Reasoning effort: {effort}", "  Saved to ~/.radsim/settings.json"))
 
     def _apply_security_level(self, config_mgr, level):

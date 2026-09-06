@@ -73,6 +73,9 @@ def _append_estimated_cost(
     from .config import get_model_pricing
     from .pricing import describe_pricing_source, estimate_usage_cost
 
+    if provider == "chatgpt":
+        rows.append(("Billing:", "ChatGPT subscription (no API billing fallback)"))
+        return
     pricing = get_model_pricing(model, provider)
     if pricing is None:
         rows.append(("Est. cost:", "n/a (no pricing data for this model)"))
@@ -321,7 +324,7 @@ class CoreCommandHandlersMixin:
         ("login-device", "Sign in with a device code (no local browser)"),
         ("use", "Use the subscription in this session"),
         ("status", "Plan and remaining quota"),
-        ("models", "Models your account can use"),
+        ("models", "Choose model and reasoning effort"),
         ("logout", "Sign out and stop defaulting to the subscription"),
     )
 
@@ -335,6 +338,11 @@ class CoreCommandHandlersMixin:
         from .menu import interactive_menu_loop
 
         def run_action(action):
+            if action == "models":
+                from .chatgpt_models import select_model
+
+                select_model(agent)
+                return
             if action == "use":
                 self._switch_to_subscription(agent)
                 return

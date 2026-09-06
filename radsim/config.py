@@ -28,6 +28,7 @@ REASONING_EFFORT_LEVELS = (
     "high",
     "xhigh",
     "max",
+    "ultra",
 )
 DEFAULT_REASONING_EFFORT_OPTIONS = ("low", "medium", "high")
 DEFAULT_REASONING_EFFORT = "medium"
@@ -1191,6 +1192,10 @@ def _search_openrouter_models(full: list[tuple[str, str]]) -> str | None:
 
 def get_reasoning_effort_options(provider: str, model: str) -> tuple[str, ...]:
     """Return the effort levels accepted by the selected model."""
+    if provider == SUBSCRIPTION_PROVIDER:
+        from .chatgpt_models import model_capabilities
+
+        return model_capabilities(model).get("efforts", ())
     capabilities = MODEL_CAPABILITIES.get(model, {})
     if provider == "openrouter":
         from .openrouter_models import (
@@ -1215,6 +1220,10 @@ def resolve_reasoning_effort(provider: str, model: str, effort: str) -> str:
         return effort
     capabilities = MODEL_CAPABILITIES.get(model, {})
     default_effort = capabilities.get("default_reasoning_effort")
+    if provider == SUBSCRIPTION_PROVIDER:
+        from .chatgpt_models import model_capabilities
+
+        default_effort = model_capabilities(model).get("default_effort")
     if provider == "openrouter":
         from .openrouter_models import get_model_default_reasoning_effort
 
