@@ -20,8 +20,10 @@ from .config import (
     PROVIDER_MODELS,
     PROVIDER_URLS,
     SETTINGS_FILE,
+    SUBSCRIPTION_PROVIDER,
     load_env_file,
     save_config,
+    save_subscription_selection,
 )
 
 logger = logging.getLogger(__name__)
@@ -419,6 +421,11 @@ def step_provider_intro():
         ("OpenRouter", "Recommended — free models, multiple providers", "$0–0.50/M tokens"),
         ("GPT-5 (OpenAI)", "Versatile, multimodal, fast", "$1-15/M tokens"),
         ("Claude (Anthropic)", "Great for coding, reasoning, safety", "$3-15/M tokens"),
+        (
+            "ChatGPT subscription",
+            "Sign in instead of paying per token; Codex runs the session",
+            "Included in your ChatGPT plan",
+        ),
     ]
 
     for name, desc, price in providers:
@@ -440,17 +447,19 @@ def step_select_provider() -> tuple:
     print("    1. OpenRouter               - Recommended (free models, cheapest)")
     print("    2. GPT-5 (OpenAI)           - Versatile & fast")
     print("    3. Claude (Anthropic)       - Best for coding")
+    print("    4. ChatGPT subscription     - Sign in, no API key")
     print()
 
     provider_map = {
         "1": "openrouter",
         "2": "openai",
         "3": "claude",
+        "4": SUBSCRIPTION_PROVIDER,
     }
 
     while True:
         try:
-            choice = input("  Enter 1-3 [1]: ").strip() or "1"
+            choice = input("  Enter 1-4 [1]: ").strip() or "1"
         except (KeyboardInterrupt, EOFError):
             print("\n  Setup cancelled.")
             sys.exit(0)
@@ -458,7 +467,15 @@ def step_select_provider() -> tuple:
         provider = provider_map.get(choice)
         if provider:
             break
-        print("  Invalid choice. Please enter 1-3.")
+        print("  Invalid choice. Please enter 1-4.")
+
+    # The subscription catalogue comes from the account after sign-in.
+    if provider == SUBSCRIPTION_PROVIDER:
+        print()
+        print("  ok Selected: ChatGPT subscription")
+        print("  You will sign in next; models come from your account.")
+        pause()
+        return provider, ""
 
     # Select model
     print()
@@ -892,7 +909,7 @@ def step_complete(user_name: str, provider: str, model: str):
     print()
     print("  Your configuration:")
     print(f"    Provider: {provider.title()}")
-    print(f"    Model:    {model}")
+    print(f"    Model:    {model or 'chosen after you sign in'}")
     print("    Config:   ~/.radsim/")
     print()
     print("  ┌─────────────────────────────────────────────────┐")
@@ -939,10 +956,10 @@ def run_onboarding() -> tuple:
     # Step 4: Select provider and model
     provider, model = step_select_provider()
 
-    # Step 5: API key
-    api_key = step_api_key(provider)
+    # Step 5: API key (the subscription signs in instead)
+    api_key = None if provider == SUBSCRIPTION_PROVIDER else step_api_key(provider)
 
-    if not api_key:
+    if not api_key and provider != SUBSCRIPTION_PROVIDER:
         # User skipped API key - can't continue
         print()
         print("  Please add your API key and run 'radsim' again.")
@@ -962,7 +979,10 @@ def run_onboarding() -> tuple:
     step_complete(user_name, provider, model)
 
     # Save final config
-    save_config(api_key, provider, model)
+    if provider == SUBSCRIPTION_PROVIDER:
+        save_subscription_selection()
+    else:
+        save_config(api_key, provider, model)
 
     return api_key, provider, model
 

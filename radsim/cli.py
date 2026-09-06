@@ -282,6 +282,44 @@ def _handle_login_subcommand() -> int | None:
     return login_module.run_logout(sub_args.provider)
 
 
+def _wants_subscription_session(args) -> bool:
+    """Decide between a ChatGPT subscription session and the API-provider agent."""
+    from .config import SUBSCRIPTION_PROVIDER, resolve_provider
+
+    if args.provider == SUBSCRIPTION_PROVIDER:
+        return True
+    if args.setup:
+        return False  # --setup reopens the wizard so the provider can change
+    return resolve_provider(args.provider) == SUBSCRIPTION_PROVIDER
+
+
+def _start_subscription_session(args) -> int:
+    """Run a ChatGPT subscription session instead of the API-provider agent."""
+    from .access_control import check_access_on_startup
+    from .codex_cli import run_chatgpt
+
+    if not check_access_on_startup():
+        return 1
+    return run_chatgpt(args)
+
+
+def _complete_onboarding(args) -> None:
+    """Run the setup wizard and apply its choices to the parsed arguments."""
+    from .config import SUBSCRIPTION_PROVIDER
+    from .onboarding import run_onboarding
+
+    api_key, provider, _model = run_onboarding()
+
+    if provider == SUBSCRIPTION_PROVIDER:
+        args.setup = True  # sign in before the first subscription session
+        sys.exit(_start_subscription_session(args))
+    if not api_key:
+        sys.exit(0)
+
+    args.provider = provider
+    args.api_key = api_key
+
+
 def main():
     """Main entry point."""
     from .log_config import configure_logging
@@ -296,15 +334,8 @@ def main():
 
     args = parse_arguments()
 
-    from .config import resolve_provider
-
-    if resolve_provider(args.provider) == "chatgpt":
-        from .access_control import check_access_on_startup
-        from .codex_cli import run_chatgpt
-
-        if not check_access_on_startup():
-            sys.exit(1)
-        sys.exit(run_chatgpt(args))
+    if _wants_subscription_session(args):
+        sys.exit(_start_subscription_session(args))
     if args.resume:
         print("--resume requires --provider chatgpt")
         sys.exit(2)
@@ -312,18 +343,14 @@ def main():
     from .access_control import check_access_on_startup
     from .config import load_config
     from .health import check_health, check_secret_expirations
-    from .onboarding import run_onboarding, should_run_onboarding
+    from .onboarding import should_run_onboarding
     from .output import print_error
 
     # T&C is shown only during onboarding (first-time setup), not every login
 
     # Force re-run setup if --setup flag is passed
     if args.setup:
-        api_key, provider, model = run_onboarding()
-        if not api_key:
-            sys.exit(0)
-        args.provider = provider
-        args.api_key = api_key
+        _complete_onboarding(args)
     # Normal first-run onboarding (unless skipped)
     elif (
         should_run_onboarding()
@@ -331,13 +358,7 @@ def main():
         and not args.api_key
         and not args.provider
     ):
-        api_key, provider, model = run_onboarding()
-        if not api_key:
-            # User didn't complete onboarding
-            sys.exit(0)
-        # Override args with onboarding results
-        args.provider = provider
-        args.api_key = api_key
+        _complete_onboarding(args)
 
     # Check access control first (if enabled)
     if not check_access_on_startup():

@@ -246,9 +246,11 @@ python3 -m pip install --user radsimcli
 Run `radsim` with no arguments. The setup wizard asks for:
 
 - Terms acceptance.
-- A provider (`openrouter`, `openai`, or `claude`).
-- A model from that provider's list.
-- An API key, which is written to `~/.radsim/.env` with `chmod 600`.
+- A provider (`openrouter`, `openai`, `claude`, or your ChatGPT subscription).
+- A model from that provider's list. Subscription models come from your account
+  after sign-in, so the wizard skips this step.
+- An API key, which is written to `~/.radsim/.env` with `chmod 600`. The
+  subscription signs in instead and stores no key.
 
 You can re-enter the wizard at any time with `radsim --setup`. Once configured:
 
@@ -278,7 +280,9 @@ radsim --provider chatgpt --resume   # continue this directory's conversation
 radsim logout chatgpt
 ```
 
-To make it the default, set `RADSIM_PROVIDER="chatgpt"` in `~/.radsim/.env`.
+`radsim login chatgpt` makes the subscription your default provider, the same
+way the API-key logins do, so plain `radsim` uses it afterwards. `radsim logout
+chatgpt` switches back; your API keys and saved model are left untouched.
 
 What is different from the API providers:
 

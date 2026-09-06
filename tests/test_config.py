@@ -311,6 +311,45 @@ def test_save_config_falls_back_to_default_when_no_prior_model(tmp_path, monkeyp
     assert load_env_file()["model"] == DEFAULT_MODELS["openrouter"]
 
 
+def test_subscription_selection_survives_a_saved_api_provider(tmp_path, monkeypatch):
+    """Signing in to ChatGPT must win over the remembered API selection."""
+    from radsim.config import (
+        clear_subscription_selection,
+        load_env_file,
+        resolve_provider,
+        save_config,
+        save_subscription_selection,
+    )
+
+    _isolate_config(tmp_path, monkeypatch)
+    monkeypatch.delenv("RADSIM_PROVIDER", raising=False)
+
+    save_config("test-key", "openrouter", "z-ai/glm-5.2")
+    save_subscription_selection()
+
+    saved = load_env_file()
+    assert resolve_provider() == "chatgpt"
+    assert saved["provider"] == "chatgpt"
+    assert saved["model"] == "z-ai/glm-5.2"  # kept for a later switch back
+    assert saved["keys"]["OPENROUTER_API_KEY"] == "test-key"
+
+    clear_subscription_selection()
+
+    assert resolve_provider() == "openrouter"
+    assert load_env_file()["keys"]["OPENROUTER_API_KEY"] == "test-key"
+
+
+def test_clearing_leaves_another_provider_alone(tmp_path, monkeypatch):
+    from radsim.config import clear_subscription_selection, load_env_file, save_config
+
+    _isolate_config(tmp_path, monkeypatch)
+
+    save_config("test-key", "claude", None)
+    clear_subscription_selection()
+
+    assert load_env_file()["provider"] == "claude"
+
+
 def test_last_model_selection_wins_over_legacy_global_model(tmp_path, monkeypatch):
     from radsim.config import load_config, save_last_model_selection
 

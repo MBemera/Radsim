@@ -38,8 +38,10 @@ def run_account_command(action: str, *, device_code: bool = False) -> int:
         with open_connection() as connection:
             if action == "login":
                 login(connection, device_code=device_code, emit=emit)
+                _remember_subscription_choice()
             elif action == "logout":
                 connection.request("account/logout", {})
+                _forget_subscription_choice()
                 emit("Signed out of RadSim's ChatGPT account.")
             elif action == "status":
                 show_status(connection, emit)
@@ -53,6 +55,25 @@ def run_account_command(action: str, *, device_code: bool = False) -> int:
         return 130
     except (CodexError, OSError) as error:
         return report_error(error)
+
+
+def _remember_subscription_choice() -> None:
+    """Default later sessions to the subscription, like the API-key logins do."""
+    from .config import save_subscription_selection
+
+    try:
+        save_subscription_selection()
+    except OSError:
+        emit("Signed in, but the default provider could not be saved.")
+        return
+    emit("RadSim will use your ChatGPT subscription by default.")
+    emit("Switch back with: radsim --provider openrouter (or openai, claude).")
+
+
+def _forget_subscription_choice() -> None:
+    from .config import clear_subscription_selection
+
+    clear_subscription_selection()
 
 
 def report_error(error: Exception) -> int:

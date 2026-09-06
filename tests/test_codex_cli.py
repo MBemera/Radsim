@@ -169,6 +169,101 @@ class ConnectionStub:
     def __exit__(self, *_):
         return False
 
+    def request(self, _method, _params, **__):
+        return {}
+
+
+def test_login_and_logout_switch_the_default_provider(monkeypatch):
+    """Signing in selects the subscription for later sessions; signing out undoes it."""
+    from radsim import access_control, config
+
+    monkeypatch.delenv("RADSIM_PROVIDER", raising=False)
+    monkeypatch.setattr(access_control, "check_access_on_startup", lambda: True)
+    monkeypatch.setattr(codex_cli, "open_connection", ConnectionStub)
+    monkeypatch.setattr(codex_cli, "login", lambda *_, **__: None)
+
+    assert codex_cli.run_account_command("login") == 0
+    assert config.resolve_provider() == "chatgpt"
+
+    assert codex_cli.run_account_command("logout") == 0
+    assert config.resolve_provider() != "chatgpt"
+
+
+def test_failed_login_does_not_change_the_default_provider(monkeypatch):
+    from radsim import access_control, config
+
+    monkeypatch.delenv("RADSIM_PROVIDER", raising=False)
+    monkeypatch.setattr(access_control, "check_access_on_startup", lambda: True)
+    monkeypatch.setattr(codex_cli, "open_connection", ConnectionStub)
+    monkeypatch.setattr(
+        codex_cli, "login", lambda *_, **__: (_ for _ in ()).throw(CodexError("sign-in failed"))
+    )
+
+    assert codex_cli.run_account_command("login") == 1
+    assert config.resolve_provider() != "chatgpt"
+
+
+def test_wizard_offers_the_subscription_without_asking_for_a_key(monkeypatch):
+    from radsim import onboarding
+
+    monkeypatch.setattr(onboarding, "clear_screen", lambda: None)
+    monkeypatch.setattr(onboarding, "pause", lambda *_: None)
+    monkeypatch.setattr(onboarding, "step_api_key", lambda _: pytest.fail("must not ask"))
+    monkeypatch.setattr("builtins.input", lambda _: "4")
+
+    assert onboarding.step_select_provider() == ("chatgpt", "")
+
+
+def test_wizard_saves_the_subscription_choice(monkeypatch):
+    from radsim import config, onboarding
+
+    monkeypatch.delenv("RADSIM_PROVIDER", raising=False)
+    for step in ("step_user_profile", "step_provider_intro", "step_settings", "step_appearance"):
+        monkeypatch.setattr(onboarding, step, lambda *_: None)
+    monkeypatch.setattr(onboarding, "step_tutorial", lambda: None)
+    monkeypatch.setattr(onboarding, "step_complete", lambda *_: None)
+    monkeypatch.setattr(onboarding, "has_accepted_terms", lambda: True)
+    monkeypatch.setattr(onboarding, "step_welcome", lambda: "Matt")
+    monkeypatch.setattr(onboarding, "step_select_provider", lambda: ("chatgpt", ""))
+    monkeypatch.setattr(onboarding, "step_api_key", lambda _: pytest.fail("must not ask"))
+
+    assert onboarding.run_onboarding() == (None, "chatgpt", "")
+    assert config.resolve_provider() == "chatgpt"
+
+
+def test_setup_reopens_the_wizard_when_the_subscription_is_saved(monkeypatch):
+    """A saved subscription must not trap the user out of --setup."""
+    saved = SimpleNamespace(provider=None, setup=True)
+    explicit = SimpleNamespace(provider="chatgpt", setup=True)
+
+    monkeypatch.setenv("RADSIM_PROVIDER", "chatgpt")
+    assert cli._wants_subscription_session(saved) is False
+    assert cli._wants_subscription_session(explicit) is True
+
+    saved.setup = False
+    assert cli._wants_subscription_session(saved) is True
+
+
+def test_wizard_choice_starts_a_signed_in_subscription_session(monkeypatch):
+    """Choosing the subscription in the wizard signs in, it does not load API config."""
+    from radsim import access_control, config, log_config, onboarding
+
+    started = []
+    monkeypatch.setattr("sys.argv", ["radsim"])
+    monkeypatch.delenv("RADSIM_PROVIDER", raising=False)
+    monkeypatch.setattr(cli, "install_process_handlers", lambda: None)
+    monkeypatch.setattr(log_config, "configure_logging", lambda: None)
+    monkeypatch.setattr(onboarding, "should_run_onboarding", lambda: True)
+    monkeypatch.setattr(onboarding, "run_onboarding", lambda: (None, "chatgpt", ""))
+    monkeypatch.setattr(access_control, "check_access_on_startup", lambda: True)
+    monkeypatch.setattr(config, "load_config", lambda **_: pytest.fail("API config must not load"))
+    monkeypatch.setattr(codex_cli, "run_chatgpt", lambda args: started.append(args.setup) or 0)
+
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 0
+    assert started == [True]
+
 
 def test_session_model_ignores_other_providers_saved_model(monkeypatch):
     """RADSIM_MODEL holds an API-provider model; it must not select a subscription model."""

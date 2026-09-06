@@ -121,6 +121,9 @@ DEFAULT_MODELS = {
     "claude": "claude-opus-4-8",
 }
 
+# Runs on a ChatGPT plan through Codex: no API key, no static model catalogue.
+SUBSCRIPTION_PROVIDER = "chatgpt"
+
 PROVIDER_URLS = {
     "openrouter": "https://openrouter.ai/keys",
     "openai": "https://platform.openai.com/api-keys",
@@ -848,19 +851,26 @@ def save_config(api_key, provider, model):
     # Update with the new key
     existing_keys[env_var] = api_key
 
-    # Build content preserving all API keys
+    _write_env_file(provider, model, existing_keys)
+    save_last_model_selection(provider, model)
+
+
+def _write_env_file(provider: str, model: str, keys: dict) -> None:
+    """Rewrite ~/.radsim/.env with the selection and the preserved API keys."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
     lines = [
         "# RadSim Configuration",
         "# This file is chmod 600 (secure)",
         "",
-        f'RADSIM_PROVIDER="{provider}"',
-        f'RADSIM_MODEL="{model}"',
-        "",
-        "# API Keys (preserved across provider switches)",
     ]
+    if provider:
+        lines.append(f'RADSIM_PROVIDER="{provider}"')
+    if model:
+        lines.append(f'RADSIM_MODEL="{model}"')
+    lines += ["", "# API Keys (preserved across provider switches)"]
 
-    # Add all API keys
-    for key_name, key_value in existing_keys.items():
+    for key_name, key_value in keys.items():
         if key_value and not key_value.lower().startswith("paste_your"):
             lines.append(f'{key_name}="{key_value}"')
 
@@ -868,7 +878,42 @@ def save_config(api_key, provider, model):
 
     ENV_FILE.write_text("\n".join(lines))
     ENV_FILE.chmod(0o600)  # Secure: owner read/write only
-    save_last_model_selection(provider, model)
+
+
+def save_subscription_selection() -> None:
+    """Make the ChatGPT subscription the default provider.
+
+    No API key is involved, so this cannot reuse save_config(). The stored
+    model and API keys are preserved for a later switch back, and the last
+    API selection is dropped because it outranks the .env provider.
+    """
+    existing_config = load_env_file()
+    _write_env_file(
+        SUBSCRIPTION_PROVIDER,
+        existing_config.get("model") or "",
+        existing_config.get("keys", {}),
+    )
+    _forget_last_model_selection()
+
+
+def clear_subscription_selection() -> None:
+    """Stop defaulting to the ChatGPT subscription, keeping keys and model."""
+    existing_config = load_env_file()
+    if existing_config.get("provider") != SUBSCRIPTION_PROVIDER:
+        return
+
+    _write_env_file("", existing_config.get("model") or "", existing_config.get("keys", {}))
+
+
+def _forget_last_model_selection() -> None:
+    """Drop the remembered API provider/model so it cannot shadow a new choice."""
+    settings = load_settings_file()
+    if "last_provider" not in settings and "last_model" not in settings:
+        return
+
+    settings.pop("last_provider", None)
+    settings.pop("last_model", None)
+    atomic_write_json(SETTINGS_FILE, settings, secure=True)
 
 
 def save_last_model_selection(provider: str, model: str) -> None:
