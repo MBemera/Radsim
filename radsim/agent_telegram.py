@@ -188,6 +188,7 @@ def start_telegram_processor(agent):
                         agent.config.model,
                         agent.usage_stats["input_tokens"],
                         agent.usage_stats["output_tokens"],
+                        usage_limits=getattr(agent.client, "usage_limits", None),
                     )
             except Exception as error:
                 logger.debug("Telegram processor error: %s", error)

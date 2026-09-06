@@ -221,6 +221,7 @@ def run_interactive(config, context_file=None):
                 config.model,
                 agent.usage_stats["input_tokens"],
                 agent.usage_stats["output_tokens"],
+                usage_limits=getattr(agent.client, "usage_limits", None),
             )
 
         except RateLimitExceeded as error:

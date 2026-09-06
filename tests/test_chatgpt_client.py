@@ -409,3 +409,83 @@ def test_completed_stream_items_are_not_duplicated(monkeypatch):
     client = build_client(monkeypatch, [event, event, *stream_of(completed_response([item]))])
     response = client.chat([{"role": "user", "content": "hi"}])
     assert len(response["content"]) == 1
+
+
+class FakeStream(list):
+    """A stream that also carries its HTTP response, like the OpenAI SDK's."""
+
+    def __init__(self, events, headers):
+        super().__init__(events)
+        self.response = SimpleNamespace(headers=headers)
+
+
+PLAN_HEADERS = {
+    "x-codex-primary-used-percent": "7",
+    "x-codex-primary-window-minutes": "300",
+    "x-codex-primary-reset-after-seconds": "15053",
+    "x-codex-secondary-used-percent": "82",
+    "x-codex-secondary-window-minutes": "10080",
+    "x-codex-secondary-reset-after-seconds": "373664",
+    "x-codex-turn-state": "opaque-turn-state-marker",
+}
+
+
+def test_plan_windows_come_from_the_response_headers(monkeypatch):
+    client = build_client(monkeypatch, FakeStream(stream_of(completed_response([])), PLAN_HEADERS))
+    client.chat([{"role": "user", "content": "hi"}])
+
+    assert client.usage_limits == (
+        {"window_minutes": 300, "used_percent": 7.0, "resets_in_seconds": 15053},
+        {"window_minutes": 10080, "used_percent": 82.0, "resets_in_seconds": 373664},
+    )
+    assert "opaque-turn-state-marker" not in repr(client.usage_limits)
+
+
+def test_plan_windows_are_empty_without_headers(monkeypatch):
+    client = build_client(monkeypatch, stream_of(completed_response([])))
+    client.chat([{"role": "user", "content": "hi"}])
+
+    assert client.usage_limits == ()
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"x-codex-primary-used-percent": "7"},
+        {"x-codex-primary-window-minutes": "300"},
+        {"x-codex-primary-window-minutes": "300", "x-codex-primary-used-percent": "not-a-number"},
+        {"x-codex-primary-window-minutes": "300", "x-codex-primary-used-percent": "150"},
+        {"x-codex-primary-window-minutes": "0", "x-codex-primary-used-percent": "7"},
+        {"x-codex-primary-window-minutes": "-300", "x-codex-primary-used-percent": "7"},
+    ],
+)
+def test_unusable_window_headers_are_dropped(monkeypatch, headers):
+    client = build_client(monkeypatch, FakeStream(stream_of(completed_response([])), headers))
+    client.chat([{"role": "user", "content": "hi"}])
+
+    assert client.usage_limits == ()
+
+
+def test_an_unreadable_reset_still_reports_the_window(monkeypatch):
+    headers = {
+        "x-codex-primary-window-minutes": "300",
+        "x-codex-primary-used-percent": "7",
+        "x-codex-primary-reset-after-seconds": "soon",
+    }
+    client = build_client(monkeypatch, FakeStream(stream_of(completed_response([])), headers))
+    client.chat([{"role": "user", "content": "hi"}])
+
+    assert client.usage_limits == (
+        {"window_minutes": 300, "used_percent": 7.0, "resets_in_seconds": None},
+    )
+
+
+def test_the_last_known_plan_windows_survive_a_response_without_them(monkeypatch):
+    client = build_client(monkeypatch, FakeStream(stream_of(completed_response([])), PLAN_HEADERS))
+    client.chat([{"role": "user", "content": "hi"}])
+    known = client.usage_limits
+
+    client.client.responses.result = stream_of(completed_response([]))
+    client.chat([{"role": "user", "content": "again"}])
+
+    assert client.usage_limits == known

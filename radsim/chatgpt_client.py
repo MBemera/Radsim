@@ -26,6 +26,9 @@ CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex"
 # Codex client that produced them, exactly like other subscription clients.
 CODEX_ORIGINATOR = "codex_cli_rs"
 MAX_OUTPUT_ITEMS = 4096
+USAGE_LIMIT_WINDOWS = ("primary", "secondary")
+MAX_WINDOW_MINUTES = 366 * 24 * 60
+MAX_RESET_SECONDS = 366 * 24 * 3600
 
 
 def describe_http_failure(error: Exception) -> str:
@@ -59,6 +62,51 @@ def quota_reset_hint(error: Exception) -> str:
     return f" Resets in about {max(minutes, 1)} min."
 
 
+def read_usage_limits(stream: Any) -> tuple[dict[str, Any], ...]:
+    """Read the plan's usage windows from the response headers.
+
+    Only the three documented headers per window are read. Everything else
+    the backend sends, including its opaque turn state, is ignored.
+    """
+    headers = getattr(getattr(stream, "response", None), "headers", None)
+    if headers is None:
+        return ()
+    windows = [_read_usage_window(headers, name) for name in USAGE_LIMIT_WINDOWS]
+    found = [window for window in windows if window is not None]
+    return tuple(sorted(found, key=lambda window: window["window_minutes"]))
+
+
+def _read_usage_window(headers: Any, name: str) -> dict[str, Any] | None:
+    """Return one validated window, or None when the backend omits it."""
+    minutes = _bounded_int(headers.get(f"x-codex-{name}-window-minutes"), MAX_WINDOW_MINUTES)
+    used_percent = _bounded_number(headers.get(f"x-codex-{name}-used-percent"), 100)
+    if not minutes or used_percent is None:
+        return None
+    return {
+        "window_minutes": minutes,
+        "used_percent": used_percent,
+        "resets_in_seconds": _bounded_int(
+            headers.get(f"x-codex-{name}-reset-after-seconds"), MAX_RESET_SECONDS
+        ),
+    }
+
+
+def _bounded_int(value: Any, maximum: int) -> int | None:
+    number = _bounded_number(value, maximum)
+    return None if number is None else int(number)
+
+
+def _bounded_number(value: Any, maximum: float) -> float | None:
+    """Accept only a finite, non-negative number inside the expected range."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number < 0 or number > maximum:
+        return None
+    return number
+
+
 class ChatGPTClient(BaseAPIClient):
     """Talk to the ChatGPT Responses endpoint with the Codex sign-in."""
 
@@ -83,6 +131,7 @@ class ChatGPTClient(BaseAPIClient):
         self.reasoning_effort = reasoning_effort
         self.session_id = str(uuid.uuid4())
         self.account_id = account_id
+        self.usage_limits: tuple[dict[str, Any], ...] = ()
         self.client = openai.OpenAI(
             api_key=access_token,
             base_url=CHATGPT_BASE_URL,
@@ -167,6 +216,9 @@ class ChatGPTClient(BaseAPIClient):
         events = None
         try:
             events = self.client.responses.create(**kwargs)
+            # Every response carries the plan's windows; keep the last known
+            # set when one omits them so the status bar never blanks out.
+            self.usage_limits = read_usage_limits(events) or self.usage_limits
             completed = None
             output_items = {}
             for event in events:
