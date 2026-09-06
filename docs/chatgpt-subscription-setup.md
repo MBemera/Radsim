@@ -103,39 +103,69 @@ interface availability, not successful authentication or runtime behavior.
 6. Validate resume, streaming, usage accounting and existing API-provider
    regressions before enabling the option in ordinary sessions.
 
+## Decision change: the subscription runs in RadSim's frame
+
+The Codex-owned session above was built first and then **replaced** on Matt's
+instruction: "it needs to actually run in the radsim frame. openclaw and
+opencode don't do some wonky default and we won't either." Handing the turn to
+Codex meant no RadSim banner, tools, memory or slash commands, which is not the
+product.
+
+How the other tools do it, and what this branch now does: the ChatGPT plan is
+reachable at the Responses endpoint the Codex CLI itself uses, with the
+credentials the Codex sign-in already stores. Evidence gathered locally:
+
+- `https://chatgpt.com/backend-api/codex` is a provider base URL inside the
+  installed `codex` binary, alongside `https://api.openai.com/v1`.
+- `~/.radsim/chatgpt/codex/auth.json` holds `tokens.access_token`,
+  `refresh_token` and `account_id` (mode 0600).
+- Pointing the CLI at a local capture server with `chatgpt_base_url` produced a
+  real `POST {base}/responses`: `accept: text/event-stream`, `authorization`,
+  `originator`, `session-id`, and a body of `model`, `input`, `tool_choice`,
+  `parallel_tool_calls`, `reasoning`, `store: false`, `stream: true`,
+  `include`, `prompt_cache_key`.
+- Probing the live endpoint one field at a time: `instructions`, `tools`,
+  `tool_choice`, `parallel_tool_calls`, `prompt_cache_key` and `reasoning` are
+  accepted; **`stream` must be true** ("Stream must be set to true") and
+  **`max_output_tokens` is rejected** ("Unsupported parameter").
+
+So `radsim/chatgpt_client.py` is a normal RadSim provider client: RadSim owns
+the loop, the tools, the approvals and the rendering, and the subscription only
+answers the model call. Requests identify with the Codex originator because the
+endpoint accepts Codex-issued credentials. It is not a documented public API,
+so it can change without notice; the version pin and these probes are how the
+branch detects that.
+
 ## Implementation status
 
-Implemented on this branch as a separate runtime, so a subscription session can
-never fall through to API-key billing:
+The subscription is a RadSim provider; nothing else about a session changes.
 
 | Module | Responsibility |
 | --- | --- |
-| `radsim/codex_transport.py` | Bounded stdio JSON-RPC: frame/queue limits, request deadlines, no retries, process-group shutdown, error text that never echoes provider output. |
-| `radsim/codex_connection.py` | Private `~/.radsim/chatgpt/` state, scrubbed child environment (`CODEX_HOME` only), pinned CLI version, workspace-local binary refused, permission profile passed as explicit `--config` values with network disabled. |
-| `radsim/codex_auth.py` | `account/login/start` (browser and device code), login URL host pinning, subscription-type enforcement, model catalogue with bounded pagination, quota display without account identity. |
-| `radsim/codex_runtime.py` | Thread start/resume scoped to the workspace, server-applied settings verified before use, streamed turn lifecycle, output caps, per-workspace session metadata with no tokens. |
-| `radsim/codex_approvals.py` | Every command, patch and question is one explicit `yes`; session-wide permission grants declined; paths outside the workspace and credential-shaped files refused. |
-| `radsim/codex_cli.py` | `login/logout/status/models chatgpt`, `--provider chatgpt`, `--resume`, interactive `/status /models /model /clear /resume`, terminal-escape-safe output. |
-| `radsim/config.py`, `radsim/onboarding.py`, `radsim/cli.py` | The choice is selectable and sticky: wizard option 4, `save_subscription_selection()`/`clear_subscription_selection()` on login/logout (no API key written, existing keys and model preserved), and `resolve_provider()` shared by startup and `load_config()`. |
+| `radsim/chatgpt_client.py` | The provider client: RadSim messages and tool schemas to Responses items, streamed events back to RadSim's text/tool blocks, usage mapping, and failure text that never echoes the request. |
+| `radsim/chatgpt_tokens.py` | Reads Codex's token store, decodes the access token's expiry, and asks Codex to refresh when it is close; RadSim holds no OAuth client. |
+| `radsim/codex_transport.py` | Bounded stdio JSON-RPC to the Codex app server: frame/queue limits, deadlines, no retries, process-group shutdown. |
+| `radsim/codex_connection.py` | Private `~/.radsim/chatgpt/` state, scrubbed child environment (`CODEX_HOME` only), pinned CLI version, workspace-local binary refused. |
+| `radsim/codex_auth.py` | `account/login/start` (browser and device code), login URL host pinning, subscription-type enforcement, bounded model catalogue, quota display without account identity. |
+| `radsim/codex_cli.py` | `login/logout/status/models chatgpt`, and saving the account's default model on sign-in. |
+| `radsim/config.py`, `radsim/health.py`, `radsim/onboarding.py`, `radsim/cli.py`, `radsim/commands_core.py` | Selectable and sticky: wizard option 4, the `/switch` account menu, `save_subscription_selection()`/`clear_subscription_selection()`, `resolve_provider()` shared by startup and `load_config()`, no API-key gate, and a health check that looks for the sign-in. |
 
-Verified offline: the full suite passes (including 109 tests for this runtime),
-Ruff clean, and every protocol method, parameter and response field used here
-exists in the schemas generated by the installed `codex-cli 0.153.4`.
+Verified offline: the full suite passes (including tests for the client, the
+token store and the menu), Ruff clean, and every app-server method used for
+sign-in exists in the schemas generated by `codex-cli 0.153.4`.
 
-Verified against the installed CLI: `radsim status chatgpt` starts the real
-`codex app-server` with RadSim's `--config` permission values, completes the
-`initialize` handshake and `account/read`, then fails closed with "ChatGPT
-sign-in is required" (exit 1). The isolated store `~/.radsim/chatgpt/` is
-created `0700`, holds no credentials and leaves no process behind.
+Verified live on Matt's account: browser sign-in, model discovery
+(`gpt-6-astra`), the saved-provider startup path, and a real request to the
+subscription endpoint that reached the quota check — RadSim's own frame
+(banner, 72 tools, slash commands, memory) with the subscription behind it.
 
-Not verified: sign-in, entitlement, quota values, live streaming, real tool
-execution and approval round-trips against an account. Those need Matt's
-ChatGPT login and a live session.
+Not verified: a completed turn, streamed output, tool calls end to end. Matt's
+5-hour quota was exhausted throughout; the endpoint answers
+`usage_limit_reached` with the reset time, which RadSim reports as such.
 
-Deliberate limits: no RadSim tools are exposed to Codex; a failed turn ends the
-session rather than continuing on a connection in an unknown state; `--yes` and
-`--api-key` are refused; `RADSIM_MODEL` (an API-provider setting) is ignored so
-a stale model cannot block a subscription session.
+Deliberate limits: no API fallback; `max_output_tokens` is never sent (the
+endpoint rejects it); every response streams; subagents still need an API key,
+since the account catalogue is not in RadSim's static provider lists.
 
 ## Acceptance and security checks
 

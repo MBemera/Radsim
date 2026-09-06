@@ -325,12 +325,12 @@ def test_subscription_selection_survives_a_saved_api_provider(tmp_path, monkeypa
     monkeypatch.delenv("RADSIM_PROVIDER", raising=False)
 
     save_config("test-key", "openrouter", "z-ai/glm-5.2")
-    save_subscription_selection()
+    save_subscription_selection("gpt-6-astra")
 
     saved = load_env_file()
     assert resolve_provider() == "chatgpt"
     assert saved["provider"] == "chatgpt"
-    assert saved["model"] == "z-ai/glm-5.2"  # kept for a later switch back
+    assert saved["model"] == "gpt-6-astra"  # the account's model, not OpenRouter's
     assert saved["keys"]["OPENROUTER_API_KEY"] == "test-key"
 
     clear_subscription_selection()

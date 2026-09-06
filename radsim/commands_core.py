@@ -319,6 +319,7 @@ class CoreCommandHandlersMixin:
     CHATGPT_ACCOUNT_ACTIONS = (
         ("login", "Sign in with your ChatGPT subscription (browser)"),
         ("login-device", "Sign in with a device code (no local browser)"),
+        ("use", "Use the subscription in this session"),
         ("status", "Plan and remaining quota"),
         ("models", "Models your account can use"),
         ("logout", "Sign out and stop defaulting to the subscription"),
@@ -327,30 +328,37 @@ class CoreCommandHandlersMixin:
     def _chatgpt_account_menu(self, agent):
         """Run every ChatGPT subscription account action from one menu.
 
-        The subscription is a separate runtime (Codex owns the conversation),
-        so this session cannot switch to it in place; signing in changes which
-        provider the next `radsim` starts with.
+        Sessions run in RadSim's own loop, so signing in switches the live
+        session straight over instead of asking for a restart.
         """
         from .codex_cli import run_account_command
         from .menu import interactive_menu_loop
 
         def run_action(action):
+            if action == "use":
+                self._switch_to_subscription(agent)
+                return
             device_code = action == "login-device"
             exit_code = run_account_command(
                 "login" if device_code else action, device_code=device_code
             )
             if exit_code == 0 and action.startswith("login"):
-                print_block(
-                    (
-                        "  Restart radsim to use the subscription.",
-                        f"  This session stays on {agent.config.provider}.",
-                    ),
-                    blank_after=False,
-                )
+                self._switch_to_subscription(agent)
 
         interactive_menu_loop(
             "CHATGPT SUBSCRIPTION", list(self.CHATGPT_ACCOUNT_ACTIONS), run_action
         )
+
+    @staticmethod
+    def _switch_to_subscription(agent):
+        """Point the running session at the subscription, keeping the frame."""
+        from .codex_transport import CodexError
+        from .config import SUBSCRIPTION_PROVIDER, load_env_file
+
+        try:
+            agent.update_config(SUBSCRIPTION_PROVIDER, None, load_env_file().get("model"))
+        except CodexError as error:
+            print_block((f"  {error}",), blank_after=False)
 
     CHEAPEST_OPENROUTER_MODEL = "deepseek/deepseek-v4-flash"
 

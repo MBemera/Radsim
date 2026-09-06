@@ -202,13 +202,6 @@ Environment variables:
         help="Skip the startup update check",
     )
 
-    parser.add_argument(
-        "--resume",
-        nargs="?",
-        const="last",
-        help="Resume a ChatGPT conversation by ID, or the last one in this directory",
-    )
-
     return parser.parse_args()
 
 
@@ -282,27 +275,6 @@ def _handle_login_subcommand() -> int | None:
     return login_module.run_logout(sub_args.provider)
 
 
-def _wants_subscription_session(args) -> bool:
-    """Decide between a ChatGPT subscription session and the API-provider agent."""
-    from .config import SUBSCRIPTION_PROVIDER, resolve_provider
-
-    if args.provider == SUBSCRIPTION_PROVIDER:
-        return True
-    if args.setup:
-        return False  # --setup reopens the wizard so the provider can change
-    return resolve_provider(args.provider) == SUBSCRIPTION_PROVIDER
-
-
-def _start_subscription_session(args) -> int:
-    """Run a ChatGPT subscription session instead of the API-provider agent."""
-    from .access_control import check_access_on_startup
-    from .codex_cli import run_chatgpt
-
-    if not check_access_on_startup():
-        return 1
-    return run_chatgpt(args)
-
-
 def _complete_onboarding(args) -> None:
     """Run the setup wizard and apply its choices to the parsed arguments."""
     from .config import SUBSCRIPTION_PROVIDER
@@ -311,8 +283,13 @@ def _complete_onboarding(args) -> None:
     api_key, provider, _model = run_onboarding()
 
     if provider == SUBSCRIPTION_PROVIDER:
-        args.setup = True  # sign in before the first subscription session
-        sys.exit(_start_subscription_session(args))
+        from .codex_cli import run_account_command
+
+        if run_account_command("login") != 0:
+            sys.exit(1)
+        args.provider = provider
+        args.api_key = None
+        return
     if not api_key:
         sys.exit(0)
 
@@ -333,12 +310,6 @@ def main():
         sys.exit(login_exit)
 
     args = parse_arguments()
-
-    if _wants_subscription_session(args):
-        sys.exit(_start_subscription_session(args))
-    if args.resume:
-        print("--resume requires --provider chatgpt")
-        sys.exit(2)
 
     from .access_control import check_access_on_startup
     from .config import load_config

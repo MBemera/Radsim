@@ -276,27 +276,33 @@ radsim login chatgpt        # browser sign-in (--device-code for headless hosts)
 radsim status chatgpt       # plan and remaining quota
 radsim models chatgpt       # models your account can use
 radsim --provider chatgpt "Explain the failing test"
-radsim --provider chatgpt --resume   # continue this directory's conversation
 radsim logout chatgpt
 ```
+
+All of those are also in one menu: `/switch` (or `/model`) → **ChatGPT
+subscription**, which can switch the running session over without a restart.
 
 `radsim login chatgpt` makes the subscription your default provider, the same
 way the API-key logins do, so plain `radsim` uses it afterwards. `radsim logout
 chatgpt` switches back; your API keys and saved model are left untouched.
 
+Sessions are ordinary RadSim sessions: same banner, same 72 tools, same slash
+commands, same memory and confirmations. Only the model call changes — it goes
+to your ChatGPT plan instead of an API key.
+
 What is different from the API providers:
 
-- The Codex CLI must be installed and on your `PATH`. RadSim pins the tested
-  version and refuses to start against an untested one.
+- The Codex CLI must be installed and on your `PATH`. It handles sign-in and
+  token refresh; RadSim pins the tested version and never runs the OAuth flow
+  itself.
 - Sign-in is stored under `~/.radsim/chatgpt/`, separate from Codex's own login
   and from your API keys. No API key is read or needed.
-- Codex owns the session and runs the tools, restricted to the current
-  directory. Every command, file change and permission request needs a typed
-  `yes`; `--yes` and `--api-key` are refused.
-- There is no API fallback. When the subscription quota runs out, the session
-  stops and says so.
-- Models come from your account catalogue (`--model` or `/model`), not from
-  RadSim's static provider lists.
+- There is no API fallback. When the subscription quota runs out, the turn stops
+  and says when the quota resets.
+- Models come from your account catalogue (`--model`, `/model`, or
+  `radsim models chatgpt`), not from RadSim's static provider lists.
+- The endpoint streams every response and rejects an output-token ceiling, so
+  `--no-stream` and output caps do not apply to subscription turns.
 
 ## Where RadSim looks for `.env`
 

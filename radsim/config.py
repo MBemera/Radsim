@@ -121,8 +121,11 @@ DEFAULT_MODELS = {
     "claude": "claude-opus-4-8",
 }
 
-# Runs on a ChatGPT plan through Codex: no API key, no static model catalogue.
+# Runs on a ChatGPT plan through the Codex sign-in: no API key, and the model
+# catalogue comes from the account, so this default is only a starting point.
 SUBSCRIPTION_PROVIDER = "chatgpt"
+DEFAULT_SUBSCRIPTION_MODEL = "gpt-6-astra"
+DEFAULT_MODELS[SUBSCRIPTION_PROVIDER] = DEFAULT_SUBSCRIPTION_MODEL
 
 PROVIDER_URLS = {
     "openrouter": "https://openrouter.ai/keys",
@@ -841,7 +844,9 @@ def save_config(api_key, provider, model):
 
     if not model:
         model = load_last_model_selection(provider)
-    if not model:
+    if not model and existing_config.get("provider") != SUBSCRIPTION_PROVIDER:
+        # A model saved under the subscription came from the ChatGPT account
+        # catalogue, so it must not leak into an API provider's config.
         existing_model = existing_config.get("model")
         if existing_model and model_belongs_to_provider(existing_model, provider):
             model = existing_model
@@ -880,29 +885,34 @@ def _write_env_file(provider: str, model: str, keys: dict) -> None:
     ENV_FILE.chmod(0o600)  # Secure: owner read/write only
 
 
-def save_subscription_selection() -> None:
+def save_subscription_selection(model: str = "") -> None:
     """Make the ChatGPT subscription the default provider.
 
-    No API key is involved, so this cannot reuse save_config(). The stored
-    model and API keys are preserved for a later switch back, and the last
-    API selection is dropped because it outranks the .env provider.
+    No API key is involved, so this cannot reuse save_config(). API keys are
+    preserved for a later switch back, the account's model replaces the API
+    provider's model, and the last API selection is dropped because it
+    outranks the .env provider.
     """
     existing_config = load_env_file()
     _write_env_file(
         SUBSCRIPTION_PROVIDER,
-        existing_config.get("model") or "",
+        model if isinstance(model, str) else "",
         existing_config.get("keys", {}),
     )
     _forget_last_model_selection()
 
 
 def clear_subscription_selection() -> None:
-    """Stop defaulting to the ChatGPT subscription, keeping keys and model."""
+    """Stop defaulting to the ChatGPT subscription, keeping the API keys.
+
+    The saved model goes too: it came from the ChatGPT account catalogue and
+    no API provider can serve it.
+    """
     existing_config = load_env_file()
     if existing_config.get("provider") != SUBSCRIPTION_PROVIDER:
         return
 
-    _write_env_file("", existing_config.get("model") or "", existing_config.get("keys", {}))
+    _write_env_file("", "", existing_config.get("keys", {}))
 
 
 def _forget_last_model_selection() -> None:
@@ -1511,7 +1521,8 @@ def load_config(
     if stream and "stream" in settings_config:
         final_stream = settings_config["stream"]
 
-    if not api_key:
+    # The ChatGPT subscription authenticates with its sign-in, not a key.
+    if not api_key and provider != SUBSCRIPTION_PROVIDER:
         # Prompt user for setup
         api_key, selected_provider, selected_model = setup_config()
         if not api_key:

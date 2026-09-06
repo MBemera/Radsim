@@ -114,8 +114,8 @@ DEFAULT_COMMAND_SPECS = [
         details="Opens an interactive menu to select a new provider (Claude, GPT-5,\n"
             "OpenRouter) and then pick a model. Requires an API key already\n"
             "configured in your .env file. The ChatGPT subscription entry opens\n"
-            "its own menu for sign in, sign out, plan and quota, and models; it\n"
-            "is a separate runtime, so it starts with the next radsim session.",
+            "its own menu for sign in, sign out, plan and quota, models, and\n"
+            "switching this session onto your ChatGPT plan.",
         examples=["/switch", "/model"],
         related=["/config", "/free"],
         tips=["Use /free to instantly switch to the cheapest model."],

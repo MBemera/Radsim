@@ -95,57 +95,54 @@ def test_device_code_is_only_for_subscription_login(monkeypatch):
     assert error.value.code == 2
 
 
-@pytest.mark.parametrize(
-    "arguments",
-    [
-        ["--provider", "chatgpt", "--resume"],
-        ["--provider", "chatgpt", "--resume", "thread-1"],
-    ],
-)
-def test_subscription_arguments_are_available(monkeypatch, arguments):
-    monkeypatch.setattr("sys.argv", ["radsim", *arguments])
-    args = cli.parse_arguments()
-    assert args.provider == "chatgpt"
-    assert args.resume in ("last", "thread-1")
+def test_subscription_loads_as_an_ordinary_provider(monkeypatch):
+    """The subscription runs in RadSim's own frame: normal config, no API key."""
+    from radsim import config
 
-
-@pytest.mark.parametrize("explicit", [True, False])
-def test_subscription_route_bypasses_api_configuration(monkeypatch, explicit):
-    from radsim import access_control, config, log_config
-
-    arguments = ["radsim", "--provider", "chatgpt"] if explicit else ["radsim"]
-    monkeypatch.setattr("sys.argv", arguments)
-    monkeypatch.setenv("RADSIM_PROVIDER", "chatgpt")
-    monkeypatch.setattr(cli, "install_process_handlers", lambda: None)
-    monkeypatch.setattr(log_config, "configure_logging", lambda: None)
-    monkeypatch.setattr(access_control, "check_access_on_startup", lambda: True)
-    monkeypatch.setattr(config, "load_config", lambda **_: pytest.fail("API config must not load"))
-    monkeypatch.setattr(codex_cli, "run_chatgpt", lambda _: 0)
-    with pytest.raises(SystemExit) as error:
-        cli.main()
-    assert error.value.code == 0
-
-
-def test_saved_subscription_provider_routes_without_flags(monkeypatch):
-    """A stored chatgpt selection must start the subscription runtime, not the API path."""
-    from radsim import access_control, config, log_config
-
-    monkeypatch.setattr("sys.argv", ["radsim"])
     monkeypatch.delenv("RADSIM_PROVIDER", raising=False)
+    monkeypatch.delenv("RADSIM_API_KEY", raising=False)
     monkeypatch.setattr(
         config,
         "load_env_file",
-        lambda: {"provider": "chatgpt", "provider_source": "global", "keys": {}},
+        lambda: {
+            "provider": "chatgpt",
+            "provider_source": "global",
+            "model": "gpt-6-astra",
+            "keys": {},
+        },
     )
     monkeypatch.setattr(config, "load_settings_file", lambda: {})
-    monkeypatch.setattr(cli, "install_process_handlers", lambda: None)
-    monkeypatch.setattr(log_config, "configure_logging", lambda: None)
-    monkeypatch.setattr(access_control, "check_access_on_startup", lambda: True)
-    monkeypatch.setattr(config, "load_config", lambda **_: pytest.fail("API config must not load"))
-    monkeypatch.setattr(codex_cli, "run_chatgpt", lambda _: 0)
-    with pytest.raises(SystemExit) as error:
-        cli.main()
-    assert error.value.code == 0
+    monkeypatch.setattr(
+        config, "setup_config", lambda *_, **__: pytest.fail("must not ask for an API key")
+    )
+
+    loaded = config.load_config()
+
+    assert loaded.provider == "chatgpt"
+    assert loaded.model == "gpt-6-astra"
+    assert not loaded.api_key
+
+
+def test_subscription_health_check_uses_the_sign_in(monkeypatch, tmp_path):
+    """A missing key must not fail startup when the sign-in is what authenticates."""
+    from radsim import chatgpt_tokens
+    from radsim.health import HealthChecker
+
+    checker = HealthChecker(SimpleNamespace(provider="chatgpt", api_key=None))
+    store = tmp_path / "auth.json"
+    monkeypatch.setattr(chatgpt_tokens, "auth_file", lambda: store)
+
+    healthy, message = checker.check_api_key_present()
+    assert healthy is False
+    assert "radsim login chatgpt" in message
+
+    store.write_text(
+        json.dumps({"tokens": {"access_token": "private-marker", "account_id": "acct-marker"}})
+    )
+    healthy, message = checker.check_api_key_present()
+    assert healthy is True
+    assert "private-marker" not in message
+    assert "acct-marker" not in message
 
 
 def test_api_providers_keep_their_saved_selection(monkeypatch):
@@ -251,21 +248,31 @@ def test_switch_menu_offers_the_subscription_and_opens_its_menu(monkeypatch, cap
     assert "ChatGPT subscription" in capsys.readouterr().out
 
 
+class AgentStub:
+    def __init__(self):
+        self.config = SimpleNamespace(provider="openrouter")
+        self.switched = []
+
+    def update_config(self, provider, api_key, model):
+        self.switched.append((provider, api_key, model))
+        self.config.provider = provider
+
+
 @pytest.mark.parametrize(
-    "action,expected",
+    "action,expected,switches",
     [
-        ("login", ("login", False)),
-        ("login-device", ("login", True)),
-        ("status", ("status", False)),
-        ("models", ("models", False)),
-        ("logout", ("logout", False)),
+        ("login", ("login", False), True),
+        ("login-device", ("login", True), True),
+        ("status", ("status", False), False),
+        ("models", ("models", False), False),
+        ("logout", ("logout", False), False),
     ],
 )
-def test_account_menu_runs_each_action(monkeypatch, capsys, action, expected):
+def test_account_menu_runs_each_action(monkeypatch, action, expected, switches):
     from radsim import menu
 
     handler = _switch_handler()
-    agent = SimpleNamespace(config=SimpleNamespace(provider="openrouter"))
+    agent = AgentStub()
     calls = []
     monkeypatch.setattr(
         codex_cli,
@@ -279,8 +286,21 @@ def test_account_menu_runs_each_action(monkeypatch, capsys, action, expected):
     handler._chatgpt_account_menu(agent)
 
     assert calls == [expected]
-    restart_notice = "Restart radsim" in capsys.readouterr().out
-    assert restart_notice is action.startswith("login")
+    assert bool(agent.switched) is switches
+
+
+def test_account_menu_switches_the_live_session(monkeypatch):
+    """Sessions run in RadSim's own loop, so no restart is needed."""
+    from radsim import config, menu
+
+    handler = _switch_handler()
+    agent = AgentStub()
+    config.save_subscription_selection("gpt-6-astra")
+    monkeypatch.setattr(menu, "interactive_menu_loop", lambda _t, _o, run: run("use"))
+
+    handler._chatgpt_account_menu(agent)
+
+    assert agent.switched == [("chatgpt", None, "gpt-6-astra")]
 
 
 def test_account_menu_covers_every_subscription_command():
@@ -289,133 +309,86 @@ def test_account_menu_covers_every_subscription_command():
     assert [key for key, _ in CoreCommandHandlersMixin.CHATGPT_ACCOUNT_ACTIONS] == [
         "login",
         "login-device",
+        "use",
         "status",
         "models",
         "logout",
     ]
 
 
-def test_account_menu_stays_quiet_when_sign_in_fails(monkeypatch, capsys):
+def test_account_menu_does_not_switch_when_sign_in_fails(monkeypatch):
     from radsim import menu
 
     handler = _switch_handler()
-    agent = SimpleNamespace(config=SimpleNamespace(provider="openrouter"))
+    agent = AgentStub()
     monkeypatch.setattr(codex_cli, "run_account_command", lambda *_, **__: 1)
     monkeypatch.setattr(menu, "interactive_menu_loop", lambda _t, _o, run: run("login"))
 
     handler._chatgpt_account_menu(agent)
 
-    assert "Restart radsim" not in capsys.readouterr().out
+    assert agent.switched == []
 
 
-def test_setup_reopens_the_wizard_when_the_subscription_is_saved(monkeypatch):
-    """A saved subscription must not trap the user out of --setup."""
-    saved = SimpleNamespace(provider=None, setup=True)
-    explicit = SimpleNamespace(provider="chatgpt", setup=True)
+def test_wizard_choice_signs_in_and_keeps_the_normal_frame(monkeypatch):
+    """Choosing the subscription signs in, then the ordinary session continues."""
+    from radsim import onboarding
 
-    monkeypatch.setenv("RADSIM_PROVIDER", "chatgpt")
-    assert cli._wants_subscription_session(saved) is False
-    assert cli._wants_subscription_session(explicit) is True
-
-    saved.setup = False
-    assert cli._wants_subscription_session(saved) is True
-
-
-def test_wizard_choice_starts_a_signed_in_subscription_session(monkeypatch):
-    """Choosing the subscription in the wizard signs in, it does not load API config."""
-    from radsim import access_control, config, log_config, onboarding
-
-    started = []
-    monkeypatch.setattr("sys.argv", ["radsim"])
-    monkeypatch.delenv("RADSIM_PROVIDER", raising=False)
-    monkeypatch.setattr(cli, "install_process_handlers", lambda: None)
-    monkeypatch.setattr(log_config, "configure_logging", lambda: None)
-    monkeypatch.setattr(onboarding, "should_run_onboarding", lambda: True)
+    signed_in = []
+    args = SimpleNamespace(provider=None, api_key="stale", setup=True)
     monkeypatch.setattr(onboarding, "run_onboarding", lambda: (None, "chatgpt", ""))
-    monkeypatch.setattr(access_control, "check_access_on_startup", lambda: True)
-    monkeypatch.setattr(config, "load_config", lambda **_: pytest.fail("API config must not load"))
-    monkeypatch.setattr(codex_cli, "run_chatgpt", lambda args: started.append(args.setup) or 0)
+    monkeypatch.setattr(
+        codex_cli, "run_account_command", lambda action: signed_in.append(action) or 0
+    )
+
+    cli._complete_onboarding(args)
+
+    assert signed_in == ["login"]
+    assert args.provider == "chatgpt"
+    assert args.api_key is None
+
+
+def test_wizard_stops_when_sign_in_fails(monkeypatch):
+    from radsim import onboarding
+
+    monkeypatch.setattr(onboarding, "run_onboarding", lambda: (None, "chatgpt", ""))
+    monkeypatch.setattr(codex_cli, "run_account_command", lambda _: 1)
 
     with pytest.raises(SystemExit) as error:
-        cli.main()
-    assert error.value.code == 0
-    assert started == [True]
-
-
-def test_session_model_ignores_other_providers_saved_model(monkeypatch):
-    """RADSIM_MODEL holds an API-provider model; it must not select a subscription model."""
-    monkeypatch.setenv("RADSIM_MODEL", "x-ai/grok-4-fast")
-    started = []
-    runtime = SimpleNamespace(
-        start=lambda model, resume: started.append((model, resume)),
-        model="account-default",
-        thread_id="thread-1",
-        run_turn=lambda _: "completed",
-    )
-    monkeypatch.setattr(codex_cli, "open_connection", ConnectionStub)
-    monkeypatch.setattr(codex_cli, "CodexRuntime", lambda *_, **__: runtime)
-    args = SimpleNamespace(
-        api_key=None,
-        yes=False,
-        context_file=None,
-        no_stream=True,
-        setup=False,
-        model=None,
-        resume=None,
-        prompt="Synthetic task",
-    )
-    assert codex_cli.run_chatgpt(args) == 0
-    assert started == [(None, None)]
-
-
-def test_subscription_route_preserves_startup_access_control(monkeypatch):
-    from radsim import access_control, log_config
-
-    monkeypatch.setattr("sys.argv", ["radsim", "--provider", "chatgpt"])
-    monkeypatch.setattr(cli, "install_process_handlers", lambda: None)
-    monkeypatch.setattr(log_config, "configure_logging", lambda: None)
-    monkeypatch.setattr(access_control, "check_access_on_startup", lambda: False)
-    monkeypatch.setattr(codex_cli, "run_chatgpt", lambda _: pytest.fail("must not start"))
-    with pytest.raises(SystemExit) as error:
-        cli.main()
+        cli._complete_onboarding(SimpleNamespace(provider=None, api_key=None, setup=True))
     assert error.value.code == 1
 
 
-@pytest.mark.parametrize("api_key,yes", [("synthetic", False), (None, True)])
-def test_subscription_cannot_accept_api_key_or_auto_approve(api_key, yes):
-    assert codex_cli.run_chatgpt(SimpleNamespace(api_key=api_key, yes=yes)) == 2
-
-
-def test_approval_input_is_denied_when_not_interactive(monkeypatch):
-    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
-    with pytest.raises(EOFError):
-        codex_cli.ask("Approve?")
-
-
-def test_output_escapes_terminal_injection(capsys):
-    output = codex_cli.TurnOutput(True)
-    output.write("hello\x1b[2J\u202eworld\n")
+def test_account_output_escapes_terminal_injection(capsys):
+    codex_cli.emit("hello\x1b[2J\u202eworld")
     captured = capsys.readouterr().out
     assert "\x1b" not in captured
     assert "\u202e" not in captured
     assert "hello" in captured
 
 
-def test_nonstreaming_output_is_only_emitted_at_completion(capsys):
-    output = codex_cli.TurnOutput(False)
-    output.write("hello ")
-    output.write("world")
-    assert capsys.readouterr().out == ""
-    output.finish()
-    assert capsys.readouterr().out == "hello world\n"
+def test_login_saves_the_account_default_model(monkeypatch):
+    from radsim import access_control, config
+
+    monkeypatch.delenv("RADSIM_PROVIDER", raising=False)
+    monkeypatch.setattr(access_control, "check_access_on_startup", lambda: True)
+    monkeypatch.setattr(codex_cli, "open_connection", ConnectionStub)
+    monkeypatch.setattr(codex_cli, "login", lambda *_, **__: None)
+    monkeypatch.setattr(
+        codex_cli,
+        "list_models",
+        lambda _: [{"model": "other-model"}, {"model": "gpt-6-astra", "isDefault": True}],
+    )
+
+    assert codex_cli.run_account_command("login") == 0
+    assert config.load_env_file()["model"] == "gpt-6-astra"
 
 
-def test_context_file_must_be_safe_and_bounded(tmp_path):
-    (tmp_path / "context.txt").write_text("public synthetic context")
-    assert "public synthetic context" in codex_cli._initial_context("context.txt", tmp_path)
-    (tmp_path / ".env").write_text("synthetic")
-    with pytest.raises(CodexError):
-        codex_cli._initial_context(".env", tmp_path)
-    (tmp_path / "large.txt").write_text("x" * 64001)
-    with pytest.raises(CodexError):
-        codex_cli._initial_context("large.txt", tmp_path)
+def test_switching_away_drops_the_subscription_model(monkeypatch):
+    """A ChatGPT catalogue model must never be handed to an API provider."""
+    from radsim import config
+
+    monkeypatch.delenv("RADSIM_MODEL", raising=False)
+    config.save_subscription_selection("gpt-6-astra")
+    config.save_config("test-key", "openrouter", None)
+
+    assert config.load_env_file()["model"] != "gpt-6-astra"
