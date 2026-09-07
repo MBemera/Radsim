@@ -181,7 +181,9 @@ class AgentApiMixin:
         from .context_budget import DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS
 
         prompt_started_at = time.perf_counter()
-        self.system_prompt = get_system_prompt()
+        self.system_prompt = get_system_prompt(
+            getattr(self.config, "provider", None), getattr(self.config, "model", None)
+        )
         prompt_construction_ms = (time.perf_counter() - prompt_started_at) * 1000
         self.check_and_prune()
         output_reserve_tokens = getattr(

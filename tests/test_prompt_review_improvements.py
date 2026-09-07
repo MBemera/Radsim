@@ -258,10 +258,44 @@ def test_api_call_refreshes_composed_prompt(monkeypatch):
         def check_and_prune(self):
             return 0
 
-    monkeypatch.setattr("radsim.agent_api.get_system_prompt", lambda: "fresh prompt")
+    monkeypatch.setattr("radsim.agent_api.get_system_prompt", lambda *_session: "fresh prompt")
 
     agent = FakeAgent()
     agent._call_api()
 
     assert agent.system_prompt == "fresh prompt"
     assert agent.client.seen_prompt == "fresh prompt"
+
+
+class TestSessionAwareness:
+    """The agent is told which model and provider are answering."""
+
+    def test_the_subscription_session_names_its_model_and_billing(self):
+        from radsim.prompts import get_system_prompt
+
+        prompt = get_system_prompt("chatgpt", "gpt-6-astra")
+
+        assert "gpt-6-astra" in prompt
+        assert "`chatgpt` provider" in prompt
+        assert "ChatGPT subscription plan, not API billing" in prompt
+
+    def test_an_api_session_names_its_own_provider(self):
+        from radsim.prompts import get_system_prompt
+
+        prompt = get_system_prompt("openrouter", "z-ai/glm-5.2")
+
+        assert "z-ai/glm-5.2" in prompt
+        assert "billed to the openrouter API" in prompt
+        assert "subscription" not in prompt.split("## This session")[1].split("##")[0]
+
+    def test_an_unknown_session_says_nothing_rather_than_guessing(self):
+        from radsim.prompts import get_system_prompt
+
+        assert "## This session" not in get_system_prompt()
+        assert "## This session" not in get_system_prompt("chatgpt", None)
+        assert "## This session" not in get_system_prompt(None, "gpt-6-astra")
+
+    def test_the_session_layer_is_not_counted_as_repository_prompt(self):
+        from radsim.prompts import get_static_prompt
+
+        assert "## This session" not in get_static_prompt()

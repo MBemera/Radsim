@@ -188,11 +188,11 @@ def run_interactive(config, context_file=None):
                 print_success(f"{message} - teaching in ALL responses enabled")
             else:
                 print_success(message)
-            agent.system_prompt = get_system_prompt()
+            agent.system_prompt = get_system_prompt(agent.config.provider, agent.config.model)
             continue
 
         if registry.handle_input(user_input, agent):
-            agent.system_prompt = get_system_prompt()
+            agent.system_prompt = get_system_prompt(agent.config.provider, agent.config.model)
             continue
 
         help_topic = detect_help_intent(user_input)
