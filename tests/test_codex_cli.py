@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from radsim import cli, codex_cli, codex_connection
+from radsim import cli, codex_auth, codex_cli, codex_connection
 from radsim.codex_transport import CodexError
 
 
@@ -335,6 +335,7 @@ def test_account_menu_covers_every_subscription_command():
         "login-device",
         "use",
         "status",
+        "reset",
         "models",
         "logout",
     ]
@@ -518,3 +519,151 @@ def test_a_turn_spends_the_right_kind_of_request(provider, expected):
     from radsim.commands_core import _request_noun
 
     assert _request_noun(provider) == expected
+
+
+class ResetCreditConnection:
+    """A Codex connection carrying one banked reset credit."""
+
+    def __init__(self, credits=None, outcome="redeemed"):
+        self.payload = {
+            "rateLimits": {"primary": {"usedPercent": 22, "resetsAt": 1788765978}},
+            "rateLimitResetCredits": {
+                "availableCount": 1,
+                "credits": AVAILABLE_CREDITS if credits is None else credits,
+            },
+        }
+        self.outcome = outcome
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def request(self, method, params, **__):
+        self.calls.append((method, params))
+        if method == "account/rateLimits/read":
+            return self.payload
+        if method == codex_auth.CONSUME_RESET_CREDIT:
+            return {"outcome": self.outcome}
+        if method == "account/read":
+            return {"account": {"type": "chatgpt", "planType": "plus"}}
+        return {}
+
+
+AVAILABLE_CREDITS = [
+    {
+        "id": "credit-marker",
+        "resetType": "codexRateLimits",
+        "status": "available",
+        "expiresAt": 1791151229,
+        "title": "Full reset (Weekly + 5 hr)",
+    }
+]
+
+
+def test_only_usable_reset_credits_are_offered():
+    connection = ResetCreditConnection(
+        credits=[
+            {"id": "spent", "status": "redeemed", "title": "old"},
+            {"id": "busy", "status": "redeeming", "title": "in flight"},
+            {"id": "bad id!", "status": "available", "title": "malformed"},
+            AVAILABLE_CREDITS[0],
+        ]
+    )
+
+    offered = codex_auth.available_reset_credits(connection)
+
+    assert [credit["id"] for credit in offered] == ["credit-marker"]
+    assert offered[0]["title"] == "Full reset (Weekly + 5 hr)"
+
+
+def test_an_oversized_credit_list_is_refused():
+    connection = ResetCreditConnection(credits=[dict(AVAILABLE_CREDITS[0])] * 33)
+
+    assert codex_auth.available_reset_credits(connection) == []
+
+
+def test_spending_a_reset_sends_the_credit_and_an_idempotency_key():
+    connection = ResetCreditConnection()
+
+    message = codex_auth.consume_reset_credit(connection, "credit-marker")
+
+    method, params = connection.calls[-1]
+    assert method == "account/rateLimitResetCredit/consume"
+    assert params["creditId"] == "credit-marker"
+    assert params["idempotencyKey"]
+    assert "reset applied" in message
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected"),
+    [
+        ("alreadyRedeemed", "already used"),
+        ("noCredit", "No usage reset is available"),
+        ("nothingToReset", "no usage limit is currently reached"),
+    ],
+)
+def test_every_reset_outcome_is_explained(outcome, expected):
+    connection = ResetCreditConnection(outcome=outcome)
+
+    assert expected in codex_auth.consume_reset_credit(connection, "credit-marker")
+
+
+def test_an_unknown_reset_outcome_fails_closed():
+    connection = ResetCreditConnection(outcome="something-new")
+
+    with pytest.raises(CodexError, match="unrecognised reset result"):
+        codex_auth.consume_reset_credit(connection, "credit-marker")
+
+
+def test_declining_the_prompt_spends_nothing(monkeypatch, capsys):
+    connection = ResetCreditConnection()
+    monkeypatch.setattr(codex_cli, "ask", lambda _prompt: "n")
+
+    codex_cli.redeem_reset_credit(connection)
+
+    assert codex_auth.CONSUME_RESET_CREDIT not in [method for method, _ in connection.calls]
+    assert "Nothing was spent" in capsys.readouterr().out
+
+
+def test_confirming_the_prompt_spends_one_reset(monkeypatch, capsys):
+    connection = ResetCreditConnection()
+    monkeypatch.setattr(codex_cli, "ask", lambda _prompt: "y")
+
+    codex_cli.redeem_reset_credit(connection)
+
+    assert codex_auth.CONSUME_RESET_CREDIT in [method for method, _ in connection.calls]
+    assert "reset applied" in capsys.readouterr().out
+
+
+def test_no_banked_reset_says_so_without_prompting(monkeypatch, capsys):
+    connection = ResetCreditConnection(credits=[])
+    monkeypatch.setattr(codex_cli, "ask", lambda _prompt: pytest.fail("must not prompt"))
+
+    codex_cli.redeem_reset_credit(connection)
+
+    assert "No banked usage reset" in capsys.readouterr().out
+
+
+def test_the_quota_screen_reports_a_banked_reset(capsys):
+    codex_auth.show_status(ResetCreditConnection(), print)
+
+    assert "Banked usage resets: 1 available" in capsys.readouterr().out
+
+
+def test_the_account_menu_offers_the_reset(monkeypatch):
+    from radsim import menu
+
+    handler = _switch_handler()
+    calls = []
+    monkeypatch.setattr(menu, "interactive_menu_loop", lambda _t, _o, run: run("reset"))
+    monkeypatch.setattr(
+        codex_cli, "run_account_command", lambda name, device_code=False: calls.append(name) or 0
+    )
+
+    handler._chatgpt_account_menu(AgentStub())
+
+    assert calls == ["reset"]
+    assert ("reset", "Use a banked usage reset") in handler.CHATGPT_ACCOUNT_ACTIONS
