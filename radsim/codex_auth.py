@@ -205,7 +205,7 @@ def show_status(connection: CodexTransport, emit: Callable[[str], None] = print)
                 f"{name.capitalize()} quota: {window['usedPercent']}% used; reset Unix time: {reset}"
             )
     if not found:
-        emit("Remaining subscription quota: unknown.")
+        emit("Subscription quota used: unknown.")
     banked = _reset_credits_from(result)
     if banked:
         emit(f"Banked usage resets: {len(banked)} available ({banked[0]['title']}).")

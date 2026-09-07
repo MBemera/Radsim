@@ -367,7 +367,7 @@ class CoreCommandHandlersMixin:
         ("login", "Sign in with your ChatGPT subscription (browser)"),
         ("login-device", "Sign in with a device code (no local browser)"),
         ("use", "Use the subscription in this session"),
-        ("status", "Plan and remaining quota"),
+        ("status", "Plan and quota used"),
         ("reset", "Use a banked usage reset"),
         ("models", "Choose model and reasoning effort"),
         ("logout", "Sign out and stop defaulting to the subscription"),
