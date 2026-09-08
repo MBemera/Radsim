@@ -430,14 +430,23 @@ Start with `radsim --yes` (or `radsim -y`). No extra model, API key, or dependen
 is needed. Routine commands such as `git status --short`, `git diff --stat`,
 `python -m pytest tests -q`, `ruff check .`, and `ruff format --check .` run
 without repeated approval. Explicit project-file reads such as `cat README.md`
-and `rg -n pattern src/main.py` are also recognised.
+and `rg -n pattern src/main.py` are also recognised. Shell `git diff` commands
+are automatic only for summaries (`--stat`, `--name-only`, or `--name-status`);
+content diffs and `--check` require approval because they can print protected
+file contents. Git revision/path operands such as `HEAD:credentials.json`
+also require approval.
 
 The classifier checks every chained command, supported options, the working
 directory, and literal file targets. Unknown executables, custom wrappers,
-output redirection, recursive content searches, secret files, and paths outside
-the project ask for approval. Windows shell requests continue to prompt because
+output redirection, wildcard paths (including bracket globs), recursive content
+searches, secret files, and paths outside the project ask for approval. Windows shell requests continue to prompt because
 the classifier currently supports POSIX shell syntax only. Existing session
 `all` approval and explicit confirmation settings retain their behaviour.
+
+Options after `--` are treated as filenames: `ruff format -- --check file.py`
+still requires approval. File reads resolve the complete filename, including
+literal `::` characters; only pytest targets interpret `::` as a test node ID.
+Custom test commands classify the appended test path as part of the command.
 
 Auto mode trusts project verification code. Tests and Git helpers can execute
 project or locally configured code; this filter reduces prompts and is not an

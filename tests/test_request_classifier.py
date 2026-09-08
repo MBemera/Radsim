@@ -21,36 +21,78 @@ def project(tmp_path, monkeypatch):
     return tmp_path
 
 
-@pytest.mark.parametrize("command", [
-    "pwd", "echo hello", "ls -lah", "git status --short", "git diff --stat",
-    "git log --oneline -n 5", "pytest -q", "python -m pytest tests -q",
-    "python3 -m pytest tests -k 'works or passes' --maxfail=1",
-    "ruff check .", "python -m ruff check .", "ruff format --check .",
-    "cat sample.py", "head -n 20 sample.py", "tail --lines=10 sample.py",
-    "rg -n answer sample.py", "grep -n answer sample.py", "rg --files",
-    "git status && python -m pytest -q", "cat sample.py | head -n 5 sample.py",
-])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pwd",
+        "echo hello",
+        "ls -lah",
+        "git status --short",
+        "git diff --stat",
+        "git log --oneline -n 5",
+        "pytest -q",
+        "python -m pytest tests -q",
+        "python3 -m pytest tests -k 'works or passes' --maxfail=1",
+        "ruff check .",
+        "python -m ruff check .",
+        "ruff format --check .",
+        "cat sample.py",
+        "head -n 20 sample.py",
+        "tail --lines=10 sample.py",
+        "rg -n answer sample.py",
+        "grep -n answer sample.py",
+        "rg --files",
+        "git status && python -m pytest -q",
+        "cat sample.py | head -n 5 sample.py",
+    ],
+)
 def test_routine_commands_are_allowed(project, command):
     assert classify_request("run_shell_command", {"command": command}).decision == "allow"
 
 
-@pytest.mark.parametrize("command", [
-    "rm sample.py", "sudo ls", "git push", "git reset --hard",
-    "custom-runner --all", "python script.py", "env pytest", "timeout 10 pytest",
-    "git -c alias.status=oops status", "git diff --output=result.txt",
-    "rg --pre custom-runner answer sample.py", "ruff format .", "ruff check --fix .",
-    "pytest --basetemp=/tmp", "pytest -p custom_plugin", "cat .env",
-    "cat *", "cat /etc/passwd", "rg answer .", "grep -R answer .",
-    "cat sample.py > result.txt", "git status && custom-runner",
-    "git status | custom-runner", "git status; custom-runner", "git status || custom-runner",
-    "pytest -k", "python -m", "./pytest", "LC_ALL=C pytest",
-    "pytest --override-ini=addopts=--basetemp=/tmp", "rg --hidden answer sample.py",
-])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm sample.py",
+        "sudo ls",
+        "git push",
+        "git reset --hard",
+        "custom-runner --all",
+        "python script.py",
+        "env pytest",
+        "timeout 10 pytest",
+        "git -c alias.status=oops status",
+        "git diff --output=result.txt",
+        "rg --pre custom-runner answer sample.py",
+        "ruff format .",
+        "ruff check --fix .",
+        "pytest --basetemp=/tmp",
+        "pytest -p custom_plugin",
+        "cat .env",
+        "cat *",
+        "cat /etc/passwd",
+        "rg answer .",
+        "grep -R answer .",
+        "cat sample.py > result.txt",
+        "git status && custom-runner",
+        "git status | custom-runner",
+        "git status; custom-runner",
+        "git status || custom-runner",
+        "pytest -k",
+        "python -m",
+        "./pytest",
+        "LC_ALL=C pytest",
+        "pytest --override-ini=addopts=--basetemp=/tmp",
+        "rg --hidden answer sample.py",
+    ],
+)
 def test_unrecognised_or_sensitive_commands_ask(project, command):
     assert classify_request("run_shell_command", {"command": command}).decision != "allow"
 
 
-@pytest.mark.parametrize("command", ["", "rm -rf /", "echo $(id)", "pwd\nid", "python -c 'print(1)'", "cat ../secret"])
+@pytest.mark.parametrize(
+    "command", ["", "rm -rf /", "echo $(id)", "pwd\nid", "python -c 'print(1)'", "cat ../secret"]
+)
 def test_invalid_or_blocked_commands_stay_blocked(project, command):
     assert classify_request("run_shell_command", {"command": command}).decision == "block"
 
@@ -73,12 +115,16 @@ def test_symlink_cannot_hide_sensitive_target(project, target):
 def test_working_directory_is_used_for_secret_checks(project):
     directory = project / "tests"
     (directory / "sample.py").symlink_to(project / ".env")
-    result = classify_request("run_shell_command", {"command": "cat sample.py", "working_dir": str(directory)})
+    result = classify_request(
+        "run_shell_command", {"command": "cat sample.py", "working_dir": str(directory)}
+    )
     assert result.decision == "ask"
 
 
 def test_outside_working_directory_requires_approval(project):
-    result = classify_request("run_shell_command", {"command": "pytest", "working_dir": str(project.parent)})
+    result = classify_request(
+        "run_shell_command", {"command": "pytest", "working_dir": str(project.parent)}
+    )
     assert result.decision == "ask"
 
 
@@ -98,10 +144,13 @@ def make_handler(monkeypatch, auto=True):
     return handler, execution
 
 
-@pytest.mark.parametrize("tool_name,arguments", [
-    ("shell_command", {"command": "git status --short"}),
-    ("run_tests", {"test_command": "python -m pytest -q", "test_path": "tests"}),
-])
+@pytest.mark.parametrize(
+    "tool_name,arguments",
+    [
+        ("shell_command", {"command": "git status --short"}),
+        ("run_tests", {"test_command": "python -m pytest -q", "test_path": "tests"}),
+    ],
+)
 def test_auto_handlers_execute_without_prompt(project, monkeypatch, tool_name, arguments):
     handler, execution = make_handler(monkeypatch)
     prompt = Mock(side_effect=AssertionError("Routine auto request must not prompt"))
@@ -134,7 +183,9 @@ def test_auto_toggle_is_checked_for_every_request(project, monkeypatch):
 
 def test_classifier_failure_prompts_without_executing(project, monkeypatch):
     handler, execution = make_handler(monkeypatch)
-    monkeypatch.setattr("radsim.agent_tool_handlers.classify_request", Mock(side_effect=RuntimeError))
+    monkeypatch.setattr(
+        "radsim.agent_tool_handlers.classify_request", Mock(side_effect=RuntimeError)
+    )
     monkeypatch.setattr("radsim.agent_tool_handlers.ask_confirmation", Mock(return_value="no"))
     assert not handler._handle_shell_command({"command": "git status"})["success"]
     execution.assert_not_called()
@@ -151,3 +202,120 @@ def test_windows_shell_falls_back_to_confirmation(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("radsim.request_classifier.os", SimpleNamespace(name="nt"))
     assert classify_request("run_shell_command", {"command": "git status"}).decision == "ask"
+
+
+@pytest.fixture
+def approval_fixtures(project):
+    (project / ".en[v]").write_text("public fixture\n")
+    (project / "alias::file").symlink_to(project / ".env")
+    (project / "credentials.json").write_text("synthetic protected content\n")
+    (project / "--check").write_text("answer=  42\n")
+    (project / "--diff").write_text("answer=  42\n")
+    (project / "--files").write_text("public fixture\n")
+    return project
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat .en[v]",
+        "cat alias::file",
+        "git diff HEAD:credentials.json HEAD:sample.py",
+        "git diff --stat HEAD:credentials.json HEAD:sample.py",
+        "git diff",
+        "git diff --cached",
+        "git diff --check",
+        "git diff --stat --check",
+        "git diff -- --stat sample.py",
+        "ruff format -- --check sample.py",
+        "ruff format -- --diff sample.py",
+        "rg answer -- --files .",
+    ],
+)
+@pytest.mark.parametrize("tool_name", ["shell_command", "run_tests"])
+def test_sensitive_requests_prompt_before_execution(
+    approval_fixtures, monkeypatch, command, tool_name
+):
+    handler, execution = make_handler(monkeypatch)
+    prompt = Mock(return_value="no" if tool_name == "shell_command" else False)
+    monkeypatch.setattr("radsim.agent_tool_handlers.ask_confirmation", prompt)
+    monkeypatch.setattr("radsim.agent_tool_handlers.confirm_action", prompt)
+    key = "command" if tool_name == "shell_command" else "test_command"
+    result = getattr(handler, f"_handle_{tool_name}")({key: command})
+    assert not result["success"]
+    prompt.assert_called_once()
+    execution.assert_not_called()
+    assert (approval_fixtures / "--check").read_text() == "answer=  42\n"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git diff --stat",
+        "git diff --name-only --cached",
+        "git diff --name-status HEAD -- sample.py",
+        "ruff format --check -- sample.py",
+        "ruff format --diff -- sample.py",
+        "rg --files .",
+        "rg answer -- --files sample.py",
+        "pytest sample.py::test_example",
+        "python -m pytest sample.py::TestExample::test_example",
+    ],
+)
+def test_safe_inspection_and_pytest_targets_remain_automatic(approval_fixtures, command):
+    assert classify_request("run_shell_command", {"command": command}).decision == "allow"
+
+
+def test_literal_double_colon_filename_is_checked_without_truncation(project):
+    (project / "public::file").write_text("public fixture\n")
+    (project / "public").symlink_to(project / ".env")
+    assert (
+        classify_request("run_shell_command", {"command": "cat public::file"}).decision == "allow"
+    )
+
+
+@pytest.mark.parametrize(
+    "tool_input",
+    [
+        {"test_command": "pytest sample.py::test_example"},
+        {"test_command": "pytest", "test_path": "sample.py::test_example"},
+    ],
+)
+def test_pytest_node_ids_resolve_the_actual_file(project, tool_input):
+    (project / "sample.py").unlink()
+    (project / "sample.py").symlink_to(project / ".env")
+    assert classify_request("run_tests", tool_input).decision == "ask"
+
+
+@pytest.mark.parametrize(
+    "test_command,test_path,decision",
+    [
+        ("pytest -q", "sample.py::test_example", "allow"),
+        ("cat", "alias::file", "ask"),
+        ("git diff --stat", "HEAD:credentials.json", "ask"),
+        ("pytest;", "sample.py", "ask"),
+        ("pytest && cat", "alias::file", "ask"),
+    ],
+)
+def test_custom_test_path_uses_the_executed_command_grammar(
+    approval_fixtures, test_command, test_path, decision
+):
+    result = classify_request("run_tests", {"test_command": test_command, "test_path": test_path})
+    assert result.decision == decision
+
+
+def test_shell_classification_ignores_unsupported_test_path(project):
+    result = classify_request(
+        "run_shell_command", {"command": "rg answer", "test_path": "sample.py"}
+    )
+    assert result.decision == "ask"
+
+
+def test_custom_tests_use_cwd_even_with_unsupported_working_dir(project):
+    (project / "sample.py").unlink()
+    (project / "sample.py").symlink_to(project / ".env")
+    (project / "tests" / "sample.py").write_text("public fixture\n")
+    result = classify_request(
+        "run_tests", {"test_command": "cat sample.py", "working_dir": str(project / "tests")}
+    )
+    assert result.decision == "ask"

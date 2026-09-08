@@ -31,7 +31,15 @@ COMMAND_FLAGS = {
     "ruff check": {"--no-cache", "--quiet", "--verbose"},
     "ruff format": {"--check", "--diff", "--no-cache", "--quiet", "--verbose"},
     "git status": {"--short", "--branch", "--porcelain", "-s", "-b"},
-    "git diff": {"--stat", "--name-only", "--name-status", "--cached", "--staged", "--check", "--no-ext-diff", "--no-textconv"},
+    "git diff": {
+        "--stat",
+        "--name-only",
+        "--name-status",
+        "--cached",
+        "--staged",
+        "--no-ext-diff",
+        "--no-textconv",
+    },
     "git log": {"--oneline", "--stat", "--no-decorate"},
 }
 VALUE_FLAGS = {
@@ -54,10 +62,14 @@ def classify_request(tool_name, tool_input):
         return RequestClassification("block", reason)
     try:
         root = Path.cwd().resolve()
-        directory = Path(tool_input.get("working_dir") or root).resolve()
+        working_dir = tool_input.get("working_dir") if tool_name == "run_shell_command" else None
+        directory = Path(working_dir or root).resolve()
         if not directory.is_dir() or not directory.is_relative_to(root):
-            return RequestClassification("ask", "Working directory is outside the project or missing")
-        return _classify_command(command, directory, tool_input.get("test_path"))
+            return RequestClassification(
+                "ask", "Working directory is outside the project or missing"
+            )
+        test_path = tool_input.get("test_path") if tool_name == "run_tests" else None
+        return _classify_command(command, directory, test_path)
     except (OSError, RuntimeError, TypeError, ValueError):
         return RequestClassification("ask", "Request could not be classified reliably")
 
@@ -68,13 +80,18 @@ def _classify_command(command, directory, test_path):
         return RequestClassification("ask", "Automatic shell classification requires a POSIX shell")
     if command_analysis.is_destructive_command(command, DESTRUCTIVE_COMMANDS):
         return RequestClassification("ask", "Destructive or privileged command")
+    if test_path:
+        if not isinstance(test_path, str) or test_path.startswith("-"):
+            return RequestClassification("ask", "Test path needs explicit approval")
+        command += f" {shlex.quote(test_path)}"
+        valid, _reason = validate_shell_command(command)
+        if not valid:
+            return RequestClassification("ask", "Test path needs explicit approval")
     tokens = command_analysis.tokenize(command)
     segments = command_analysis.split_into_segments(tokens)
     for segment in segments:
         if not _routine_segment(segment, directory):
             return RequestClassification("ask", "Command, options, or paths need explicit approval")
-    if test_path and (str(test_path).startswith("-") or not _project_argument(test_path, directory)):
-        return RequestClassification("ask", "Test path needs explicit approval")
     return RequestClassification("allow", "Routine project inspection or verification")
 
 
@@ -82,7 +99,7 @@ def _routine_segment(segment, directory):
     """Match a literal executable and its supported argument grammar."""
     if any(token in command_analysis.REDIRECTION_OPERATORS for token in segment):
         return False
-    if any(any(char in token for char in "*?{}~\\") for token in segment):
+    if any(any(char in token for char in "*?[]{}~\\") for token in segment):
         return False
     arguments = shlex.split(" ".join(segment))
     name = arguments.pop(0)
@@ -93,7 +110,10 @@ def _routine_segment(segment, directory):
         name += " " + (arguments.pop(0) if arguments else "")
     if name not in COMMAND_FLAGS:
         return False
-    if name == "ruff format" and not {"--check", "--diff"}.intersection(arguments):
+    options = _arguments_before_separator(arguments)
+    if name == "ruff format" and not {"--check", "--diff"}.intersection(options):
+        return False
+    if name == "git diff" and not {"--stat", "--name-only", "--name-status"}.intersection(options):
         return False
     return _routine_arguments(name, arguments, directory)
 
@@ -117,7 +137,7 @@ def _routine_arguments(name, arguments, directory):
             elif not _known_flag(argument, COMMAND_FLAGS[name]):
                 return False
             continue
-        if not _project_argument(argument, directory):
+        if not _positional_argument_safe(name, argument, directory):
             return False
         positionals.append(argument)
     if pending_value:
@@ -125,18 +145,29 @@ def _routine_arguments(name, arguments, directory):
     return _content_targets_safe(name, arguments, positionals, directory)
 
 
+def _positional_argument_safe(name: str, argument: str, directory: Path) -> bool:
+    """Interpret only supported command-specific path syntax."""
+    if name.startswith("git ") and ":" in argument:
+        return False
+    path_argument = argument.split("::", 1)[0] if name == "pytest" else argument
+    return _project_argument(path_argument, directory)
+
+
 def _known_flag(argument, flags):
     """Accept exact flags and clusters of explicitly supported short flags."""
     if argument in flags:
         return True
-    return argument.startswith("-") and not argument.startswith("--") and all(
-        f"-{letter}" in flags for letter in argument[1:]
-    ) and len(argument) > 1
+    return (
+        argument.startswith("-")
+        and not argument.startswith("--")
+        and all(f"-{letter}" in flags for letter in argument[1:])
+        and len(argument) > 1
+    )
 
 
 def _project_argument(argument, directory):
     """Keep literal paths in the project and away from secret material."""
-    path_text = str(argument).split("::", 1)[0]
+    path_text = str(argument)
     target = (directory / path_text).resolve()
     if not target.is_relative_to(Path.cwd().resolve()):
         return False
@@ -144,9 +175,17 @@ def _project_argument(argument, directory):
     return not secret
 
 
+def _arguments_before_separator(arguments: list[str]) -> list[str]:
+    """Return only arguments that can still be interpreted as options."""
+    if "--" in arguments:
+        return arguments[: arguments.index("--")]
+    return arguments
+
+
 def _content_targets_safe(name, arguments, positionals, directory):
     """Content readers need explicit regular files; listings may use directories."""
-    if name not in CONTENT_READERS or (name == "rg" and "--files" in arguments):
+    options = _arguments_before_separator(arguments)
+    if name not in CONTENT_READERS or (name == "rg" and "--files" in options):
         return True
     paths = positionals[1:] if name in {"rg", "grep"} else positionals
     return bool(paths) and all((directory / path).is_file() for path in paths)
