@@ -136,6 +136,7 @@ CORE_POLICY_FILENAMES = frozenset(
         "prompts.py",
         "safety.py",
         "agent_policy.py",
+        "request_classifier.py",
         "sub_agent_policy.py",
         "sub_agent_profiles.py",
         "agent_constants.py",

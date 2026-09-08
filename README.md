@@ -315,8 +315,9 @@ The model gets 72 tools by default, grouped by what they let it do:
   `apply_patch`. Each one shows you a diff before running.
 
 - **Run things.** `run_shell_command`, `run_tests`, `lint_code`, `format_code`,
-  `type_check`. The general shell always requires a fresh confirmation;
-  learned trust can auto-confirm safer, purpose-built test and analysis tools.
+  `type_check`. In auto mode (`--yes`), a local request classifier approves
+  recognised project inspection and verification commands. Unknown commands
+  and sensitive operations still prompt. Manual mode keeps shell confirmation.
 
 - **Use git.** Status, diff, log, branch, add, commit, checkout, stash. Reads
   are free; writes confirm.
@@ -414,13 +415,34 @@ scheduled jobs, custom-tool registration, and outbound Telegram messages.
 
 A few hard rules don't bend even with `--yes`:
 
-- General shell commands always require a fresh confirmation because a shell
-  can read, write, execute project code, and access the network.
+- Destructive and privileged shell commands still require confirmation unless
+  you explicitly disable shell confirmation in settings. Configured command
+  restrictions and catastrophic-command blocks still apply.
 - API keys live in `~/.radsim/.env` with `chmod 600`.
 - The agent cannot **write** to `.env`, credentials files, or known private-key
   paths. It can read them when you ask.
 - Anything you include in a prompt gets sent to the provider you chose. That's
   how the model works; pick a provider whose data policy matches your context.
+
+### Auto-mode request classifier
+
+Start with `radsim --yes` (or `radsim -y`). No extra model, API key, or dependency
+is needed. Routine commands such as `git status --short`, `git diff --stat`,
+`python -m pytest tests -q`, `ruff check .`, and `ruff format --check .` run
+without repeated approval. Explicit project-file reads such as `cat README.md`
+and `rg -n pattern src/main.py` are also recognised.
+
+The classifier checks every chained command, supported options, the working
+directory, and literal file targets. Unknown executables, custom wrappers,
+output redirection, recursive content searches, secret files, and paths outside
+the project ask for approval. Windows shell requests continue to prompt because
+the classifier currently supports POSIX shell syntax only. Existing session
+`all` approval and explicit confirmation settings retain their behaviour.
+
+Auto mode trusts project verification code. Tests and Git helpers can execute
+project or locally configured code; this filter reduces prompts and is not an
+OS sandbox. Use it in projects you trust. Classification decisions are logged
+with a reason, without recording command arguments or file contents.
 
 You can disable the GitHub release check at startup with `--skip-update-check`.
 
