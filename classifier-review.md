@@ -1,5 +1,11 @@
 # Classifier branch review
 
+Subsequent user-directed flow change: auto-mode denials now return BLOCKED without
+prompting or marking user cancellation. Checked pipelines can consume stdin;
+auto-detected tests pass through the same classifier. Direct destructive Git/file
+tools are refused in auto mode too. Historical approval language below describes
+the original review/fix state; see uptodate.md for current validation.
+
 Reviewed by Codex, 2026-09-09 AEST.
 
 Fix status (2026-09-09, Codex): all four findings implemented locally. Bracket

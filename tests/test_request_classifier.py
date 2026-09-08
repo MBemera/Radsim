@@ -233,7 +233,7 @@ def approval_fixtures(project):
     ],
 )
 @pytest.mark.parametrize("tool_name", ["shell_command", "run_tests"])
-def test_sensitive_requests_prompt_before_execution(
+def test_sensitive_requests_are_refused_without_prompting(
     approval_fixtures, monkeypatch, command, tool_name
 ):
     handler, execution = make_handler(monkeypatch)
@@ -243,7 +243,9 @@ def test_sensitive_requests_prompt_before_execution(
     key = "command" if tool_name == "shell_command" else "test_command"
     result = getattr(handler, f"_handle_{tool_name}")({key: command})
     assert not result["success"]
-    prompt.assert_called_once()
+    prompt.assert_not_called()
+    assert result["blocked"]
+    assert "STOPPED" not in result["error"]
     execution.assert_not_called()
     assert (approval_fixtures / "--check").read_text() == "answer=  42\n"
 
@@ -319,3 +321,153 @@ def test_custom_tests_use_cwd_even_with_unsupported_working_dir(project):
         "run_tests", {"test_command": "cat sample.py", "working_dir": str(project / "tests")}
     )
     assert result.decision == "ask"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat sample.py | head -n 1 | wc -l",
+        "cat sample.py | grep answer | tail -n 1",
+        "cat sample.py | rg answer",
+        "cat sample.py | cat -",
+        "git status --short | head -n 10",
+        "git status --short |& head -n 10",
+        "cat sample.py | head -n 1 && cat sample.py | wc -l",
+        "npm test",
+        "jest --runInBand",
+        "vitest run",
+        "mocha",
+        "go test ./...",
+        "cargo test --offline",
+    ],
+)
+def test_routine_pipelines_and_project_tests_are_allowed(project, command):
+    assert classify_request("run_shell_command", {"command": command}).decision == "allow"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "head -n 1",
+        "cat -",
+        "rg answer",
+        "cat sample.py && head -n 1",
+        "cat sample.py | head -n 1; wc -l",
+        "cat sample.py || head -n 1",
+        "cat .env | head -n 1",
+        "cat sample.py | custom-runner",
+        "git status && rm sample.py",
+        "cat sample.py | tee output.txt",
+        "python -m cat sample.py",
+        "npm test -- --arbitrary-option",
+        "cargo test -- --logfile=output.txt",
+    ],
+)
+def test_pipeline_context_cannot_bypass_command_or_path_checks(project, command):
+    assert classify_request("run_shell_command", {"command": command}).decision != "allow"
+
+
+@pytest.mark.parametrize("confirmations", [True, False])
+@pytest.mark.parametrize("session_all", [True, False])
+@pytest.mark.parametrize("command", ["rm sample.py", "cat .env", "custom-runner"])
+def test_auto_refusal_cannot_be_overridden(
+    project, monkeypatch, confirmations, session_all, command
+):
+    handler, execution = make_handler(monkeypatch)
+    handler._session_approve_shell = session_all
+    monkeypatch.setattr(
+        "radsim.agent_tool_handlers._confirmation_required", lambda kind: confirmations
+    )
+    prompt = Mock(side_effect=AssertionError("Auto mode must not prompt"))
+    monkeypatch.setattr("radsim.agent_tool_handlers.ask_confirmation", prompt)
+    result = handler._handle_shell_command({"command": command})
+    assert result["blocked"]
+    assert "STOPPED" not in result["error"]
+    execution.assert_not_called()
+
+
+@pytest.mark.parametrize("confirmations", [True, False])
+def test_auto_delete_is_refused_even_with_confirmation_disabled(
+    project, monkeypatch, confirmations
+):
+    handler, execution = make_handler(monkeypatch)
+    monkeypatch.setattr(
+        "radsim.agent_tool_handlers._confirmation_required", lambda kind: confirmations
+    )
+    monkeypatch.setattr(
+        "radsim.agent_tool_handlers.ask_confirmation", Mock(side_effect=AssertionError)
+    )
+    assert handler._handle_delete({"file_path": "sample.py"})["blocked"]
+    execution.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "framework,expected", [("pytest", "pytest"), ("vitest", "vitest run"), ("npm test", "npm test")]
+)
+def test_auto_detected_tests_are_classified_before_execution(
+    project, monkeypatch, framework, expected
+):
+    handler, execution = make_handler(monkeypatch)
+    monkeypatch.setattr(
+        "radsim.tools.testing.detect_project_type", lambda: {"test_framework": framework}
+    )
+    monkeypatch.setattr(
+        "radsim.agent_tool_handlers.confirm_action", Mock(side_effect=AssertionError)
+    )
+    assert handler._handle_run_tests({})["success"]
+    execution.assert_called_once_with("run_tests", {"test_command": expected})
+
+
+@pytest.mark.parametrize("tool_input", [{"test_path": "--basetemp=tests"}, {"test_path": ".env"}])
+def test_auto_detected_test_paths_cannot_bypass_classification(project, monkeypatch, tool_input):
+    handler, execution = make_handler(monkeypatch)
+    monkeypatch.setattr(
+        "radsim.tools.testing.detect_project_type", lambda: {"test_framework": "pytest"}
+    )
+    monkeypatch.setattr(
+        "radsim.agent_tool_handlers.confirm_action", Mock(side_effect=AssertionError)
+    )
+    assert handler._handle_run_tests(tool_input)["blocked"]
+    execution.assert_not_called()
+
+
+@pytest.mark.parametrize("framework", [None, "unknown-test-runner", "rm sample.py"])
+def test_unassessed_auto_detected_runners_cannot_execute(project, monkeypatch, framework):
+    handler, execution = make_handler(monkeypatch)
+    monkeypatch.setattr(
+        "radsim.tools.testing.detect_project_type", lambda: {"test_framework": framework}
+    )
+    monkeypatch.setattr(
+        "radsim.agent_tool_handlers.confirm_action", Mock(side_effect=AssertionError)
+    )
+    assert handler._handle_run_tests({})["blocked"]
+    execution.assert_not_called()
+
+
+def test_detection_failure_refuses_without_prompt(project, monkeypatch):
+    handler, execution = make_handler(monkeypatch)
+    monkeypatch.setattr("radsim.tools.testing.detect_project_type", Mock(side_effect=RuntimeError))
+    monkeypatch.setattr(
+        "radsim.agent_tool_handlers.confirm_action", Mock(side_effect=AssertionError)
+    )
+    assert handler._handle_run_tests({})["blocked"]
+    execution.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "handler_name,tool_input",
+    [
+        ("git_commit", {"message": "example", "amend": True}),
+        ("git_checkout", {"file_path": "sample.py"}),
+        ("git_stash", {"action": "drop"}),
+    ],
+)
+def test_direct_git_tools_cannot_bypass_auto_destruction_refusal(
+    project, monkeypatch, handler_name, tool_input
+):
+    handler, execution = make_handler(monkeypatch)
+    monkeypatch.setattr(
+        "radsim.agent_tool_handlers.confirm_action", Mock(side_effect=AssertionError)
+    )
+    assert getattr(handler, f"_handle_{handler_name}")(tool_input)["blocked"]
+    execution.assert_not_called()

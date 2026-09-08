@@ -40,7 +40,7 @@ def test_write_file_rejection_stops_without_executing(monkeypatch):
     assert execute_calls == []
 
 
-def test_unknown_shell_command_requires_prompt_even_with_auto_confirm(monkeypatch):
+def test_unknown_shell_command_is_refused_without_prompt_in_auto_mode(monkeypatch):
     agent = build_agent(auto_confirm=True)
     ask_calls = []
 
@@ -51,14 +51,19 @@ def test_unknown_shell_command_requires_prompt_even_with_auto_confirm(monkeypatc
     )
     monkeypatch.setattr(
         "radsim.agent_tool_handlers.execute_tool",
-        lambda tool_name, tool_input: {"success": True, "returncode": 0, "stdout": "", "stderr": ""},
+        lambda tool_name, tool_input: {
+            "success": True,
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+        },
     )
 
     result = agent._handle_shell_command({"command": "custom-runner --all"})
 
-    assert result["success"] is True
-    assert len(ask_calls) == 1
-    assert ask_calls[0][1] is True
+    assert result["success"] is False
+    assert result["blocked"]
+    assert ask_calls == []
 
 
 def test_assignment_prefixed_destructive_command_cannot_auto_confirm(monkeypatch):
@@ -78,7 +83,7 @@ def test_assignment_prefixed_destructive_command_cannot_auto_confirm(monkeypatch
     assert execute_calls == []
 
 
-def test_destructive_shell_command_still_requires_confirmation(monkeypatch):
+def test_destructive_shell_command_is_refused_without_prompt_in_auto_mode(monkeypatch):
     agent = build_agent(auto_confirm=True)
     ask_calls = []
     execute_calls = []
@@ -96,8 +101,9 @@ def test_destructive_shell_command_still_requires_confirmation(monkeypatch):
     result = agent._handle_shell_command({"command": "rm -rf build"})
 
     assert result["success"] is False
-    assert "STOPPED" in result["error"]
-    assert len(ask_calls) == 1
+    assert "STOPPED" not in result["error"]
+    assert result["blocked"]
+    assert ask_calls == []
     assert execute_calls == []
 
 
@@ -112,7 +118,12 @@ def test_shell_all_answer_approves_rest_of_session(monkeypatch):
     )
     monkeypatch.setattr(
         "radsim.agent_tool_handlers.execute_tool",
-        lambda tool_name, tool_input: {"success": True, "returncode": 0, "stdout": "", "stderr": ""},
+        lambda tool_name, tool_input: {
+            "success": True,
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+        },
     )
 
     first = agent._handle_shell_command({"command": "echo one"})
@@ -310,7 +321,7 @@ def test_tool_policy_failure_blocks_execution(monkeypatch):
     assert "blocked for safety" in result["error"].lower()
 
 
-def test_custom_test_command_requires_prompt_with_auto_confirm(monkeypatch):
+def test_unknown_custom_test_command_is_refused_in_auto_mode(monkeypatch):
     agent = build_agent(auto_confirm=True)
     execute_calls = []
 

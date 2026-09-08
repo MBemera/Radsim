@@ -316,8 +316,9 @@ The model gets 72 tools by default, grouped by what they let it do:
 
 - **Run things.** `run_shell_command`, `run_tests`, `lint_code`, `format_code`,
   `type_check`. In auto mode (`--yes`), a local request classifier approves
-  recognised project inspection and verification commands. Unknown commands
-  and sensitive operations still prompt. Manual mode keeps shell confirmation.
+  recognised project inspection and verification commands. Destructive and
+  unclassified shell/test requests are refused without an approval pause;
+  RadSim can continue independent work. Manual mode keeps shell confirmation.
 
 - **Use git.** Status, diff, log, branch, add, commit, checkout, stash. Reads
   are free; writes confirm.
@@ -415,9 +416,12 @@ scheduled jobs, custom-tool registration, and outbound Telegram messages.
 
 A few hard rules don't bend even with `--yes`:
 
-- Destructive and privileged shell commands still require confirmation unless
-  you explicitly disable shell confirmation in settings. Configured command
-  restrictions and catastrophic-command blocks still apply.
+- Auto mode refuses destructive and privileged shell commands and file deletion,
+  even when session-wide approval or disabled confirmations are configured.
+  Direct Git tools also refuse commit amendment, file restoration that discards
+  edits, and dropping stashes in auto mode.
+  Manual mode uses the existing confirmation settings. Configured command
+  restrictions and catastrophic-command blocks still apply in either mode.
 - API keys live in `~/.radsim/.env` with `chmod 600`.
 - The agent cannot **write** to `.env`, credentials files, or known private-key
   paths. It can read them when you ask.
@@ -432,21 +436,33 @@ is needed. Routine commands such as `git status --short`, `git diff --stat`,
 without repeated approval. Explicit project-file reads such as `cat README.md`
 and `rg -n pattern src/main.py` are also recognised. Shell `git diff` commands
 are automatic only for summaries (`--stat`, `--name-only`, or `--name-status`);
-content diffs and `--check` require approval because they can print protected
-file contents. Git revision/path operands such as `HEAD:credentials.json`
-also require approval.
+content diffs and `--check` are refused in auto mode because they can print
+protected file contents. Git revision/path operands such as
+`HEAD:credentials.json` are also refused.
 
 The classifier checks every chained command, supported options, the working
 directory, and literal file targets. Unknown executables, custom wrappers,
 output redirection, wildcard paths (including bracket globs), recursive content
-searches, secret files, and paths outside the project ask for approval. Windows shell requests continue to prompt because
-the classifier currently supports POSIX shell syntax only. Existing session
-`all` approval and explicit confirmation settings retain their behaviour.
+searches, secret files, and paths outside the project are refused in auto mode.
+Windows shell requests are refused in auto mode because the classifier currently
+supports POSIX shell syntax only. Session `all` and disabled confirmation settings
+do not override auto-mode classification; they retain their manual-mode behavior.
 
 Options after `--` are treated as filenames: `ruff format -- --check file.py`
-still requires approval. File reads resolve the complete filename, including
+is refused in auto mode. File reads resolve the complete filename, including
 literal `::` characters; only pytest targets interpret `::` as a test node ID.
-Custom test commands classify the appended test path as part of the command.
+Custom and auto-detected test commands classify the appended test path as part of
+the command. Recognised test runners include pytest, npm test, Jest, Vitest run,
+Mocha, Go test, and Cargo test, with a limited set of supported options.
+
+Pipes can consume the output of earlier checked commands, for example
+`cat README.md | head -n 10 | wc -l`. Every stage must pass; `&&`, `||`, and `;`
+start a new command without granting pipeline input. Nested shells and command
+substitution remain blocked. A refusal returns a tool result, not a user
+cancellation: RadSim can choose a supported non-destructive alternative or
+continue independent work without an approval prompt. It must not retry a blocked
+operation through a different tool or wrapper. Other tool-specific approval rules
+(for example, installations or explicit protected reads) are unchanged.
 
 Auto mode trusts project verification code. Tests and Git helpers can execute
 project or locally configured code; this filter reduces prompts and is not an

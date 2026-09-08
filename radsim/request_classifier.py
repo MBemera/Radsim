@@ -41,6 +41,12 @@ COMMAND_FLAGS = {
         "--no-textconv",
     },
     "git log": {"--oneline", "--stat", "--no-decorate"},
+    "npm test": set(),
+    "jest": {"--runInBand", "--ci", "--verbose"},
+    "vitest run": {"--silent"},
+    "mocha": set(),
+    "go test": {"-v", "-race", "-short"},
+    "cargo test": {"--quiet", "--locked", "--offline"},
 }
 VALUE_FLAGS = {
     "head": {"-n", "--lines"},
@@ -79,7 +85,7 @@ def _classify_command(command, directory, test_path):
     if os.name == "nt":
         return RequestClassification("ask", "Automatic shell classification requires a POSIX shell")
     if command_analysis.is_destructive_command(command, DESTRUCTIVE_COMMANDS):
-        return RequestClassification("ask", "Destructive or privileged command")
+        return RequestClassification("block", "Destructive or privileged command")
     if test_path:
         if not isinstance(test_path, str) or test_path.startswith("-"):
             return RequestClassification("ask", "Test path needs explicit approval")
@@ -88,14 +94,29 @@ def _classify_command(command, directory, test_path):
         if not valid:
             return RequestClassification("ask", "Test path needs explicit approval")
     tokens = command_analysis.tokenize(command)
-    segments = command_analysis.split_into_segments(tokens)
-    for segment in segments:
-        if not _routine_segment(segment, directory):
+    for segment, piped_input in _command_segments(tokens):
+        if not _routine_segment(segment, directory, piped_input):
             return RequestClassification("ask", "Command, options, or paths need explicit approval")
     return RequestClassification("allow", "Routine project inspection or verification")
 
 
-def _routine_segment(segment, directory):
+def _command_segments(tokens):
+    """Track whether each segment receives an already-checked pipeline's output."""
+    segment = []
+    piped_input = False
+    for token in tokens:
+        if token not in command_analysis.SEGMENT_OPERATORS:
+            segment.append(token)
+            continue
+        if segment:
+            yield segment, piped_input
+        segment = []
+        piped_input = token in {"|", "|&"}
+    if segment:
+        yield segment, piped_input
+
+
+def _routine_segment(segment, directory, piped_input=False):
     """Match a literal executable and its supported argument grammar."""
     if any(token in command_analysis.REDIRECTION_OPERATORS for token in segment):
         return False
@@ -106,7 +127,9 @@ def _routine_segment(segment, directory):
     if name in {"python", "python3"} and arguments[:1] == ["-m"]:
         arguments.pop(0)
         name = arguments.pop(0) if arguments else ""
-    if name in {"git", "ruff"}:
+        if name not in {"pytest", "ruff"}:
+            return False
+    if name in {"git", "ruff", "npm", "vitest", "go", "cargo"}:
         name += " " + (arguments.pop(0) if arguments else "")
     if name not in COMMAND_FLAGS:
         return False
@@ -115,10 +138,10 @@ def _routine_segment(segment, directory):
         return False
     if name == "git diff" and not {"--stat", "--name-only", "--name-status"}.intersection(options):
         return False
-    return _routine_arguments(name, arguments, directory)
+    return _routine_arguments(name, arguments, directory, piped_input)
 
 
-def _routine_arguments(name, arguments, directory):
+def _routine_arguments(name, arguments, directory, piped_input=False):
     """Reject unknown flags, secret paths, and recursive content reads."""
     positionals = []
     after_separator = False
@@ -129,6 +152,9 @@ def _routine_arguments(name, arguments, directory):
             continue
         if argument == "--" and not after_separator:
             after_separator = True
+            continue
+        if argument == "-" and name in CONTENT_READERS and piped_input:
+            positionals.append(argument)
             continue
         if argument.startswith("-") and not after_separator:
             option, separator, _value = argument.partition("=")
@@ -142,11 +168,13 @@ def _routine_arguments(name, arguments, directory):
         positionals.append(argument)
     if pending_value:
         return False
-    return _content_targets_safe(name, arguments, positionals, directory)
+    return _content_targets_safe(name, arguments, positionals, directory, piped_input)
 
 
 def _positional_argument_safe(name: str, argument: str, directory: Path) -> bool:
     """Interpret only supported command-specific path syntax."""
+    if name in {"npm test", "cargo test"} and argument.startswith("-"):
+        return False
     if name.startswith("git ") and ":" in argument:
         return False
     path_argument = argument.split("::", 1)[0] if name == "pytest" else argument
@@ -182,10 +210,14 @@ def _arguments_before_separator(arguments: list[str]) -> list[str]:
     return arguments
 
 
-def _content_targets_safe(name, arguments, positionals, directory):
+def _content_targets_safe(name, arguments, positionals, directory, piped_input=False):
     """Content readers need explicit regular files; listings may use directories."""
     options = _arguments_before_separator(arguments)
     if name not in CONTENT_READERS or (name == "rg" and "--files" in options):
         return True
     paths = positionals[1:] if name in {"rg", "grep"} else positionals
-    return bool(paths) and all((directory / path).is_file() for path in paths)
+    if name in {"rg", "grep"} and not positionals:
+        return False
+    if not paths:
+        return piped_input
+    return all((path == "-" and piped_input) or (directory / path).is_file() for path in paths)
