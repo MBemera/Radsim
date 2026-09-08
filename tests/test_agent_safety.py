@@ -40,7 +40,7 @@ def test_write_file_rejection_stops_without_executing(monkeypatch):
     assert execute_calls == []
 
 
-def test_shell_command_requires_prompt_even_with_auto_confirm(monkeypatch):
+def test_unknown_shell_command_requires_prompt_even_with_auto_confirm(monkeypatch):
     agent = build_agent(auto_confirm=True)
     ask_calls = []
 
@@ -54,7 +54,7 @@ def test_shell_command_requires_prompt_even_with_auto_confirm(monkeypatch):
         lambda tool_name, tool_input: {"success": True, "returncode": 0, "stdout": "", "stderr": ""},
     )
 
-    result = agent._handle_shell_command({"command": "echo hello"})
+    result = agent._handle_shell_command({"command": "custom-runner --all"})
 
     assert result["success"] is True
     assert len(ask_calls) == 1

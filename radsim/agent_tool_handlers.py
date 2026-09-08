@@ -24,6 +24,7 @@ from .output import (
     print_tool_result_verbose,
     print_warning,
 )
+from .request_classifier import classify_request
 from .safety import ask_confirmation, confirm_action, confirm_write, is_path_safe
 from .tools import DESTRUCTIVE_COMMANDS, execute_tool
 from .tools.command_analysis import is_destructive_command
@@ -493,17 +494,26 @@ class AgentToolHandlersMixin:
                 "error": "STOPPED: User rejected delete. Do NOT retry. Ask user what to do instead.",
             }
 
-    def _confirm_shell_command(self, command, is_destructive):
-        """Decide whether one shell command may run.
+    def _auto_approve_request(self, tool_name, tool_input):
+        """Use deterministic classification only when the user enabled auto mode."""
+        if not self.config.auto_confirm:
+            return False
+        try:
+            classification = classify_request(tool_name, tool_input)
+        except Exception:
+            logger.warning("Request classification failed; asking for approval", exc_info=True)
+            return False
+        logger.info(
+            "Auto request classification: tool=%s decision=%s reason=%s",
+            tool_name, classification.decision, classification.reason,
+        )
+        if classification.decision != "allow":
+            return False
+        print_info(f"Auto-approved: {classification.reason}")
+        return True
 
-        A general shell can read, write, execute project code, reach the
-        network, or escape lexical path checks, so static classification is
-        not a permission boundary: every command needs a fresh human
-        decision, even when --yes is active. The only exceptions are an
-        explicit session-wide "all" answer (non-destructive commands only)
-        and disabling shell confirmation in /settings. Catastrophic
-        commands stay blocked by validate_shell_command regardless.
-        """
+    def _confirm_shell_command(self, command, is_destructive, tool_input=None):
+        """Apply auto classification before falling back to explicit shell approval."""
         if not _confirmation_required("shell_commands"):
             if is_destructive:
                 print_warning(f"DESTRUCTIVE COMMAND (confirmation OFF): {command}")
@@ -514,6 +524,11 @@ class AgentToolHandlersMixin:
         if is_destructive:
             print_warning("Destructive command — explicit confirmation required.")
             return ask_confirmation(f"Execute: '{command}'?") == "yes"
+
+        if self._auto_approve_request(
+            "run_shell_command", tool_input or {"command": command}
+        ):
+            return True
 
         if self._session_approve_shell:
             print_info(f"Auto-approved (session 'all'): {command}")
@@ -541,7 +556,7 @@ class AgentToolHandlersMixin:
         # or absolute-path forms ("env sudo", "/usr/bin/sudo") and destructive
         # commands in any pipeline segment cannot bypass confirmation.
         is_destructive = is_destructive_command(command, DESTRUCTIVE_COMMANDS)
-        confirmed = self._confirm_shell_command(command, is_destructive)
+        confirmed = self._confirm_shell_command(command, is_destructive, tool_input)
 
         if confirmed:
             tool_start_time = time.time()
@@ -747,7 +762,9 @@ class AgentToolHandlersMixin:
             desc += f" ({test_path})"
 
         if test_command:
-            confirmed = confirm_action(f"Run custom test command: {desc}?", config=None)
+            confirmed = self._auto_approve_request("run_tests", tool_input)
+            if not confirmed:
+                confirmed = confirm_action(f"Run custom test command: {desc}?", config=None)
         elif self.config.auto_confirm:
             print_info(f"Running tests: {desc}")
             confirmed = True
