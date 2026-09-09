@@ -106,7 +106,7 @@ PROVIDER_MODELS = {
         ("openai/gpt-5.6-luna", "GPT-5.6 Luna (Fast and cost-efficient)"),
         ("minimax/minimax-m3", "MiniMax M3 (Recommended — top usage)"),
         ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash (Fast & cheapest)"),
-        ("anthropic/claude-opus-4.8", "Claude Opus 4.8 via OpenRouter (Most capable)"),
+        ("anthropic/claude-opus-4.8", "Claude Opus 4.8 via OpenRouter"),
         ("anthropic/claude-sonnet-4.6", "Claude Sonnet 4.6 via OpenRouter"),
         ("moonshotai/kimi-k2.5", "Kimi K2.5 (Capable & cheap)"),
         ("openai/gpt-5.4", "GPT-5.4 via OpenRouter"),
@@ -1012,9 +1012,9 @@ def _build_openrouter_choices(top_only: bool = True) -> list[tuple[str, str]]:
 
     When top_only is True, returns the curated short list from
     PROVIDER_MODELS enriched with live capability metadata when available.
-    Otherwise returns the full live catalogue.
+    Otherwise returns every live tool-capable text model, newest first.
     """
-    from .openrouter_models import find_model, get_openrouter_models
+    from .openrouter_models import find_model, list_selectable_models
 
     if top_only:
         choices = []
@@ -1026,7 +1026,7 @@ def _build_openrouter_choices(top_only: bool = True) -> list[tuple[str, str]]:
                 choices.append((model_id, fallback_label))
         return choices
 
-    catalogue = get_openrouter_models()
+    catalogue = list_selectable_models()
     if not catalogue:
         return PROVIDER_MODELS["openrouter"]
     return [(entry["id"], _format_model_label(entry)) for entry in catalogue]
