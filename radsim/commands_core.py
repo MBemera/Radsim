@@ -248,12 +248,24 @@ class CoreCommandHandlersMixin:
         )
         from .output import print_header
 
-        print_numbered_options("Quick Switch - Select provider:", ("OpenRouter", "GPT-5 (OpenAI)", "Claude (Anthropic)"))
+        print_numbered_options(
+            "Quick Switch - Select provider:",
+            (
+                "OpenRouter",
+                "GPT-5 (OpenAI)",
+                "Claude (Anthropic)",
+                "ChatGPT subscription (sign in, no API key)",
+            ),
+        )
 
         try:
-            choice = input("  Enter 1-3: ").strip()
+            choice = input("  Enter 1-4: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n  Cancelled.")
+            return
+
+        if choice == "4":
+            self._chatgpt_account_menu(agent)
             return
 
         provider_map = {"1": "openrouter", "2": "openai", "3": "claude"}
@@ -303,6 +315,50 @@ class CoreCommandHandlersMixin:
         agent.update_config(provider, api_key, model)
         print_block((f"  ok Switched to {provider} / {model}",), blank_after=False)
         print_header(provider, model)
+
+    CHATGPT_ACCOUNT_ACTIONS = (
+        ("login", "Sign in with your ChatGPT subscription (browser)"),
+        ("login-device", "Sign in with a device code (no local browser)"),
+        ("use", "Use the subscription in this session"),
+        ("status", "Plan and remaining quota"),
+        ("models", "Models your account can use"),
+        ("logout", "Sign out and stop defaulting to the subscription"),
+    )
+
+    def _chatgpt_account_menu(self, agent):
+        """Run every ChatGPT subscription account action from one menu.
+
+        Sessions run in RadSim's own loop, so signing in switches the live
+        session straight over instead of asking for a restart.
+        """
+        from .codex_cli import run_account_command
+        from .menu import interactive_menu_loop
+
+        def run_action(action):
+            if action == "use":
+                self._switch_to_subscription(agent)
+                return
+            device_code = action == "login-device"
+            exit_code = run_account_command(
+                "login" if device_code else action, device_code=device_code
+            )
+            if exit_code == 0 and action.startswith("login"):
+                self._switch_to_subscription(agent)
+
+        interactive_menu_loop(
+            "CHATGPT SUBSCRIPTION", list(self.CHATGPT_ACCOUNT_ACTIONS), run_action
+        )
+
+    @staticmethod
+    def _switch_to_subscription(agent):
+        """Point the running session at the subscription, keeping the frame."""
+        from .codex_transport import CodexError
+        from .config import SUBSCRIPTION_PROVIDER, load_env_file
+
+        try:
+            agent.update_config(SUBSCRIPTION_PROVIDER, None, load_env_file().get("model"))
+        except CodexError as error:
+            print_block((f"  {error}",), blank_after=False)
 
     CHEAPEST_OPENROUTER_MODEL = "deepseek/deepseek-v4-flash"
 
