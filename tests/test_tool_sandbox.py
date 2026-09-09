@@ -96,6 +96,7 @@ def test_profile_denies_writes_before_allowing_the_working_directory(project):
     )
 
 
+@on_macos
 def test_profile_resolves_symlinked_paths(project):
     """Seatbelt matches real paths, so /tmp must appear as /private/tmp."""
     profile = sandbox.build_sandbox_profile(str(project))
