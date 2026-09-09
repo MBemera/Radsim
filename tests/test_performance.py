@@ -4,18 +4,33 @@ from __future__ import annotations
 
 import json
 import stat
+from pathlib import Path
 
 from radsim.hooks import HookContext, HooksManager, HookType
 from radsim.performance import (
+    TELEMETRY_ENV_VAR,
     PerformanceTelemetry,
     bind_performance_context,
+    emit_active_performance_event,
+    estimate_tokens,
     request_payload_metrics,
     reset_performance_context,
 )
 
+ROTATION_EVENT = "turn_started"
+ROTATION_FIELDS = {"turn_id": "turn-rotate", "model": "m" * 200}
+
 
 def _records(path):
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def _record_bytes(tmp_path):
+    """Return the encoded length of one rotation-fixture record, without its newline."""
+    probe = tmp_path / "probe.jsonl"
+    telemetry = PerformanceTelemetry(probe, enabled=True)
+    assert telemetry.emit(ROTATION_EVENT, **ROTATION_FIELDS)
+    return len(probe.read_text(encoding="utf-8").splitlines()[0])
 
 
 def test_disabled_telemetry_does_not_create_a_file(tmp_path):
@@ -153,3 +168,165 @@ def test_request_metrics_capture_sizes_not_content():
         "tool_schema_chars": 58,
         "tool_schema_tokens": 15,
     }
+
+
+def test_request_metrics_measure_unicode_schemas_unescaped():
+    metrics = request_payload_metrics("", [{"name": "read_file", "description": "café"}])
+
+    assert metrics["tool_schema_chars"] == 43
+    assert metrics["tool_schema_tokens"] == 11
+
+
+def test_estimate_tokens_rounds_up_only_for_partial_tokens():
+    assert estimate_tokens("") == 0
+    assert estimate_tokens("abcd") == 1
+    assert estimate_tokens("abcde") == 2
+
+
+def test_active_performance_event_is_dropped_without_a_bound_turn():
+    assert emit_active_performance_event("turn_started") is False
+
+
+def test_telemetry_clamps_rotation_bounds():
+    telemetry = PerformanceTelemetry("performance.jsonl", max_bytes=0, backup_count=-5)
+
+    assert telemetry.max_bytes == 1_024
+    assert telemetry.backup_count == 0
+    assert telemetry._failed is False
+
+
+def test_from_environment_uses_the_radsim_log_path(monkeypatch):
+    monkeypatch.delenv(TELEMETRY_ENV_VAR, raising=False)
+
+    telemetry = PerformanceTelemetry.from_environment()
+
+    assert telemetry.path == Path.home() / ".radsim" / "logs" / "performance.jsonl"
+    assert telemetry.enabled is False
+
+
+def test_from_environment_enables_telemetry_for_truthy_values(monkeypatch):
+    for raw in ("1", "true", "TRUE", " yes ", "on"):
+        monkeypatch.setenv(TELEMETRY_ENV_VAR, raw)
+
+        assert PerformanceTelemetry.from_environment().enabled is True
+
+
+def test_from_environment_leaves_telemetry_disabled_for_other_values(monkeypatch):
+    for raw in ("0", "false", "maybe", ""):
+        monkeypatch.setenv(TELEMETRY_ENV_VAR, raw)
+
+        assert PerformanceTelemetry.from_environment().enabled is False
+
+
+def test_emit_stops_permanently_after_a_write_failure(tmp_path):
+    path = tmp_path / "performance.jsonl"
+    telemetry = PerformanceTelemetry(path, enabled=True)
+    telemetry._failed = True
+
+    assert telemetry.emit("turn_started", turn_id="turn-1") is False
+    assert not path.exists()
+
+
+def test_emit_records_a_utc_timestamp(tmp_path):
+    path = tmp_path / "performance.jsonl"
+    telemetry = PerformanceTelemetry(path, enabled=True)
+
+    assert telemetry.emit("turn_started", turn_id="turn-1")
+    assert _records(path)[0]["timestamp"].endswith("+00:00")
+
+
+def test_disallowed_field_does_not_drop_later_allowed_fields(tmp_path):
+    path = tmp_path / "performance.jsonl"
+    telemetry = PerformanceTelemetry(path, enabled=True)
+
+    assert telemetry.emit(
+        "tool_execution",
+        raw_prompt="never store this",
+        turn_id="turn-1",
+        tool_name="read_file",
+    )
+
+    record = _records(path)[0]
+    assert record["turn_id"] == "turn-1"
+    assert record["tool_name"] == "read_file"
+    assert "raw_prompt" not in record
+
+
+def test_emit_writes_compact_sorted_ascii_json(tmp_path):
+    path = tmp_path / "performance.jsonl"
+    telemetry = PerformanceTelemetry(path, enabled=True)
+
+    assert telemetry.emit("tool_execution", turn_id="turn-1", tool_name="café", duration_ms=1.5)
+
+    line = path.read_text(encoding="utf-8").splitlines()[0]
+    assert line.isascii()
+    assert "caf\\u00e9" in line
+    assert ", " not in line
+    assert ": " not in line
+    keys = list(json.loads(line))
+    assert keys == sorted(keys)
+
+
+def test_emit_creates_missing_parent_directories(tmp_path):
+    path = tmp_path / "nested" / "logs" / "performance.jsonl"
+    telemetry = PerformanceTelemetry(path, enabled=True)
+
+    assert telemetry.emit("turn_started", turn_id="turn-1") is True
+    assert path.exists()
+
+
+def test_emit_restricts_the_log_directory_to_the_owner(tmp_path):
+    path = tmp_path / "logs" / "performance.jsonl"
+    telemetry = PerformanceTelemetry(path, enabled=True)
+
+    assert telemetry.emit("turn_started", turn_id="turn-1") is True
+    if hasattr(stat, "S_IMODE"):
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+
+
+def test_a_file_already_at_the_limit_rotates(tmp_path):
+    path = tmp_path / "performance.jsonl"
+    filler = b"x" * 2_048
+    path.write_bytes(filler)
+    telemetry = PerformanceTelemetry(path, enabled=True, max_bytes=2_048, backup_count=1)
+
+    assert telemetry.emit(ROTATION_EVENT, **ROTATION_FIELDS) is True
+    assert path.with_name("performance.jsonl.1").read_bytes() == filler
+
+
+def test_a_record_that_exactly_fills_the_limit_is_not_rotated(tmp_path):
+    max_bytes = 2_048
+    path = tmp_path / "performance.jsonl"
+    path.write_bytes(b"x" * (max_bytes - _record_bytes(tmp_path) - 1))
+    telemetry = PerformanceTelemetry(path, enabled=True, max_bytes=max_bytes, backup_count=1)
+
+    assert telemetry.emit(ROTATION_EVENT, **ROTATION_FIELDS) is True
+    assert not path.with_name("performance.jsonl.1").exists()
+    assert path.stat().st_size == max_bytes
+
+
+def test_a_record_that_overflows_the_limit_by_one_byte_rotates(tmp_path):
+    max_bytes = 2_048
+    path = tmp_path / "performance.jsonl"
+    filler = b"x" * (max_bytes - _record_bytes(tmp_path))
+    path.write_bytes(filler)
+    telemetry = PerformanceTelemetry(path, enabled=True, max_bytes=max_bytes, backup_count=1)
+
+    assert telemetry.emit(ROTATION_EVENT, **ROTATION_FIELDS) is True
+    assert path.with_name("performance.jsonl.1").read_bytes() == filler
+
+
+def test_rotation_shifts_every_backup_down_one_slot(tmp_path):
+    path = tmp_path / "performance.jsonl"
+    path.write_bytes(b"current")
+    for index, content in ((1, b"first"), (2, b"second"), (3, b"third"), (4, b"stale")):
+        path.with_name(f"performance.jsonl.{index}").write_bytes(content)
+    telemetry = PerformanceTelemetry(path, enabled=True, backup_count=3)
+
+    telemetry._rotate()
+
+    assert not path.exists()
+    assert path.with_name("performance.jsonl.1").read_bytes() == b"current"
+    assert path.with_name("performance.jsonl.2").read_bytes() == b"first"
+    assert path.with_name("performance.jsonl.3").read_bytes() == b"second"
+    assert path.with_name("performance.jsonl.4").read_bytes() == b"stale"
