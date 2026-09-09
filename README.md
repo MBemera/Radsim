@@ -504,10 +504,30 @@ continue independent work without an approval prompt. It must not retry a blocke
 operation through a different tool or wrapper. Other tool-specific approval rules
 (for example, installations or explicit protected reads) are unchanged.
 
-Auto mode trusts project verification code. Tests and Git helpers can execute
-project or locally configured code; this filter reduces prompts and is not an
-OS sandbox. Use it in projects you trust. Classification decisions are logged
-with a reason, without recording command arguments or file contents.
+Classification alone cannot see past the command string. An approved
+`pytest -q` still executes whatever the tests contain, and a fixture calling
+`shutil.rmtree` never produces a command for any rule to match. On macOS, auto
+mode therefore runs shell and test commands inside the seatbelt sandbox
+(`sandbox-exec`), which confines filesystem **writes** to the working directory,
+the temp directory, and known build caches (`~/Library/Caches`, `~/.cache`,
+`~/.npm`, `~/.cargo`, `~/.rustup`, `~/.gradle`, `~/.m2`, `~/go/pkg/mod`). Reads,
+network access and process execution are unrestricted, so verification commands
+behave normally.
+
+The sandbox is on by default in auto mode and can be switched off in `/settings`
+under "Sandbox shell commands in auto mode (macOS)". The setting is read from
+your configuration, never from tool input, so no tool call can request an
+unconfined command. Manual mode is unaffected: you approve each command there
+yourself. Git, Docker
+and deploy helpers run unsandboxed because RadSim builds those argv itself.
+Outside macOS the sandbox is unavailable and commands run unconfined; RadSim
+logs a warning when that happens.
+
+Auto mode still trusts project verification code. The sandbox stops writes
+outside the project; it does not stop a test from reading files, making network
+calls, or corrupting the project itself. Use it in projects you trust.
+Classification decisions are logged with a reason, without recording command
+arguments or file contents.
 
 You can disable the GitHub release check at startup with `--skip-update-check`.
 

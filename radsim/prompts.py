@@ -106,6 +106,22 @@ Also:
 - Never imply that an unrun test passed, an unperformed action occurred, or an unverified subagent claim is established fact."""
 
 
+SANDBOX_PROMPT = """
+
+## Sandbox active
+
+Your shell and test commands run inside the macOS seatbelt sandbox. Filesystem
+writes succeed only inside the working directory, the temp directory, and known
+build caches. Everywhere else, writes fail with "Operation not permitted" — that
+covers creating, deleting, renaming, truncating, and changing permissions.
+
+Reads, network access, and running programs are unrestricted.
+
+A sandbox denial is a boundary, not a bug. Do not retry the write, do not route
+around it through another tool, and do not ask the user to disable the sandbox.
+Say what was blocked and continue with the rest of the task."""
+
+
 PLANNING_SYSTEM_PROMPT = """You are RadSim in PLANNING MODE. Your task is to generate a structured implementation plan.
 
 Given the user's task description, first provide a clear human-readable summary of the plan, then include the machine-readable JSON at the end.
@@ -274,6 +290,7 @@ def _build_prompt_layers(provider=None, model=None):
 
     _add_session_layer(layers, provider, model)
     _add_harness_prompt_layers(layers, runtime_context)
+    _add_sandbox_layer(layers)
     _add_mode_layer(layers)
     _add_self_modification_layer(layers)
     _add_skills_layer(layers, runtime_context)
@@ -328,6 +345,17 @@ def _read_prompt_fragment(file_path):
     except OSError:
         logger.debug("Prompt fragment not available: %s", file_path)
         return ""
+
+
+def _add_sandbox_layer(layers):
+    """Tell the model when its shell commands are confined, so it stops retrying."""
+    try:
+        from .tools.sandbox import sandbox_enabled
+
+        if sandbox_enabled():
+            layers.append({"name": "sandbox", "content": SANDBOX_PROMPT})
+    except Exception:
+        logger.debug("Failed to determine sandbox state for the prompt")
 
 
 def _add_mode_layer(layers):
