@@ -96,7 +96,7 @@ def sandbox_enabled():
         return False
     if not sandbox_available():
         logger.warning(
-            "Auto-mode sandboxing needs macOS %s; commands run unconfined",
+            "Auto-mode sandboxing needs macOS %s; requested sandbox is unavailable",
             SANDBOX_EXECUTABLE,
         )
         return False
@@ -150,11 +150,15 @@ def build_sandbox_profile(working_dir):
         lines.append(f"(allow file-write* (subpath {_quote_profile_path(path)}))")
     for path in WRITABLE_DEVICE_FILES:
         lines.append(f"(allow file-write* (literal {_quote_profile_path(path)}))")
+    settings = os.path.realpath(os.path.expanduser("~/.radsim"))
+    lines.append(f"(deny file-write* (subpath {_quote_profile_path(settings)}))")
     return "\n".join(lines)
 
 
 def wrap_shell_arguments(arguments, working_dir):
     """Return argv confined by the sandbox, or unchanged when not sandboxing."""
+    if auto_mode_enabled() and sandbox_requested() and not sandbox_available():
+        raise RuntimeError("BLOCKED: Requested sandbox is unavailable; command was not executed.")
     if not sandbox_enabled():
         return arguments
     profile = build_sandbox_profile(working_dir)

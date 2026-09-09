@@ -485,7 +485,12 @@
   {
     "description": "Get git repository status (current branch, changed files).",
     "input_schema": {
-      "properties": {},
+      "properties": {
+        "working_dir": {
+          "description": "Repository directory. Always set for nested repositories; paths are relative to it.",
+          "type": "string"
+        }
+      },
       "required": [],
       "type": "object"
     },
@@ -503,6 +508,10 @@
           "default": false,
           "description": "Show staged changes only (default: false)",
           "type": "boolean"
+        },
+        "working_dir": {
+          "description": "Repository directory. Always set for nested repositories; paths are relative to it.",
+          "type": "string"
         }
       },
       "required": [],
@@ -523,6 +532,10 @@
           "default": true,
           "description": "One line per commit (default: true)",
           "type": "boolean"
+        },
+        "working_dir": {
+          "description": "Repository directory. Always set for nested repositories; paths are relative to it.",
+          "type": "string"
         }
       },
       "required": [],
@@ -533,7 +546,12 @@
   {
     "description": "List all git branches.",
     "input_schema": {
-      "properties": {},
+      "properties": {
+        "working_dir": {
+          "description": "Repository directory. Always set for nested repositories; paths are relative to it.",
+          "type": "string"
+        }
+      },
       "required": [],
       "type": "object"
     },
@@ -671,6 +689,10 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "working_dir": {
+          "description": "Repository directory. Always set for nested repositories; paths are relative to it.",
+          "type": "string"
         }
       },
       "required": [],
@@ -689,6 +711,10 @@
         },
         "message": {
           "description": "Commit message",
+          "type": "string"
+        },
+        "working_dir": {
+          "description": "Repository directory. Always set for nested repositories; paths are relative to it.",
           "type": "string"
         }
       },
@@ -715,6 +741,10 @@
         "file_path": {
           "description": "Restore specific file from HEAD",
           "type": "string"
+        },
+        "working_dir": {
+          "description": "Repository directory. Always set for nested repositories; paths are relative to it.",
+          "type": "string"
         }
       },
       "required": [],
@@ -739,6 +769,10 @@
         },
         "message": {
           "description": "Message for stash (only with push)",
+          "type": "string"
+        },
+        "working_dir": {
+          "description": "Repository directory. Always set for nested repositories; paths are relative to it.",
           "type": "string"
         }
       },

@@ -94,6 +94,8 @@ def is_protected_path(file_path, resolved_path=None):
         candidates.append(str(resolved_path))
 
     for candidate in candidates:
+        if Path(candidate).expanduser().resolve().is_relative_to(Path.home() / ".radsim"):
+            return True, "RadSim settings and credentials are controlled by the user"
         path_lower = candidate.lower()
         for pattern in PROTECTED_PATTERNS:
             if fnmatch.fnmatch(path_lower, f"*{pattern}*"):

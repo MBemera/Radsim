@@ -110,11 +110,12 @@ SANDBOX_PROMPT = """
 
 ## Sandbox active
 
-Your shell and test commands run inside the macOS seatbelt sandbox. Filesystem
+Your shell, test and native Git commands run inside the macOS seatbelt sandbox. Filesystem
 writes succeed only inside the working directory, the temp directory, and known
 build caches. Everywhere else, writes fail with "Operation not permitted" — that
 covers creating, deleting, renaming, truncating, and changing permissions.
 
+Your ~/.radsim settings cannot be written even when inside the workspace.
 Reads, network access, and running programs are unrestricted.
 
 A sandbox denial is a boundary, not a bug. Do not retry the write, do not route

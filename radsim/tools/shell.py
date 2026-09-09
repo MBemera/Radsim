@@ -300,9 +300,9 @@ def _run_arguments(arguments, timeout, working_dir, sandbox=False):
     cwd, error = _resolve_working_dir(working_dir)
     if error:
         return {"success": False, "error": error}
-    if sandbox:
-        arguments = wrap_shell_arguments(arguments, cwd)
     try:
+        if sandbox:
+            arguments = wrap_shell_arguments(arguments, cwd)
         result = _execute(
             arguments,
             timeout=timeout,

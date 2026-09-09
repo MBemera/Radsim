@@ -305,7 +305,7 @@ def print_header(provider, model):
     print_boot_sequence(provider, model, animated=True)
 
 
-def print_status_bar(model, input_tokens, output_tokens):
+def print_status_bar(model, input_tokens, output_tokens, *, usage=None, provider=None):
     """Print a status bar with model info, token usage, and cost estimate."""
     if not supports_color():
         return
@@ -321,7 +321,15 @@ def print_status_bar(model, input_tokens, output_tokens):
 
     # Unknown pricing must show as unknown — never as "Free"
     pricing = get_model_pricing(model)
-    if pricing is None:
+    if provider == "openrouter":
+        usage = usage or {}
+        reported = usage.get("reported_cost_requests", 0)
+        if not reported:
+            cost_str = " | session cost not reported"
+        else:
+            partial = " (partial)" if reported < usage.get("request_count", 0) else ""
+            cost_str = f" | session ${usage.get('reported_cost_usd', 0):.4f}{partial}"
+    elif pricing is None:
         cost_str = " | cost n/a"
     else:
         estimate = estimate_usage_cost(

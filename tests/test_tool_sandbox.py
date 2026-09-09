@@ -68,14 +68,11 @@ def test_disabled_setting_turns_the_sandbox_off(auto_mode, monkeypatch, project)
     ]
 
 
-def test_unavailable_platform_turns_the_sandbox_off(auto_mode, monkeypatch, project):
+def test_unavailable_platform_refuses_requested_sandbox(auto_mode, monkeypatch, project):
     monkeypatch.setattr(sandbox, "sandbox_available", lambda: False)
 
-    assert sandbox.wrap_shell_arguments(["bash", "-c", "ls"], str(project)) == [
-        "bash",
-        "-c",
-        "ls",
-    ]
+    with pytest.raises(RuntimeError, match="BLOCKED: Requested sandbox is unavailable"):
+        sandbox.wrap_shell_arguments(["bash", "-c", "ls"], str(project))
 
 
 def test_unreadable_setting_keeps_the_sandbox_on(monkeypatch):
@@ -240,3 +237,39 @@ def test_answering_all_turns_on_the_sandbox_too(monkeypatch):
 
     assert config.auto_confirm is True
     assert sandbox.auto_mode_enabled() is True
+
+
+@on_macos
+def test_native_git_hook_cannot_write_outside_workspace(auto_mode, project, tmp_path, monkeypatch):
+    import subprocess
+
+    from radsim.tools.git import git_commit
+
+    monkeypatch.chdir(project)
+    monkeypatch.setattr(sandbox, "writable_directories", lambda directory: [str(project.resolve())])
+    subprocess.run(["git", "init", "-q"], check=True)
+    subprocess.run(["git", "config", "user.name", "Synthetic Test"], check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], check=True)
+    (project / "code.txt").write_text("synthetic fixture\n")
+    subprocess.run(["git", "add", "--", "code.txt"], check=True)
+    outside = tmp_path / "outside.txt"
+    hook = project / ".git" / "hooks" / "pre-commit"
+    hook.write_text(f'#!/bin/sh\necho changed > "{outside}"\n')
+    hook.chmod(0o700)
+
+    result = git_commit("Synthetic sandbox test", working_dir=str(project))
+    assert not result["success"]
+    assert outside.read_text() == "protected\n"
+
+
+@on_macos
+def test_sandbox_protects_settings_inside_workspace(auto_mode, project, monkeypatch):
+    monkeypatch.setenv("HOME", str(project))
+    settings = project / ".radsim"
+    settings.mkdir()
+    target = settings / "probe.txt"
+    target.write_text("unchanged\n")
+
+    result = run_shell_command("echo changed > .radsim/probe.txt", working_dir=str(project))
+    assert not result["success"]
+    assert target.read_text() == "unchanged\n"

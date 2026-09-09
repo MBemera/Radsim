@@ -223,7 +223,7 @@ class AgentPolicyMixin:
 
         result = self._dispatch_tool(tool_name, tool_input)
         decision_id = _consume_trust_decision(tool_name, tool_input)
-        stopped = isinstance(result, dict) and "STOPPED" in result.get("error", "")
+        stopped = isinstance(result, dict) and "STOPPED" in str(result.get("error") or "")
         succeeded = isinstance(result, dict) and result.get("success")
         if tool_name not in READ_ONLY_TOOLS and tool_name not in {"todo_read", "todo_write"}:
             if succeeded or stopped:

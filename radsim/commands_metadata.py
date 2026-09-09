@@ -210,13 +210,13 @@ DEFAULT_COMMAND_SPECS = [
         related=["/kill"],
     ),
     _command(["/usage", "/cost"], "_cmd_usage", "Show session token usage and estimated cost", "session",
-        accepts_args=False, telegram_safe=True,
+        accepts_args=True, telegram_safe=False,
         title="Session Usage & Cost",
         summary="Show this session's token usage and estimated cost.",
-        usage=["/usage"],
+        usage=["/usage", "/usage browser"],
         details="Displays input/output token totals for the current session and\n"
-            "an estimated cost based on the active model's pricing. Models\n"
-            "without pricing data show cost as n/a.",
+            "OpenRouter reported session cost, or estimates for other providers.\n"
+            "Use /usage browser to open OpenRouter account spend in your browser.",
         examples=["/usage", "/cost"],
         related=["/stats", "/ratelimit"],
     ),

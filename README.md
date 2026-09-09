@@ -419,7 +419,9 @@ A few hard rules don't bend even with `--yes`:
 - Auto mode refuses destructive and privileged shell commands and file deletion,
   even when session-wide approval or disabled confirmations are configured.
   Direct Git tools also refuse commit amendment, file restoration that discards
-  edits, and dropping stashes in auto mode.
+  edits, and stash push/pop/drop in auto mode. Automatic staging requires explicit
+  files and a repository `working_dir`; whole directories and nested repository
+  pointers are refused. Automatic commits check the staged paths first.
   Manual mode uses the existing confirmation settings. Configured command
   restrictions and catastrophic-command blocks still apply in either mode.
 - API keys live in `~/.radsim/.env` with `chmod 600`.
@@ -437,7 +439,9 @@ without repeated approval. Explicit project-file reads such as `cat README.md`
 and `rg -n pattern src/main.py` are also recognised. Shell `git diff` commands
 are automatic only for summaries (`--stat`, `--name-only`, or `--name-status`);
 content diffs and `--check` are refused in auto mode because they can print
-protected file contents. Git revision/path operands such as
+protected file contents. Scoped metadata commands such as `git -C nested status --short`,
+`git -C nested rev-parse --show-toplevel`, and `git show --raw HEAD` are supported.
+Git revision/path operands such as
 `HEAD:credentials.json` are also refused.
 
 The classifier checks every chained command, supported options, the working
@@ -461,13 +465,15 @@ start a new command without granting pipeline input. Nested shells and command
 substitution remain blocked. A refusal returns a tool result, not a user
 cancellation: RadSim can choose a supported non-destructive alternative or
 continue independent work without an approval prompt. It must not retry a blocked
-operation through a different tool or wrapper. Other tool-specific approval rules
+operation through a different tool or wrapper. Three permission refusals stop the
+turn, even when interspersed with successful reads. Earlier successful operations
+are not rolled back. Other tool-specific approval rules
 (for example, installations or explicit protected reads) are unchanged.
 
 Classification alone cannot see past the command string. An approved
 `pytest -q` still executes whatever the tests contain, and a fixture calling
 `shutil.rmtree` never produces a command for any rule to match. On macOS, auto
-mode therefore runs shell and test commands inside the seatbelt sandbox
+mode therefore runs shell, test and native Git commands inside the seatbelt sandbox
 (`sandbox-exec`), which confines filesystem **writes** to the working directory,
 the temp directory, and known build caches (`~/Library/Caches`, `~/.cache`,
 `~/.npm`, `~/.cargo`, `~/.rustup`, `~/.gradle`, `~/.m2`, `~/go/pkg/mod`). Reads,
@@ -478,10 +484,11 @@ The sandbox is on by default in auto mode and can be switched off in `/settings`
 under "Sandbox shell commands in auto mode (macOS)". The setting is read from
 your configuration, never from tool input, so no tool call can request an
 unconfined command. Manual mode is unaffected: you approve each command there
-yourself. Git, Docker
-and deploy helpers run unsandboxed because RadSim builds those argv itself.
-Outside macOS the sandbox is unavailable and commands run unconfined; RadSim
-logs a warning when that happens.
+yourself. Docker and deploy helpers remain outside this sandbox. Native file
+tools cannot write your `~/.radsim` settings, and the sandbox denies writes there
+even if the workspace is your home directory.
+When sandboxing is requested but unavailable, commands are refused; they do not
+silently run unconfined. This includes non-macOS platforms with the setting on.
 
 Auto mode still trusts project verification code. The sandbox stops writes
 outside the project; it does not stop a test from reading files, making network
@@ -547,3 +554,12 @@ ruff check .
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+### OpenRouter spend
+
+`/usage` shows session tokens and provider-reported cost. Missing cost stays
+unknown; partial coverage is labelled. The OpenRouter status bar uses these
+reported costs instead of repricing the session at the currently selected model.
+`/usage browser` opens https://openrouter.ai/activity in your default browser for
+account-wide spend. It passes no API key or session content to the browser; use
+your normal browser sign-in. This command is available locally, not via Telegram.

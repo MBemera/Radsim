@@ -213,20 +213,30 @@ _TOOL_REGISTRY = {
         ("timeout", 30),
     ),
     "screen_capture": _build_tool_executor(".screen", "screen_capture", ("save_path", "")),
-    "git_status": _build_tool_executor(".git", "git_status"),
+    "git_status": _build_tool_executor(
+        ".git",
+        "git_status",
+        ("working_dir", None),
+    ),
     "git_diff": _build_tool_executor(
         ".git",
         "git_diff",
         ("staged", False),
         ("file_path", None),
+        ("working_dir", None),
     ),
     "git_log": _build_tool_executor(
         ".git",
         "git_log",
         ("count", 10),
         ("oneline", True),
+        ("working_dir", None),
     ),
-    "git_branch": _build_tool_executor(".git", "git_branch"),
+    "git_branch": _build_tool_executor(
+        ".git",
+        "git_branch",
+        ("working_dir", None),
+    ),
     "find_definition": _build_tool_executor(
         ".code_intel",
         "find_definition",
@@ -264,12 +274,14 @@ _TOOL_REGISTRY = {
         "git_add",
         ("file_paths", None),
         ("all_files", False),
+        ("working_dir", None),
     ),
     "git_commit": _build_tool_executor(
         ".git",
         "git_commit",
         ("message", ""),
         ("amend", False),
+        ("working_dir", None),
     ),
     "git_checkout": _build_tool_executor(
         ".git",
@@ -277,12 +289,14 @@ _TOOL_REGISTRY = {
         ("branch", None),
         ("create", False),
         ("file_path", None),
+        ("working_dir", None),
     ),
     "git_stash": _build_tool_executor(
         ".git",
         "git_stash",
         ("action", "push"),
         ("message", None),
+        ("working_dir", None),
     ),
     "list_dependencies": _build_tool_executor(".dependencies", "list_dependencies"),
     "add_dependency": _build_tool_executor(
@@ -465,6 +479,7 @@ def _merge_custom_tools():
     """Load user-added tools into the live registry and definitions."""
     try:
         from . import custom_tools
+
         _TOOL_REGISTRY.update(custom_tools.CUSTOM_REGISTRY)
         existing_names = {d["name"] for d in TOOL_DEFINITIONS}
         for definition in custom_tools.CUSTOM_DEFINITIONS:
@@ -640,9 +655,7 @@ def register_extension_tool(owner, definition, execute, permission_tier, *, inpu
     """Add an extension tool to the existing live registry."""
     validated = validate_extension_tool_definition(definition)
     if permission_tier not in EXTENSION_PERMISSION_TIERS:
-        raise ValueError(
-            "permission_tier must be read_only, mutation, or generated_code"
-        )
+        raise ValueError("permission_tier must be read_only, mutation, or generated_code")
     if not callable(execute):
         raise ValueError("Tool executor must be callable")
     allowed, error = can_register_extension_tool(validated["name"])
@@ -680,10 +693,7 @@ def register_extension_tool(owner, definition, execute, permission_tier, *, inpu
             logger.exception("Extension tool %s crashed", validated["name"])
             return {
                 "success": False,
-                "error": (
-                    f"Extension tool crashed: {type(error).__name__}: "
-                    f"{str(error)[:300]}"
-                ),
+                "error": (f"Extension tool crashed: {type(error).__name__}: {str(error)[:300]}"),
             }
         if not isinstance(result, dict) or not isinstance(result.get("success"), bool):
             return {
@@ -723,9 +733,7 @@ def set_extension_tool_active(owner, name, enabled):
 def unregister_extension_tools(owner):
     """Remove only tool registrations owned by one extension."""
     names = sorted(
-        name
-        for name, metadata in _EXTENSION_TOOL_META.items()
-        if metadata.get("owner") == owner
+        name for name, metadata in _EXTENSION_TOOL_META.items() if metadata.get("owner") == owner
     )
     for name in names:
         _TOOL_REGISTRY.pop(name, None)

@@ -641,3 +641,24 @@ def test_auto_refusal_keeps_independent_tools_and_followup_running(
     assert results[1]["success"]
     assert results[1]["stdout"].strip() == "1"
     assert len(agent.client.calls) == 2
+
+
+def test_permission_refusals_stop_across_rounds_and_reset_next_turn(agent_factory):
+    responses = [make_response(tool_block(str(index), 'run_shell_command',
+                 {'command': 'unknown-command'}), stop_reason='tool_use') for index in range(3)]
+    responses.append(make_response(text_block('Next turn works.')))
+    agent = agent_factory(responses)
+    result = agent.process_message('Synthetic refusal sequence')
+    assert 'three permission refusals' in result
+    assert len(agent.client.calls) == 3
+    assert agent.process_message('Continue with an independent request') == 'Next turn works.'
+
+
+def test_success_with_null_error_does_not_crash_permission_handler(agent_factory, monkeypatch):
+    agent = agent_factory([make_response(tool_block('stash', 'git_stash',
+                           {'action': 'list'}), stop_reason='tool_use'),
+                           make_response(text_block('Stash list inspected.'))])
+    monkeypatch.setattr(agent, '_dispatch_tool', lambda *args: {'success': True, 'error': None})
+    assert agent.process_message('List synthetic stashes') == 'Stash list inspected.'
+    results = [json.loads(block['content']) for block in agent.messages[2]['content']]
+    assert results[0] == {'success': True, 'error': None}
