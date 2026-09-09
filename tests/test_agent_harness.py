@@ -606,3 +606,38 @@ class TestBoundedParallelReads:
 
         assert dispatched
         assert all(name.startswith("MainThread") for name in dispatched)
+
+
+def test_auto_refusal_keeps_independent_tools_and_followup_running(
+    agent_factory, tmp_path, monkeypatch
+):
+    target = tmp_path / "keep.txt"
+    target.write_text("first line\nsecond line\n")
+    def prompt(*args, **kwargs):
+        pytest.fail("Auto mode paused for approval")
+    monkeypatch.setattr("radsim.agent_tool_handlers.ask_confirmation", prompt)
+    monkeypatch.setattr("radsim.agent_tool_handlers.confirm_action", prompt)
+    monkeypatch.setattr("radsim.agent_tool_handlers._confirmation_required", lambda kind: False)
+    agent = agent_factory(
+        [
+            make_response(
+                tool_block("blocked", "run_shell_command", {"command": "rm keep.txt"}),
+                tool_block(
+                    "inspection",
+                    "run_shell_command",
+                    {"command": "cat keep.txt | head -n 1 | wc -l"},
+                ),
+                stop_reason="tool_use",
+            ),
+            make_response(text_block("Independent work completed.")),
+        ]
+    )
+    agent._session_approve_shell = True
+    assert agent.process_message("Inspect the synthetic fixture") == "Independent work completed."
+    assert target.read_text() == "first line\nsecond line\n"
+    results = [json.loads(block["content"]) for block in agent.messages[2]["content"]]
+    assert results[0]["blocked"]
+    assert "STOPPED" not in results[0]["error"]
+    assert results[1]["success"]
+    assert results[1]["stdout"].strip() == "1"
+    assert len(agent.client.calls) == 2

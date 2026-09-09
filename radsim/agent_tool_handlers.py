@@ -24,6 +24,7 @@ from .output import (
     print_tool_result_verbose,
     print_warning,
 )
+from .request_classifier import classify_request
 from .safety import ask_confirmation, confirm_action, confirm_write, is_path_safe
 from .tools import DESTRUCTIVE_COMMANDS, execute_tool
 from .tools.command_analysis import is_destructive_command
@@ -59,6 +60,35 @@ def _confirmation_required(kind):
             exc_info=True,
         )
         return True
+
+
+def _auto_test_request(tool_input):
+    """Resolve the test runner once so auto mode checks the command it executes."""
+    if tool_input.get("test_command"):
+        return tool_input
+    try:
+        from .tools.testing import detect_project_type
+
+        command = detect_project_type().get("test_framework")
+    except Exception:
+        logger.warning("Test framework detection failed; refusing automatic execution")
+        return None
+    if not command:
+        return None
+    if command == "vitest":
+        command = "vitest run"
+    return {**tool_input, "test_command": command}
+
+
+def _auto_request_denied():
+    """Refuse the operation without cancelling the agent's remaining work."""
+    message = (
+        "BLOCKED: Auto mode could not establish that this operation is permitted. "
+        "Do not retry it through another tool or wrapper. Continue independent work "
+        "or choose a supported non-destructive alternative."
+    )
+    print_warning(message)
+    return {"success": False, "blocked": True, "error": message}
 
 
 def _already_rejected_write_error(file_path):
@@ -466,12 +496,12 @@ class AgentToolHandlersMixin:
         )
 
     def _handle_delete(self, tool_input):
-        """Handle delete_file tool with confirmation (always requires confirmation)."""
+        """Refuse deletion in auto mode; use explicit confirmation in manual mode."""
+        if self.config.auto_confirm:
+            return _auto_request_denied()
         file_path = tool_input.get("file_path", "")
 
-        # Deletion is irreversible, so it prompts even when auto_confirm is
-        # active. Only explicitly disabling delete confirmation in /settings
-        # skips the prompt.
+        # Manual mode honors the explicit file-deletion confirmation setting.
         if _confirmation_required("file_deletion"):
             print_warning(f"DELETE (cannot be undone): {file_path}")
             confirmed = ask_confirmation(f"Delete '{file_path}'?") == "yes"
@@ -493,17 +523,32 @@ class AgentToolHandlersMixin:
                 "error": "STOPPED: User rejected delete. Do NOT retry. Ask user what to do instead.",
             }
 
-    def _confirm_shell_command(self, command, is_destructive):
-        """Decide whether one shell command may run.
+    def _auto_approve_request(self, tool_name, tool_input):
+        """Use deterministic classification only when the user enabled auto mode."""
+        if not self.config.auto_confirm:
+            return False
+        try:
+            classification = classify_request(tool_name, tool_input)
+        except Exception:
+            logger.warning("Request classification failed; refusing automatic execution")
+            return False
+        logger.info(
+            "Auto request classification: tool=%s decision=%s reason=%s",
+            tool_name, classification.decision, classification.reason,
+        )
+        if classification.decision != "allow":
+            return False
+        print_info(f"Auto-approved: {classification.reason}")
+        return True
 
-        A general shell can read, write, execute project code, reach the
-        network, or escape lexical path checks, so static classification is
-        not a permission boundary: every command needs a fresh human
-        decision, even when --yes is active. The only exceptions are an
-        explicit session-wide "all" answer (non-destructive commands only)
-        and disabling shell confirmation in /settings. Catastrophic
-        commands stay blocked by validate_shell_command regardless.
-        """
+    def _confirm_shell_command(self, command, is_destructive, tool_input=None):
+        """Enforce auto-mode policy before any manual confirmation overrides."""
+        if self.config.auto_confirm:
+            if is_destructive:
+                return False
+            return self._auto_approve_request(
+                "run_shell_command", tool_input or {"command": command}
+            )
         if not _confirmation_required("shell_commands"):
             if is_destructive:
                 print_warning(f"DESTRUCTIVE COMMAND (confirmation OFF): {command}")
@@ -541,7 +586,7 @@ class AgentToolHandlersMixin:
         # or absolute-path forms ("env sudo", "/usr/bin/sudo") and destructive
         # commands in any pipeline segment cannot bypass confirmation.
         is_destructive = is_destructive_command(command, DESTRUCTIVE_COMMANDS)
-        confirmed = self._confirm_shell_command(command, is_destructive)
+        confirmed = self._confirm_shell_command(command, is_destructive, tool_input)
 
         if confirmed:
             tool_start_time = time.time()
@@ -561,6 +606,8 @@ class AgentToolHandlersMixin:
                 print_shell_output(result.get("stdout", ""), result.get("stderr", ""))
 
             return result
+        elif self.config.auto_confirm:
+            return _auto_request_denied()
         else:
             print_warning("Command cancelled by user")
             return {
@@ -656,6 +703,8 @@ class AgentToolHandlersMixin:
 
     def _handle_git_commit(self, tool_input):
         """Handle git commit with confirmation."""
+        if self.config.auto_confirm and tool_input.get("amend", False):
+            return _auto_request_denied()
         message = tool_input.get("message", "")
         amend = tool_input.get("amend", False)
 
@@ -680,6 +729,8 @@ class AgentToolHandlersMixin:
 
     def _handle_git_checkout(self, tool_input):
         """Handle git checkout with confirmation."""
+        if self.config.auto_confirm and tool_input.get("file_path"):
+            return _auto_request_denied()
         branch = tool_input.get("branch")
         create = tool_input.get("create", False)
         file_path = tool_input.get("file_path")
@@ -713,6 +764,8 @@ class AgentToolHandlersMixin:
     def _handle_git_stash(self, tool_input):
         """Handle git stash with confirmation."""
         action = tool_input.get("action", "push")
+        if self.config.auto_confirm and action == "drop":
+            return _auto_request_denied()
 
         return self._run_tool_with_confirmation(
             tool_name="git_stash",
@@ -726,7 +779,11 @@ class AgentToolHandlersMixin:
     # =========================================================================
 
     def _handle_run_tests(self, tool_input):
-        """Handle run_tests with light confirmation."""
+        """Classify auto tests without prompting; confirm custom tests in manual mode."""
+        if self.config.auto_confirm:
+            tool_input = _auto_test_request(tool_input)
+            if tool_input is None:
+                return _auto_request_denied()
         test_command = tool_input.get("test_command")
         test_path = tool_input.get("test_path")
 
@@ -747,7 +804,11 @@ class AgentToolHandlersMixin:
             desc += f" ({test_path})"
 
         if test_command:
-            confirmed = confirm_action(f"Run custom test command: {desc}?", config=None)
+            confirmed = self._auto_approve_request("run_tests", tool_input)
+            if not confirmed and self.config.auto_confirm:
+                return _auto_request_denied()
+            if not confirmed:
+                confirmed = confirm_action(f"Run custom test command: {desc}?", config=None)
         elif self.config.auto_confirm:
             print_info(f"Running tests: {desc}")
             confirmed = True

@@ -156,7 +156,7 @@ Environment variables:
         "--yes",
         "-y",
         action="store_true",
-        help="Auto-confirm file writes",
+        help="Auto-confirm routine project actions; refuse unsafe or unclassified shell/test requests",
     )
 
     parser.add_argument(
