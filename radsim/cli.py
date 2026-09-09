@@ -274,6 +274,7 @@ def main():
     from .health import check_health, check_secret_expirations
     from .onboarding import run_onboarding, should_run_onboarding
     from .output import print_error
+    from .tools.sandbox import set_auto_mode
 
     # T&C is shown only during onboarding (first-time setup), not every login
 
@@ -316,6 +317,8 @@ def main():
     except ValueError as error:
         print_error(str(error))
         sys.exit(1)
+
+    set_auto_mode(config.auto_confirm)
 
     try:
         _persist_explicit_model_selection(args, config)
