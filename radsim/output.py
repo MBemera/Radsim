@@ -306,43 +306,15 @@ def print_header(provider, model):
 
 
 def print_status_bar(model, input_tokens, output_tokens, *, usage=None, provider=None):
-    """Print a status bar with model info, token usage, and cost estimate."""
+    """Print model and token counts; costs are available through /usage."""
     if not supports_color():
         return
 
     import shutil
 
-    from .config import get_model_pricing
-    from .pricing import estimate_usage_cost
-
     columns, _ = shutil.get_terminal_size()
-
     total_tokens = input_tokens + output_tokens
-
-    # Unknown pricing must show as unknown — never as "Free"
-    pricing = get_model_pricing(model)
-    if provider == "openrouter":
-        usage = usage or {}
-        reported = usage.get("reported_cost_requests", 0)
-        if not reported:
-            cost_str = " | session cost not reported"
-        else:
-            partial = " (partial)" if reported < usage.get("request_count", 0) else ""
-            cost_str = f" | session ${usage.get('reported_cost_usd', 0):.4f}{partial}"
-    elif pricing is None:
-        cost_str = " | cost n/a"
-    else:
-        estimate = estimate_usage_cost(
-            {"input_tokens": input_tokens, "output_tokens": output_tokens},
-            pricing,
-        )
-        total_cost = estimate.total_usd
-        if total_cost is None:
-            cost_str = " | cost n/a"
-        else:
-            cost_str = f" | ~${total_cost:.4f}" if total_cost > 0 else " | Free"
-
-    status = f" {model} | Tokens: {total_tokens:,} (In: {input_tokens:,} / Out: {output_tokens:,}){cost_str} "
+    status = f" {model} | Tokens: {total_tokens:,} (In: {input_tokens:,} / Out: {output_tokens:,}) "
 
     # Right align
     padding = columns - len(status) - 2

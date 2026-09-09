@@ -558,8 +558,8 @@ MIT. See [LICENSE](LICENSE).
 ### OpenRouter spend
 
 `/usage` shows session tokens and provider-reported cost. Missing cost stays
-unknown; partial coverage is labelled. The OpenRouter status bar uses these
-reported costs instead of repricing the session at the currently selected model.
+unknown; partial coverage is labelled. The status bar shows model and token counts only; spend is displayed on request
+through `/usage`.
 `/usage browser` opens https://openrouter.ai/activity in your default browser for
 account-wide spend. It passes no API key or session content to the browser; use
 your normal browser sign-in. This command is available locally, not via Telegram.

@@ -106,26 +106,16 @@ def test_openrouter_usage_has_account_browser_only_on_request(monkeypatch, capsy
     opener.assert_called_once_with("https://openrouter.ai/activity")
 
 
-@pytest.mark.parametrize(
-    "usage, expected",
-    [
-        ({}, "not reported"),
-        (
-            {"reported_cost_usd": 0, "reported_cost_requests": 1, "request_count": 1},
-            "session $0.0000",
-        ),
-        (
-            {"reported_cost_usd": 0.1, "reported_cost_requests": 1, "request_count": 2},
-            "session $0.1000 (partial)",
-        ),
-    ],
-)
-def test_openrouter_footer_uses_reported_cost(usage, expected, monkeypatch, capsys):
+@pytest.mark.parametrize("provider", ["openrouter", "openai", "claude"])
+def test_footer_shows_tokens_without_spend(provider, monkeypatch, capsys):
     from radsim.output import print_status_bar
 
     monkeypatch.setattr("radsim.output.supports_color", lambda: True)
-    print_status_bar("model", 90000, 10000, provider="openrouter", usage=usage)
-    assert expected in capsys.readouterr().out
+    usage = {"reported_cost_usd": 0.1, "reported_cost_requests": 1, "request_count": 1}
+    print_status_bar("model", 90000, 10000, provider=provider, usage=usage)
+    output = capsys.readouterr().out
+    assert "Tokens: 100,000 (In: 90,000 / Out: 10,000)" in output
+    assert "$" not in output and "cost" not in output and "Free" not in output
 
 
 def test_native_writes_cannot_change_radsim_settings(tmp_path, monkeypatch):
