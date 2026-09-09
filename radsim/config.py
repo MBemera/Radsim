@@ -1259,6 +1259,30 @@ def _maybe_prompt_reasoning_effort(provider: str, model: str) -> None:
     print(f"  ok Reasoning effort set to '{effort}'.")
 
 
+def _select_subscription():
+    """Select the ChatGPT subscription, signing in first when it is needed.
+
+    Returns:
+        (api_key, provider, model) with no API key, matching setup_config's
+        contract. The subscription authenticates with its sign-in instead.
+    """
+    from .chatgpt_tokens import read_tokens
+    from .codex_cli import run_account_command
+    from .codex_transport import CodexError
+
+    try:
+        read_tokens()
+    except CodexError:
+        if run_account_command("login") != 0:
+            print("\n  Setup cancelled.")
+            return None, None, None
+
+    model = load_last_model_selection(SUBSCRIPTION_PROVIDER) or DEFAULT_SUBSCRIPTION_MODEL
+    save_subscription_selection(model)
+    print(f"  ok Using your ChatGPT subscription ({model}).")
+    return None, SUBSCRIPTION_PROVIDER, model
+
+
 def setup_config(first_time=True):
     """Prompt user to configure RadSim via .env file.
 
@@ -1292,10 +1316,11 @@ def setup_config(first_time=True):
     print("    1. OpenRouter (recommended — free models available)")
     print("    2. OpenAI (GPT-5)")
     print("    3. Claude (Anthropic)")
+    print("    4. ChatGPT subscription (sign in, no API key)")
     print()
 
     try:
-        choice = input("  Enter 1-3: ").strip()
+        choice = input("  Enter 1-4: ").strip()
     except (KeyboardInterrupt, EOFError):
         print("\n  Setup cancelled.")
         return None, None, None
@@ -1304,12 +1329,16 @@ def setup_config(first_time=True):
         "1": "openrouter",
         "2": "openai",
         "3": "claude",
+        "4": SUBSCRIPTION_PROVIDER,
     }
     provider = provider_map.get(choice)
 
     if not provider:
         print("  Invalid choice.")
         return None, None, None
+
+    if provider == SUBSCRIPTION_PROVIDER:
+        return _select_subscription()
 
     # Select model — OpenRouter uses a two-level dynamic picker, others a static list
     if provider == "openrouter":

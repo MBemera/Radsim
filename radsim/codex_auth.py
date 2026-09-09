@@ -2,6 +2,7 @@
 
 import re
 import time
+import uuid
 import webbrowser
 from collections import deque
 from collections.abc import Callable
@@ -132,6 +133,61 @@ def _validate_model(model: dict) -> dict:
     return model
 
 
+MAX_RESET_CREDITS = 32
+CONSUME_RESET_CREDIT = "account/rateLimitResetCredit/consume"
+RESET_CREDIT_OUTCOMES = {
+    "redeemed": "Usage reset applied. Your plan windows are clear again.",
+    "alreadyRedeemed": "That reset was already used.",
+    "noCredit": "No usage reset is available on this account.",
+    "nothingToReset": "Nothing to reset: no usage limit is currently reached.",
+}
+
+
+def available_reset_credits(connection: CodexTransport) -> list[dict]:
+    """List the account's unused rate-limit reset credits.
+
+    Codex output is untrusted, so only known fields are kept and only
+    credits the account reports as available are returned.
+    """
+    return _reset_credits_from(connection.request("account/rateLimits/read", {}))
+
+
+def _reset_credits_from(result: dict) -> list[dict]:
+    """Pull the available credits out of one rate-limit payload."""
+    summary = result.get("rateLimitResetCredits") or {}
+    credits = summary.get("credits") if isinstance(summary, dict) else None
+    if not isinstance(credits, list) or len(credits) > MAX_RESET_CREDITS:
+        return []
+    return [credit for credit in map(_reset_credit, credits) if credit is not None]
+
+
+def _reset_credit(entry: object) -> dict | None:
+    """Return one validated available credit, or None to skip it."""
+    if not isinstance(entry, dict) or entry.get("status") != "available":
+        return None
+    credit_id = entry.get("id")
+    if not isinstance(credit_id, str) or not re.fullmatch(r"[A-Za-z0-9._:/-]{1,200}", credit_id):
+        return None
+    expires_at = entry.get("expiresAt")
+    return {
+        "id": credit_id,
+        "title": escape_terminal_controls(str(entry.get("title") or "Usage reset"))[:120],
+        "expires_at": expires_at if isinstance(expires_at, (int, float)) else None,
+    }
+
+
+def consume_reset_credit(connection: CodexTransport, credit_id: str) -> str:
+    """Spend one reset credit and return the account's outcome message."""
+    result = connection.request(
+        CONSUME_RESET_CREDIT,
+        {"creditId": credit_id, "idempotencyKey": str(uuid.uuid4())},
+    )
+    outcome = result.get("outcome")
+    if outcome not in RESET_CREDIT_OUTCOMES:
+        raise CodexError("Codex returned an unrecognised reset result.")
+    return RESET_CREDIT_OUTCOMES[outcome]
+
+
 def show_status(connection: CodexTransport, emit: Callable[[str], None] = print) -> None:
     account = require_subscription(connection)
     emit(f"ChatGPT subscription: {escape_terminal_controls(account.get('planType', 'unknown'))}")
@@ -149,5 +205,8 @@ def show_status(connection: CodexTransport, emit: Callable[[str], None] = print)
                 f"{name.capitalize()} quota: {window['usedPercent']}% used; reset Unix time: {reset}"
             )
     if not found:
-        emit("Remaining subscription quota: unknown.")
+        emit("Subscription quota used: unknown.")
+    banked = _reset_credits_from(result)
+    if banked:
+        emit(f"Banked usage resets: {len(banked)} available ({banked[0]['title']}).")
     emit("Subscription usage is separate from Platform API billing. API fallback is disabled.")

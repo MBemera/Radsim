@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from radsim import cli, codex_cli, codex_connection
+from radsim import cli, codex_auth, codex_cli, codex_connection
 from radsim.codex_transport import CodexError
 
 
@@ -335,6 +335,7 @@ def test_account_menu_covers_every_subscription_command():
         "login-device",
         "use",
         "status",
+        "reset",
         "models",
         "logout",
     ]
@@ -416,3 +417,253 @@ def test_switching_away_drops_the_subscription_model(monkeypatch):
     config.save_config("test-key", "openrouter", None)
 
     assert config.load_env_file()["model"] != "gpt-6-astra"
+
+
+def test_login_menu_offers_the_subscription_and_signs_in(monkeypatch):
+    """The in-session menu reaches the subscription, not only API keys."""
+    from radsim import codex_cli
+
+    handler = _switch_handler()
+    agent = AgentStub()
+    calls = []
+    monkeypatch.setattr("builtins.input", lambda _: "4")
+    monkeypatch.setattr(
+        codex_cli, "run_account_command", lambda name, device_code=False: calls.append(name) or 0
+    )
+    monkeypatch.setattr(handler, "_switch_to_subscription", lambda passed: calls.append(passed))
+
+    handler._cmd_login(agent)
+
+    assert calls == ["login", agent]
+
+
+def test_login_by_name_reaches_the_subscription(monkeypatch):
+    from radsim import codex_cli
+
+    handler = _switch_handler()
+    agent = AgentStub()
+    calls = []
+    monkeypatch.setattr(
+        codex_cli, "run_account_command", lambda name, device_code=False: calls.append(name) or 0
+    )
+    monkeypatch.setattr(handler, "_switch_to_subscription", lambda _agent: None)
+
+    handler._cmd_login(agent, ["chatgpt"])
+
+    assert calls == ["login"]
+
+
+def test_logout_by_name_reaches_the_subscription(monkeypatch):
+    from radsim import codex_cli, login
+
+    handler = _switch_handler()
+    calls = []
+    monkeypatch.setattr(
+        codex_cli, "run_account_command", lambda name, device_code=False: calls.append(name) or 0
+    )
+    monkeypatch.setattr(
+        login, "run_logout", lambda _provider: pytest.fail("must not use the key wizard")
+    )
+
+    handler._cmd_logout(AgentStub(), ["chatgpt"])
+
+    assert calls == ["logout"]
+
+
+def test_an_out_of_range_account_choice_is_refused(monkeypatch):
+    from radsim import codex_cli, login
+
+    monkeypatch.setattr("builtins.input", lambda _: "0")
+    monkeypatch.setattr(
+        codex_cli, "run_account_command", lambda *_a, **_k: pytest.fail("must not sign in")
+    )
+    monkeypatch.setattr(login, "run_login", lambda _p: pytest.fail("must not sign in"))
+
+    _switch_handler()._cmd_login(AgentStub())
+
+
+def test_setup_config_selects_the_subscription_without_a_key(monkeypatch):
+    """Choosing the subscription in /config never asks for an API key."""
+    from radsim import config
+
+    monkeypatch.setattr("builtins.input", lambda _: "4")
+    monkeypatch.setattr(config, "load_last_model_selection", lambda _provider: "gpt-6-astra")
+    monkeypatch.setattr("radsim.chatgpt_tokens.read_tokens", lambda: {"access_token": "marker"})
+
+    api_key, provider, model = config.setup_config(first_time=False)
+
+    assert (api_key, provider, model) == (None, "chatgpt", "gpt-6-astra")
+
+
+def test_config_command_applies_the_keyless_subscription(monkeypatch):
+    from radsim import commands_core
+
+    handler = _switch_handler()
+    agent = AgentStub()
+    switched = []
+    monkeypatch.setattr(
+        commands_core, "setup_config", lambda **_kwargs: (None, "chatgpt", "gpt-6-astra")
+    )
+    monkeypatch.setattr(handler, "_switch_to_subscription", switched.append)
+
+    handler._cmd_config(agent)
+
+    assert switched == [agent]
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected"),
+    [("chatgpt", "Subscription requests"), ("openrouter", "API calls"), (None, "API calls")],
+)
+def test_a_turn_spends_the_right_kind_of_request(provider, expected):
+    from radsim.commands_core import _request_noun
+
+    assert _request_noun(provider) == expected
+
+
+class ResetCreditConnection:
+    """A Codex connection carrying one banked reset credit."""
+
+    def __init__(self, credits=None, outcome="redeemed"):
+        self.payload = {
+            "rateLimits": {"primary": {"usedPercent": 22, "resetsAt": 1788765978}},
+            "rateLimitResetCredits": {
+                "availableCount": 1,
+                "credits": AVAILABLE_CREDITS if credits is None else credits,
+            },
+        }
+        self.outcome = outcome
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def request(self, method, params, **__):
+        self.calls.append((method, params))
+        if method == "account/rateLimits/read":
+            return self.payload
+        if method == codex_auth.CONSUME_RESET_CREDIT:
+            return {"outcome": self.outcome}
+        if method == "account/read":
+            return {"account": {"type": "chatgpt", "planType": "plus"}}
+        return {}
+
+
+AVAILABLE_CREDITS = [
+    {
+        "id": "credit-marker",
+        "resetType": "codexRateLimits",
+        "status": "available",
+        "expiresAt": 1791151229,
+        "title": "Full reset (Weekly + 5 hr)",
+    }
+]
+
+
+def test_only_usable_reset_credits_are_offered():
+    connection = ResetCreditConnection(
+        credits=[
+            {"id": "spent", "status": "redeemed", "title": "old"},
+            {"id": "busy", "status": "redeeming", "title": "in flight"},
+            {"id": "bad id!", "status": "available", "title": "malformed"},
+            AVAILABLE_CREDITS[0],
+        ]
+    )
+
+    offered = codex_auth.available_reset_credits(connection)
+
+    assert [credit["id"] for credit in offered] == ["credit-marker"]
+    assert offered[0]["title"] == "Full reset (Weekly + 5 hr)"
+
+
+def test_an_oversized_credit_list_is_refused():
+    connection = ResetCreditConnection(credits=[dict(AVAILABLE_CREDITS[0])] * 33)
+
+    assert codex_auth.available_reset_credits(connection) == []
+
+
+def test_spending_a_reset_sends_the_credit_and_an_idempotency_key():
+    connection = ResetCreditConnection()
+
+    message = codex_auth.consume_reset_credit(connection, "credit-marker")
+
+    method, params = connection.calls[-1]
+    assert method == "account/rateLimitResetCredit/consume"
+    assert params["creditId"] == "credit-marker"
+    assert params["idempotencyKey"]
+    assert "reset applied" in message
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected"),
+    [
+        ("alreadyRedeemed", "already used"),
+        ("noCredit", "No usage reset is available"),
+        ("nothingToReset", "no usage limit is currently reached"),
+    ],
+)
+def test_every_reset_outcome_is_explained(outcome, expected):
+    connection = ResetCreditConnection(outcome=outcome)
+
+    assert expected in codex_auth.consume_reset_credit(connection, "credit-marker")
+
+
+def test_an_unknown_reset_outcome_fails_closed():
+    connection = ResetCreditConnection(outcome="something-new")
+
+    with pytest.raises(CodexError, match="unrecognised reset result"):
+        codex_auth.consume_reset_credit(connection, "credit-marker")
+
+
+def test_declining_the_prompt_spends_nothing(monkeypatch, capsys):
+    connection = ResetCreditConnection()
+    monkeypatch.setattr(codex_cli, "ask", lambda _prompt: "n")
+
+    codex_cli.redeem_reset_credit(connection)
+
+    assert codex_auth.CONSUME_RESET_CREDIT not in [method for method, _ in connection.calls]
+    assert "Nothing was spent" in capsys.readouterr().out
+
+
+def test_confirming_the_prompt_spends_one_reset(monkeypatch, capsys):
+    connection = ResetCreditConnection()
+    monkeypatch.setattr(codex_cli, "ask", lambda _prompt: "y")
+
+    codex_cli.redeem_reset_credit(connection)
+
+    assert codex_auth.CONSUME_RESET_CREDIT in [method for method, _ in connection.calls]
+    assert "reset applied" in capsys.readouterr().out
+
+
+def test_no_banked_reset_says_so_without_prompting(monkeypatch, capsys):
+    connection = ResetCreditConnection(credits=[])
+    monkeypatch.setattr(codex_cli, "ask", lambda _prompt: pytest.fail("must not prompt"))
+
+    codex_cli.redeem_reset_credit(connection)
+
+    assert "No banked usage reset" in capsys.readouterr().out
+
+
+def test_the_quota_screen_reports_a_banked_reset(capsys):
+    codex_auth.show_status(ResetCreditConnection(), print)
+
+    assert "Banked usage resets: 1 available" in capsys.readouterr().out
+
+
+def test_the_account_menu_offers_the_reset(monkeypatch):
+    from radsim import menu
+
+    handler = _switch_handler()
+    calls = []
+    monkeypatch.setattr(menu, "interactive_menu_loop", lambda _t, _o, run: run("reset"))
+    monkeypatch.setattr(
+        codex_cli, "run_account_command", lambda name, device_code=False: calls.append(name) or 0
+    )
+
+    handler._chatgpt_account_menu(AgentStub())
+
+    assert calls == ["reset"]
+    assert ("reset", "Use a banked usage reset") in handler.CHATGPT_ACCOUNT_ACTIONS

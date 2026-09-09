@@ -51,7 +51,7 @@ class RadSimAgent(
             reasoning_effort=getattr(config, "reasoning_effort", None),
         )
         self.messages = []
-        self.system_prompt = get_system_prompt()
+        self.system_prompt = get_system_prompt(config.provider, config.model)
         self.usage_stats = empty_usage_totals()
         self.performance_telemetry = PerformanceTelemetry.from_environment()
         self._performance_request_index = 0
