@@ -9,6 +9,20 @@ from .constants import DESTRUCTIVE_COMMANDS as DESTRUCTIVE_COMMANDS
 from .constants import PROTECTED_PATTERNS as PROTECTED_PATTERNS
 from .definitions import TOOL_DEFINITIONS as TOOL_DEFINITIONS
 
+# Incremented whenever TOOL_DEFINITIONS changes, so callers can cache work
+# derived from the registry without re-inspecting every schema.
+_registry_version = 0
+
+
+def registry_version():
+    """Return a counter that changes whenever the tool registry changes."""
+    return _registry_version
+
+
+def _bump_registry_version():
+    global _registry_version
+    _registry_version += 1
+
 logger = logging.getLogger(__name__)
 
 EXTENSION_PERMISSION_TIERS = frozenset({"read_only", "mutation", "generated_code"})
@@ -456,6 +470,7 @@ def _merge_custom_tools():
         for definition in custom_tools.CUSTOM_DEFINITIONS:
             if definition["name"] not in existing_names:
                 TOOL_DEFINITIONS.append(definition)
+                _bump_registry_version()
     except ImportError:
         pass
 
@@ -692,6 +707,7 @@ def register_extension_tool(owner, definition, execute, permission_tier, *, inpu
     _TOOL_REGISTRY[validated["name"]] = guarded_execute
     TOOL_DEFINITIONS.append(validated)
     _EXTENSION_TOOL_META[validated["name"]] = metadata
+    _bump_registry_version()
     return validated["name"]
 
 
@@ -701,6 +717,7 @@ def set_extension_tool_active(owner, name, enabled):
     if metadata is None or metadata.get("owner") != owner:
         raise ValueError(f"Extension does not own tool: {name}")
     metadata["active"] = bool(enabled)
+    _bump_registry_version()
 
 
 def unregister_extension_tools(owner):
@@ -717,6 +734,7 @@ def unregister_extension_tools(owner):
         TOOL_DEFINITIONS[:] = [
             definition for definition in TOOL_DEFINITIONS if definition["name"] not in names
         ]
+        _bump_registry_version()
     return names
 
 

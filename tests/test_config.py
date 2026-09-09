@@ -29,7 +29,7 @@ def test_config_defaults(tmp_path, monkeypatch):
     assert config.stream is True  # Default
 
 
-def test_openrouter_first_run_default_is_glm_5_2(tmp_path, monkeypatch):
+def test_openrouter_first_run_default_is_glm_5_3(tmp_path, monkeypatch):
     import radsim.config
 
     _isolate_config(tmp_path, monkeypatch)
@@ -39,8 +39,8 @@ def test_openrouter_first_run_default_is_glm_5_2(tmp_path, monkeypatch):
 
     config = load_config()
 
-    assert radsim.config.DEFAULT_MODELS["openrouter"] == "z-ai/glm-5.2"
-    assert config.model == "z-ai/glm-5.2"
+    assert radsim.config.DEFAULT_MODELS["openrouter"] == "z-ai/glm-5.3"
+    assert config.model == "z-ai/glm-5.3"
 
 
 def test_config_from_settings_json(tmp_path, monkeypatch):

@@ -31,7 +31,8 @@ REASONING_EFFORT_LEVELS = (
 )
 DEFAULT_REASONING_EFFORT_OPTIONS = ("low", "medium", "high")
 DEFAULT_REASONING_EFFORT = "medium"
-DEFAULT_OPENROUTER_MODEL = "z-ai/glm-5.2"
+DEFAULT_OPENROUTER_MODEL = "z-ai/glm-5.3"
+OPENROUTER_CATALOGUE_SNAPSHOT_DATE = "2026-08-28"
 
 
 @dataclass
@@ -70,7 +71,7 @@ RATE_LIMIT_TIERS = {
 DEFAULT_RATE_LIMIT_TIER = "standard"
 
 
-# Available models for each provider (Updated Jul 2026)
+# Available models for each provider (OpenRouter choices verified 28 Aug 2026)
 PROVIDER_MODELS = {
     "claude": [
         ("claude-opus-4-8", "Claude Opus 4.8 (Most capable — recommended)"),
@@ -85,7 +86,15 @@ PROVIDER_MODELS = {
         ("gpt-5-mini", "GPT-5 Mini (Fast & cheap)"),
     ],
     "openrouter": [
-        ("z-ai/glm-5.2", "GLM 5.2 (Recommended fallback, 1M context)"),
+        ("z-ai/glm-5.3", "GLM 5.3 (Recommended — coding and long-horizon agents)"),
+        ("z-ai/glm-5.3-flash", "GLM 5.3 Flash (Fastest value, 1M+ context)"),
+        ("anthropic/claude-opus-5", "Claude Opus 5 (Top coding capability)"),
+        ("anthropic/claude-sonnet-5", "Claude Sonnet 5 (Balanced Claude 5)"),
+        ("google/gemini-3.7-flash", "Gemini 3.7 Flash (Fast multimodal coding)"),
+        ("x-ai/grok-4.6", "Grok 4.6 (Strong coding and agentic work)"),
+        ("qwen/qwen3.8-max", "Qwen3.8 Max (Open-weight agentic reasoning)"),
+        ("bytedance-seed/seed-2.0-code", "Seed 2.0 Code (Agentic coding specialist)"),
+        ("z-ai/glm-5.2", "GLM 5.2 (Previous generation)"),
         ("moonshotai/kimi-k3", "Kimi K3 (Coding and long-horizon agents)"),
         ("anthropic/claude-fable-5", "Claude Fable 5 (Autonomous coding)"),
         ("openai/gpt-5.6-sol-pro", "GPT-5.6 Sol Pro (Deepest reasoning)"),
@@ -105,7 +114,7 @@ PROVIDER_MODELS = {
     ],
 }
 
-# Default model for each provider (Updated Jul 2026)
+# Default model for each provider
 DEFAULT_MODELS = {
     "openrouter": DEFAULT_OPENROUTER_MODEL,
     "openai": "gpt-5.4",
@@ -141,7 +150,15 @@ FALLBACK_MODELS = {
     ],
     "openrouter": [
         DEFAULT_OPENROUTER_MODEL,
+        "z-ai/glm-5.3-flash",
+        "anthropic/claude-opus-5",
+        "openai/gpt-5.6-sol",
+        "x-ai/grok-4.6",
         "moonshotai/kimi-k3",
+        "google/gemini-3.7-flash",
+        "anthropic/claude-sonnet-5",
+        "qwen/qwen3.8-max",
+        "bytedance-seed/seed-2.0-code",
         "openai/gpt-5.6-luna",
         "minimax/minimax-m3",
         "deepseek/deepseek-v4-flash",
@@ -193,7 +210,15 @@ _STATIC_PRICE_ROWS = (
     ("openai", "gpt-5.2-codex", "2.50", "10.00"),
     ("openai", "gpt-5-mini", "1.00", "4.00"),
     ("openrouter", "minimax/minimax-m3", "0.30", "1.20"),
-    ("openrouter", "deepseek/deepseek-v4-flash", "0.09", "0.18"),
+    ("openrouter", "deepseek/deepseek-v4-flash", "0.088606", "0.177212"),
+    ("openrouter", "z-ai/glm-5.3", "1.40", "4.40"),
+    ("openrouter", "z-ai/glm-5.3-flash", "0.075", "0.25"),
+    ("openrouter", "anthropic/claude-opus-5", "5.00", "25.00"),
+    ("openrouter", "anthropic/claude-sonnet-5", "2.00", "10.00"),
+    ("openrouter", "google/gemini-3.7-flash", "0.375", "1.875"),
+    ("openrouter", "x-ai/grok-4.6", "2.00", "6.00"),
+    ("openrouter", "qwen/qwen3.8-max", "2.00", "6.00"),
+    ("openrouter", "bytedance-seed/seed-2.0-code", "0.50", "3.00"),
     ("openrouter", "moonshotai/kimi-k3", "3.00", "15.00"),
     ("openrouter", "moonshotai/kimi-k2.5", "0.38", "2.02"),
     ("openrouter", "anthropic/claude-fable-5", "10.00", "50.00"),
@@ -203,11 +228,11 @@ _STATIC_PRICE_ROWS = (
     ("openrouter", "anthropic/claude-haiku-4.5", "1.00", "5.00"),
     ("openrouter", "openai/gpt-5.4", "2.50", "15.00"),
     ("openrouter", "openai/gpt-5.6-sol-pro", "5.00", "30.00"),
-    ("openrouter", "openai/gpt-5.6-sol", "5.00", "30.00"),
-    ("openrouter", "openai/gpt-5.6-terra-pro", "2.50", "15.00"),
-    ("openrouter", "openai/gpt-5.6-terra", "2.50", "15.00"),
-    ("openrouter", "openai/gpt-5.6-luna-pro", "1.00", "6.00"),
-    ("openrouter", "openai/gpt-5.6-luna", "1.00", "6.00"),
+    ("openrouter", "openai/gpt-5.6-sol", "2.00", "10.00"),
+    ("openrouter", "openai/gpt-5.6-terra-pro", "2.00", "12.00"),
+    ("openrouter", "openai/gpt-5.6-terra", "2.00", "12.00"),
+    ("openrouter", "openai/gpt-5.6-luna-pro", "0.20", "1.20"),
+    ("openrouter", "openai/gpt-5.6-luna", "0.20", "1.20"),
     ("openrouter", "openai/gpt-5.3-codex", "1.75", "14.00"),
     ("openrouter", "openai/gpt-5.2-codex", "1.75", "14.00"),
     ("openrouter", "minimax/minimax-m2.1", "0.30", "1.20"),
@@ -219,13 +244,29 @@ MODEL_PRICING: dict[PricingKey, ModelPricing] = {
     for provider, model, input_price, output_price in _STATIC_PRICE_ROWS
     for pricing in (_static_pricing(provider, model, input_price, output_price),)
 }
+MODEL_PRICING[("openrouter", "routing", "z-ai/glm-5.3")] = _static_pricing(
+    "openrouter",
+    "z-ai/glm-5.3",
+    "1.40",
+    "4.40",
+    cache_read_price="0.26",
+    fetched_at="2026-08-28T00:00:00Z",
+)
+MODEL_PRICING[("openrouter", "routing", "z-ai/glm-5.3-flash")] = _static_pricing(
+    "openrouter",
+    "z-ai/glm-5.3-flash",
+    "0.075",
+    "0.25",
+    cache_read_price="0.015",
+    fetched_at="2026-08-28T00:00:00Z",
+)
 MODEL_PRICING[("openrouter", "routing", "z-ai/glm-5.2")] = _static_pricing(
     "openrouter",
     "z-ai/glm-5.2",
-    "0.76",
-    "2.42",
-    cache_read_price="0.14",
-    fetched_at="2026-08-04T00:00:00Z",
+    "1.19",
+    "3.74",
+    cache_read_price="0.221",
+    fetched_at="2026-08-28T00:00:00Z",
 )
 
 
@@ -284,7 +325,7 @@ def _get_openrouter_pricing(model: str, allow_network: bool) -> ModelPricing | N
     except (OSError, TypeError, ValueError):
         return None
 
-# Context window limits per model (in tokens) - Updated Jul 2026
+# Context window limits per model (OpenRouter entries verified 28 Aug 2026)
 CONTEXT_LIMITS = {
     # Claude Series
     "claude-opus-4-8": 1000000,
@@ -298,7 +339,15 @@ CONTEXT_LIMITS = {
     "gpt-5.2": 256000,
     "gpt-5.2-codex": 256000,
     "gpt-5-mini": 128000,
-    # OpenRouter models (live context windows, verified Jul 2026)
+    # OpenRouter models
+    "z-ai/glm-5.3": 1048576,
+    "z-ai/glm-5.3-flash": 1310720,
+    "anthropic/claude-opus-5": 1000000,
+    "anthropic/claude-sonnet-5": 1000000,
+    "google/gemini-3.7-flash": 1048576,
+    "x-ai/grok-4.6": 500000,
+    "qwen/qwen3.8-max": 1000000,
+    "bytedance-seed/seed-2.0-code": 262144,
     "minimax/minimax-m3": 1048576,
     "deepseek/deepseek-v4-flash": 1048576,
     "moonshotai/kimi-k3": 1048576,
@@ -437,6 +486,59 @@ MODEL_CAPABILITIES = {
         "supports_vision": False,
         "max_output_tokens": 16384,
     },
+    "z-ai/glm-5.3": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("low", "high", "max"),
+        "default_reasoning_effort": "max",
+        "reasoning_mandatory": True,
+    },
+    "z-ai/glm-5.3-flash": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("low", "high", "max"),
+        "default_reasoning_effort": "max",
+        "reasoning_mandatory": True,
+    },
+    "anthropic/claude-opus-5": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("low", "medium", "high", "xhigh", "max"),
+        "default_reasoning_effort": "high",
+    },
+    "anthropic/claude-sonnet-5": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("low", "medium", "high", "xhigh", "max"),
+        "default_reasoning_effort": "high",
+    },
+    "google/gemini-3.7-flash": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("low", "medium", "high"),
+        "default_reasoning_effort": "medium",
+        "reasoning_mandatory": True,
+    },
+    "x-ai/grok-4.6": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("low", "medium", "high", "xhigh"),
+        "default_reasoning_effort": "high",
+        "reasoning_mandatory": True,
+    },
+    "qwen/qwen3.8-max": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("minimal", "low", "medium", "high", "xhigh"),
+        "default_reasoning_effort": "xhigh",
+        "reasoning_mandatory": True,
+    },
+    "bytedance-seed/seed-2.0-code": {
+        "supports_tools": True,
+        "supports_reasoning": True,
+        "reasoning_efforts": ("low", "medium", "high"),
+        "default_reasoning_effort": "medium",
+    },
     "z-ai/glm-5.2": {
         "supports_tools": True,
         "supports_reasoning": True,
@@ -446,15 +548,14 @@ MODEL_CAPABILITIES = {
     "moonshotai/kimi-k3": {
         "supports_tools": True,
         "supports_reasoning": True,
-        "reasoning_efforts": ("max",),
+        "reasoning_efforts": ("low", "high", "max"),
         "default_reasoning_effort": "max",
-        "reasoning_mandatory": True,
     },
     "anthropic/claude-fable-5": {
         "supports_tools": True,
         "supports_reasoning": True,
         "reasoning_efforts": ("low", "medium", "high", "xhigh", "max"),
-        "default_reasoning_effort": "medium",
+        "default_reasoning_effort": "high",
         "reasoning_mandatory": True,
     },
     "openai/gpt-5.6-sol-pro": {

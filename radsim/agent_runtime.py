@@ -10,6 +10,7 @@ from .runtime_context import get_runtime_context
 
 logger = logging.getLogger(__name__)
 
+MAX_PENDING_USER_CONTEXT_ITEMS = 32
 
 
 def _run_user_shell_command(command, agent):
@@ -57,6 +58,9 @@ def _run_user_shell_command(command, agent):
         f"[User ran shell command: {command}]\n"
         f"[exit code: {completed.returncode}]\n{output[:4000]}"
     )
+    overflow = len(agent._pending_user_context) - MAX_PENDING_USER_CONTEXT_ITEMS
+    if overflow > 0:
+        del agent._pending_user_context[:overflow]
 
 
 def run_single_shot(config, prompt, context_file=None):

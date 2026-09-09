@@ -1,0 +1,45 @@
+{
+  "environment": {
+    "machine": "x86_64",
+    "os": "Darwin",
+    "python": "3.14.2",
+    "release": "23.6.0"
+  },
+  "max_workers": 4,
+  "method": "measured locally; simulated per-call I/O latency, 5 rounds each",
+  "note": "speed-up is bounded by the worker count; a round of N reads costs about ceil(N/workers) sequential waits",
+  "results": [
+    {
+      "parallel_ms": 26.3,
+      "read_calls": 2,
+      "serial_ms": 50.8,
+      "simulated_latency_ms": 20,
+      "speedup": 1.9,
+      "workers": 2
+    },
+    {
+      "parallel_ms": 26.6,
+      "read_calls": 4,
+      "serial_ms": 95.9,
+      "simulated_latency_ms": 20,
+      "speedup": 3.6,
+      "workers": 4
+    },
+    {
+      "parallel_ms": 53.1,
+      "read_calls": 8,
+      "serial_ms": 194.4,
+      "simulated_latency_ms": 20,
+      "speedup": 3.7,
+      "workers": 4
+    },
+    {
+      "parallel_ms": 54.3,
+      "read_calls": 4,
+      "serial_ms": 216.2,
+      "simulated_latency_ms": 50,
+      "speedup": 4.0,
+      "workers": 4
+    }
+  ]
+}

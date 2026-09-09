@@ -1,0 +1,21 @@
+{
+  "base_commit": "0a4c648fd11c2191537941e3472cfa7253c9a5ba",
+  "generated_at": "2026-08-28",
+  "python": "3.12",
+  "schema_version": 1,
+  "scope": "Tier 1 critical behavioural modules",
+  "score": 0.15,
+  "stats": {
+    "check_was_interrupted_by_user": 0,
+    "killed": 6,
+    "no_tests": 13,
+    "segfault": 0,
+    "skipped": 0,
+    "suspicious": 0,
+    "survived": 21,
+    "timeout": 0,
+    "total": 40
+  },
+  "target_score": 0.8,
+  "tool": "mutmut 3.7.0"
+}

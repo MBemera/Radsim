@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import atexit
 import math
+import os
 import re
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .buffer import LearningEventBuffer
 from .events import (
     LearningEvent,
     TaskOutcome,
@@ -30,6 +33,10 @@ CONTEXT_WEIGHT = 0.05
 REVERT_WEIGHT = 0.25
 DEFAULT_MIN_SCORE = 0.20
 MAX_INJECTED_EXAMPLE_CHARS = 3_000
+
+FTS5_ENV_VAR = "RADSIM_LEARNING_FTS5"
+DEFAULT_CANDIDATE_LIMIT = 20
+_TRUTHY_VALUES = {"1", "true", "yes", "on"}
 
 STOPWORDS = {
     "the", "and", "for", "with", "that", "this", "from", "into", "are", "was",
@@ -184,26 +191,63 @@ def rank_learning_events(
     return ranked[: max(0, limit)]
 
 
+def fts5_candidates_enabled(environ: Mapping[str, str] | None = None) -> bool:
+    """Return whether FTS5 narrows the candidate set before Python ranking."""
+    source = os.environ if environ is None else environ
+    return source.get(FTS5_ENV_VAR, "").strip().lower() in _TRUTHY_VALUES
+
+
+def candidate_events(
+    store: LearningStore,
+    query: str,
+    *,
+    event_types: set[str],
+    outcomes: set[str] | None = None,
+    limit: int = 500,
+    candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
+    environ: Mapping[str, str] | None = None,
+) -> list[LearningEvent]:
+    """Return events for the ranker to score.
+
+    FTS5 runs in native C and narrows a large store to a short candidate list.
+    It is a first-stage filter only: the Python ranker still applies the
+    outcome, recency, category, and revert weighting. Any condition that makes
+    search unusable falls back to the full bounded scan, so a flag, a SQLite
+    build without FTS5, or a query with no usable terms can never silently
+    shrink what the ranker sees.
+    """
+    if fts5_candidates_enabled(environ):
+        candidates = store.search_events(
+            tokenize(query),
+            event_types=event_types,
+            outcomes=outcomes,
+            limit=candidate_limit,
+        )
+        if candidates:
+            return candidates
+    return store.query(event_types=event_types, outcomes=outcomes, limit=limit)
+
+
 def verified_success_events(
     store: LearningStore,
     *,
     event_types: set[str],
     limit: int = 500,
+    query: str = "",
 ) -> list[LearningEvent]:
     """Return successful guidance events whose task was never reverted."""
     reverted = {
         event.task_id
         for event in store.query(event_types={"task_revert"}, limit=store.max_events)
     }
-    return [
-        event
-        for event in store.query(
-            event_types=event_types,
-            outcomes={TaskOutcome.SUCCESSFUL.value},
-            limit=limit,
-        )
-        if event.task_id not in reverted
-    ]
+    successful = candidate_events(
+        store,
+        query,
+        event_types=event_types,
+        outcomes={TaskOutcome.SUCCESSFUL.value},
+        limit=limit,
+    )
+    return [event for event in successful if event.task_id not in reverted]
 
 
 def _event_search_text(event: LearningEvent) -> str:
@@ -275,7 +319,12 @@ class ErrorAnalyzer:
         self.store.append(event)
 
     def check_similar_error(self, planned_action: str, tool_name: str = "") -> dict[str, Any]:
-        events = self.store.query(event_types={"error"}, limit=200, newest_first=True)
+        events = candidate_events(
+            self.store,
+            planned_action,
+            event_types={"error"},
+            limit=200,
+        )
         ranked = rank_learning_events(
             planned_action,
             events,
@@ -422,6 +471,7 @@ class FewShotAssembler:
             self.store,
             event_types={"task_example", "task_completion"},
             limit=500,
+            query=task_description,
         )
         ranked = rank_learning_events(
             task_description,
@@ -540,6 +590,7 @@ class ToolOptimizer:
         self.storage_dir = Path(storage_dir or Path.home() / ".radsim" / "learning")
         self.store = LearningStore(storage_dir=self.storage_dir)
         self._current_chain: list[str] = []
+        self._buffer = LearningEventBuffer(self.store)
 
     def track_tool_execution(
         self,
@@ -578,7 +629,7 @@ class ToolOptimizer:
                 "output_size": len(str(output_data or {})),
             },
         )
-        self.store.append(event)
+        self._buffer.add(event)
 
     def complete_task_chain(
         self,
@@ -587,6 +638,7 @@ class ToolOptimizer:
     ) -> None:
         if not self._current_chain:
             return
+        self._buffer.flush()
         outcome = normalize_outcome(success)
         self.store.append(
             LearningEvent.create(
@@ -604,10 +656,12 @@ class ToolOptimizer:
         self._current_chain = []
 
     def suggest_tool_chain(self, task_description: str) -> list[str]:
+        self._buffer.flush()
         events = verified_success_events(
             self.store,
             event_types={"task_completion", "task_example"},
             limit=500,
+            query=task_description,
         )
         events = [event for event in events if event.metadata.get("tools_used")]
         ranked = rank_learning_events(
@@ -707,14 +761,21 @@ class ToolOptimizer:
         ]
 
     def clear_data(self) -> None:
+        self._buffer.clear()
         self.store.delete(event_types={"tool_execution"})
         self._current_chain = []
 
     def flush(self) -> bool:
-        """SQLite commits synchronously, so lifecycle flushes are no-ops."""
-        return False
+        """Persist buffered tool events and report whether anything was written."""
+        return self._buffer.flush() > 0
+
+    @property
+    def pending_event_count(self) -> int:
+        """Return how many tool events are queued but not yet written."""
+        return self._buffer.pending_count
 
     def _tool_groups(self, context: str = "") -> dict[str, list[LearningEvent]]:
+        self._buffer.flush()
         events = self.store.query(event_types={"tool_execution"}, limit=1000)
         if context:
             relevant_ids = {
@@ -730,6 +791,7 @@ class ToolOptimizer:
 
     @property
     def _executions(self) -> list[dict[str, Any]]:
+        self._buffer.flush()
         return [
             {
                 "tool_name": event.tool_name,

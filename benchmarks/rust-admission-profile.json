@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-28T10:46:43.646000+00:00",
+  "environment": {
+    "os": "Darwin",
+    "release": "23.6.0",
+    "machine": "x86_64",
+    "python": "3.14.2"
+  },
+  "workload": {
+    "iterations": 500,
+    "learning_events": 2000,
+    "fts5_available": true,
+    "result_count": 9337
+  },
+  "profiled_seconds": 2.668214,
+  "largest_python_kernel_percent": 4.0814,
+  "rust_admission_threshold_percent": 15.0,
+  "rust_kernel_time_gate_met": false,
+  "top_python_functions": [
+    {
+      "file": "radsim/learning/events.py",
+      "line": 88,
+      "function": "<genexpr>",
+      "calls": 299431,
+      "self_seconds": 0.108899,
+      "self_percent": 4.0814
+    },
+    {
+      "file": "radsim/learning/events.py",
+      "line": 85,
+      "function": "bounded_text",
+      "calls": 33400,
+      "self_seconds": 0.069115,
+      "self_percent": 2.5903
+    },
+    {
+      "file": "radsim/learning/events.py",
+      "line": 118,
+      "function": "create",
+      "calls": 3340,
+      "self_seconds": 0.041946,
+      "self_percent": 1.5721
+    },
+    {
+      "file": "radsim/tool_router.py",
+      "line": 477,
+      "function": "_schema_name",
+      "calls": 36000,
+      "self_seconds": 0.040256,
+      "self_percent": 1.5087
+    },
+    {
+      "file": "radsim/learning/retrieval.py",
+      "line": 114,
+      "function": "rank_learning_events",
+      "calls": 500,
+      "self_seconds": 0.037482,
+      "self_percent": 1.4047
+    },
+    {
+      "file": "radsim/learning/store.py",
+      "line": 283,
+      "function": "search_events",
+      "calls": 500,
+      "self_seconds": 0.037065,
+      "self_percent": 1.3891
+    }
+  ],
+  "decision": "Do not add Rust: no stable Python compute kernel reaches the 15 percent admission threshold."
+}

@@ -86,11 +86,11 @@ def test_pricing_source_description_includes_provider_mode_source_and_age():
 
 
 def test_glm_openrouter_fallback_uses_verified_routing_prices():
-    pricing = get_static_model_pricing("z-ai/glm-5.2", "openrouter", "routing")
+    pricing = get_static_model_pricing("z-ai/glm-5.3", "openrouter", "routing")
 
-    assert pricing.input_per_million_usd == Decimal("0.76")
-    assert pricing.output_per_million_usd == Decimal("2.42")
-    assert pricing.cache_read_per_million_usd == Decimal("0.14")
+    assert pricing.input_per_million_usd == Decimal("1.40")
+    assert pricing.output_per_million_usd == Decimal("4.40")
+    assert pricing.cache_read_per_million_usd == Decimal("0.26")
     assert pricing.source == "static-fallback"
     assert pricing.stale is True
 

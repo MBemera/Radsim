@@ -137,6 +137,14 @@ def test_normalize_model_rejects_malformed_reasoning_metadata_safely(reasoning):
 
 def test_static_fallback_contains_requested_models(fake_home):
     expected_models = {
+        "z-ai/glm-5.3",
+        "z-ai/glm-5.3-flash",
+        "anthropic/claude-opus-5",
+        "anthropic/claude-sonnet-5",
+        "google/gemini-3.7-flash",
+        "x-ai/grok-4.6",
+        "qwen/qwen3.8-max",
+        "bytedance-seed/seed-2.0-code",
         "moonshotai/kimi-k3",
         "anthropic/claude-fable-5",
         "openai/gpt-5.6-luna",
@@ -162,7 +170,7 @@ def test_static_model_metadata_survives_an_older_live_cache(fake_home):
 
     model = openrouter_models.find_model("moonshotai/kimi-k3")
 
-    assert model["reasoning_efforts"] == ["max"]
+    assert model["reasoning_efforts"] == ["low", "high", "max"]
     assert openrouter_models.model_supports_reasoning("moonshotai/kimi-k3") is True
 
 
@@ -226,8 +234,12 @@ def test_malformed_catalogue_price_fails_to_labelled_static_fallback(fake_home):
 
 
 def test_static_glm_capabilities_cover_verified_sampling_parameters(fake_home):
-    assert openrouter_models.get_model_request_parameters("z-ai/glm-5.2") == (
+    assert openrouter_models.get_model_request_parameters("z-ai/glm-5.3-flash") == (
         "temperature",
         "top_p",
         "seed",
     )
+
+
+def test_static_catalogue_records_the_verified_snapshot_date():
+    assert radsim.config.OPENROUTER_CATALOGUE_SNAPSHOT_DATE == "2026-08-28"

@@ -1,0 +1,234 @@
+{
+  "checks": {
+    "background_bound_held": true,
+    "file_descriptors_stable": true,
+    "injected_identifier_bound_held": true,
+    "message_bound_held": true,
+    "rss_growth_under_10_percent": true,
+    "sqlite_connections_stable": true,
+    "subprocess_count_stable": true,
+    "thread_count_stable": true,
+    "tracemalloc_growth_under_10_percent": true
+  },
+  "environment": {
+    "machine": "x86_64",
+    "os": "Linux",
+    "python": "3.12.13",
+    "release": "6.18.35"
+  },
+  "growth": {
+    "file_descriptors_after_warmup": 0,
+    "rss_percent_after_warmup": 0.8374,
+    "tracemalloc_current_percent_after_warmup": -6.1106
+  },
+  "passed": true,
+  "schema_version": 1,
+  "snapshots": {
+    "baseline": {
+      "background": {
+        "finished": 0,
+        "finished_evictions": 0,
+        "jobs": 0,
+        "max_finished": 100,
+        "running": 0
+      },
+      "caches": {
+        "project_detection": {
+          "entries": 0,
+          "evictions": 0,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 32,
+          "misses": 0
+        },
+        "prompt_fragment": {
+          "entries": 0,
+          "evictions": 0,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 32,
+          "misses": 0
+        },
+        "repository_symbols": {
+          "entries": 0,
+          "evictions": 0,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 512,
+          "misses": 0
+        },
+        "skill_docs": {
+          "entries": 0,
+          "evictions": 0,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 32,
+          "misses": 0
+        },
+        "tool_schema": {
+          "entries": 0,
+          "evictions": 0,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 32,
+          "misses": 0
+        },
+        "user_hooks": {
+          "entries": 0,
+          "evictions": 0,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 4,
+          "misses": 0
+        }
+      },
+      "file_descriptors": 4,
+      "injected_job_ids": 0,
+      "messages": 0,
+      "rss_bytes": 20426752,
+      "sqlite_connections": 0,
+      "subprocesses": 0,
+      "threads": 1,
+      "tracemalloc_current_bytes": 0,
+      "tracemalloc_peak_bytes": 46
+    },
+    "end": {
+      "background": {
+        "finished": 100,
+        "finished_evictions": 300,
+        "jobs": 100,
+        "max_finished": 100,
+        "running": 0
+      },
+      "caches": {
+        "project_detection": {
+          "entries": 32,
+          "evictions": 1968,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 32,
+          "misses": 2000
+        },
+        "prompt_fragment": {
+          "entries": 32,
+          "evictions": 1968,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 32,
+          "misses": 2000
+        },
+        "repository_symbols": {
+          "entries": 512,
+          "evictions": 1488,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 512,
+          "misses": 0
+        },
+        "skill_docs": {
+          "entries": 8,
+          "evictions": 0,
+          "hit_rate": 0.9955,
+          "hits": 1769,
+          "max_entries": 32,
+          "misses": 8
+        },
+        "tool_schema": {
+          "entries": 32,
+          "evictions": 1968,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 32,
+          "misses": 2000
+        },
+        "user_hooks": {
+          "entries": 0,
+          "evictions": 0,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 4,
+          "misses": 0
+        }
+      },
+      "file_descriptors": 4,
+      "injected_job_ids": 100,
+      "messages": 400,
+      "rss_bytes": 31567872,
+      "sqlite_connections": 0,
+      "subprocesses": 0,
+      "threads": 1,
+      "tracemalloc_current_bytes": 4252614,
+      "tracemalloc_peak_bytes": 5096376
+    },
+    "warm": {
+      "background": {
+        "finished": 100,
+        "finished_evictions": 100,
+        "jobs": 100,
+        "max_finished": 100,
+        "running": 0
+      },
+      "caches": {
+        "project_detection": {
+          "entries": 32,
+          "evictions": 968,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 32,
+          "misses": 1000
+        },
+        "prompt_fragment": {
+          "entries": 32,
+          "evictions": 968,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 32,
+          "misses": 1000
+        },
+        "repository_symbols": {
+          "entries": 512,
+          "evictions": 488,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 512,
+          "misses": 0
+        },
+        "skill_docs": {
+          "entries": 8,
+          "evictions": 0,
+          "hit_rate": 0.991,
+          "hits": 880,
+          "max_entries": 32,
+          "misses": 8
+        },
+        "tool_schema": {
+          "entries": 32,
+          "evictions": 968,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 32,
+          "misses": 1000
+        },
+        "user_hooks": {
+          "entries": 0,
+          "evictions": 0,
+          "hit_rate": 0.0,
+          "hits": 0,
+          "max_entries": 4,
+          "misses": 0
+        }
+      },
+      "file_descriptors": 4,
+      "injected_job_ids": 100,
+      "messages": 400,
+      "rss_bytes": 31305728,
+      "sqlite_connections": 0,
+      "subprocesses": 0,
+      "threads": 1,
+      "tracemalloc_current_bytes": 4529388,
+      "tracemalloc_peak_bytes": 5094167
+    }
+  },
+  "turns_after_warmup": 1000,
+  "warmup_turns": 1000
+}

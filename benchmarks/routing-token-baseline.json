@@ -1,0 +1,99 @@
+{
+  "core_schema_tokens": 1675,
+  "environment": {
+    "machine": "x86_64",
+    "os": "Darwin",
+    "python": "3.14.2"
+  },
+  "mean_reduction_percent": 71.2,
+  "mean_routed_schema_tokens": 2143.3,
+  "registered_tools": 72,
+  "sample_count": 10,
+  "samples": [
+    {
+      "groups": [],
+      "reduction_percent": 77.5,
+      "request": "fix the failing test in radsim/safety.py",
+      "schema_tokens": 1675,
+      "tools": 15
+    },
+    {
+      "groups": [],
+      "reduction_percent": 77.5,
+      "request": "read the config and explain how pruning works",
+      "schema_tokens": 1675,
+      "tools": 15
+    },
+    {
+      "groups": [],
+      "reduction_percent": 77.5,
+      "request": "add a retry to the api client and run the tests",
+      "schema_tokens": 1675,
+      "tools": 15
+    },
+    {
+      "groups": [],
+      "reduction_percent": 77.5,
+      "request": "grep for TODO and clean them up",
+      "schema_tokens": 1675,
+      "tools": 15
+    },
+    {
+      "groups": [
+        "advanced_git",
+        "operations"
+      ],
+      "reduction_percent": 62.2,
+      "request": "commit the branch then deploy the docker container",
+      "schema_tokens": 2817,
+      "tools": 27
+    },
+    {
+      "groups": [
+        "documents_media"
+      ],
+      "reduction_percent": 75.1,
+      "request": "summarise the pdf in docs and save what you learn",
+      "schema_tokens": 1851,
+      "tools": 17
+    },
+    {
+      "groups": [
+        "browser_automation"
+      ],
+      "reduction_percent": 72.9,
+      "request": "open the browser and screenshot the dashboard",
+      "schema_tokens": 2020,
+      "tools": 20
+    },
+    {
+      "groups": [
+        "code_intelligence",
+        "dependencies"
+      ],
+      "reduction_percent": 60.0,
+      "request": "add the requests dependency and lint the package",
+      "schema_tokens": 2977,
+      "tools": 29
+    },
+    {
+      "groups": [
+        "code_intelligence"
+      ],
+      "reduction_percent": 66.1,
+      "request": "refactor the learning store and check types",
+      "schema_tokens": 2522,
+      "tools": 23
+    },
+    {
+      "groups": [
+        "file_management"
+      ],
+      "reduction_percent": 65.8,
+      "request": "what does repo_map show for this project",
+      "schema_tokens": 2546,
+      "tools": 22
+    }
+  ],
+  "unrouted_schema_tokens": 7448
+}

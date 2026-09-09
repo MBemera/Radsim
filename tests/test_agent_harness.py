@@ -9,6 +9,7 @@ protection.
 
 import json
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -188,6 +189,65 @@ class TestToolRoundTrip:
         assert result == "both read"
         results_message = agent.messages[2]["content"]
         assert [r["tool_use_id"] for r in results_message] == ["tool_a", "tool_b"]
+
+    def test_performance_telemetry_has_correlated_content_free_events(
+        self, agent_factory, tmp_path
+    ):
+        from radsim.performance import PerformanceTelemetry
+
+        target = tmp_path / "private.txt"
+        target.write_text("sensitive tool result", encoding="utf-8")
+        telemetry_path = tmp_path / "performance.jsonl"
+        agent = agent_factory([
+            make_response(
+                tool_block("tool_1", "read_file", {"file_path": str(target)}),
+                stop_reason="tool_use",
+            ),
+            make_response(text_block("finished")),
+        ])
+        agent.performance_telemetry = PerformanceTelemetry(telemetry_path, enabled=True)
+
+        assert agent.process_message("private user request") == "finished"
+
+        serialized = telemetry_path.read_text(encoding="utf-8")
+        records = [json.loads(line) for line in serialized.splitlines()]
+        # Cache and memory statistics are emitted after turn accounting, so the
+        # turn's own sequence is what is asserted here.
+        turn_events = [
+            record["event"]
+            for record in records
+            if record["event"] not in {"cache_stats", "memory_stats"}
+        ]
+        assert turn_events == [
+            "turn_started",
+            "provider_request",
+            "provider_response",
+            "tool_execution",
+            "provider_request",
+            "provider_response",
+            "turn_completed",
+        ]
+        cache_events = [record for record in records if record["event"] == "cache_stats"]
+        assert {record["cache_name"] for record in cache_events} == {
+            "project_detection",
+            "prompt_fragment",
+            "repository_symbols",
+            "skill_docs",
+            "tool_schema",
+            "user_hooks",
+        }
+        assert len([record for record in records if record["event"] == "memory_stats"]) == 1
+        assert len({record["turn_id"] for record in records}) == 1
+        completed = next(
+            record for record in records if record["event"] == "turn_completed"
+        )
+        assert completed["api_calls"] == 2
+        assert completed["tool_calls"] == 1
+        assert completed["input_tokens"] == 20
+        assert completed["output_tokens"] == 10
+        assert "private user request" not in serialized
+        assert str(target) not in serialized
+        assert "sensitive tool result" not in serialized
 
     def test_tool_error_flows_back_to_model(self, agent_factory, tmp_path):
         agent = agent_factory([
@@ -433,3 +493,116 @@ class TestLoopProtection:
         payload = json.loads(agent.messages[2]["content"][0]["content"])
         assert payload["success"] is False
         assert "STOPPED" in payload["error"]
+
+
+class TestBoundedParallelReads:
+    """The parallel read group must change only when reads run, never order."""
+
+    def _read_round(self, tmp_path, count):
+        for index in range(count):
+            (tmp_path / f"parallel_{index}.py").write_text(f"VALUE = {index}\n")
+        return make_response(
+            *[
+                tool_block(
+                    f"tool_{index}",
+                    "read_file",
+                    {"file_path": str(tmp_path / f"parallel_{index}.py")},
+                )
+                for index in range(count)
+            ],
+            stop_reason="tool_use",
+        )
+
+    def _tool_results(self, agent):
+        return agent.messages[2]["content"]
+
+    def test_parallel_round_matches_serial_output(self, agent_factory, tmp_path, monkeypatch):
+        monkeypatch.setenv("RADSIM_PARALLEL_TOOLS", "1")
+        parallel_agent = agent_factory(
+            [self._read_round(tmp_path, 4), make_response(text_block("done"))]
+        )
+        parallel_agent.process_message("read them")
+        parallel_results = self._tool_results(parallel_agent)
+
+        monkeypatch.delenv("RADSIM_PARALLEL_TOOLS", raising=False)
+        serial_agent = agent_factory(
+            [self._read_round(tmp_path, 4), make_response(text_block("done"))]
+        )
+        serial_agent.process_message("read them")
+        serial_results = self._tool_results(serial_agent)
+
+        assert [block["tool_use_id"] for block in parallel_results] == [
+            f"tool_{index}" for index in range(4)
+        ]
+        assert parallel_results == serial_results
+
+    def test_each_result_belongs_to_its_own_call(self, agent_factory, tmp_path, monkeypatch):
+        monkeypatch.setenv("RADSIM_PARALLEL_TOOLS", "1")
+        agent = agent_factory([self._read_round(tmp_path, 4), make_response(text_block("done"))])
+
+        agent.process_message("read them")
+
+        for index, block in enumerate(self._tool_results(agent)):
+            payload = json.loads(block["content"])
+            assert payload["success"] is True
+            assert f"VALUE = {index}" in payload["content"]
+
+    def test_a_write_in_the_round_still_runs_in_order(
+        self, agent_factory, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("RADSIM_PARALLEL_TOOLS", "1")
+        for index in range(2):
+            (tmp_path / f"parallel_{index}.py").write_text(f"VALUE = {index}\n")
+        agent = agent_factory(
+            [
+                make_response(
+                    tool_block(
+                        "tool_0", "read_file", {"file_path": str(tmp_path / "parallel_0.py")}
+                    ),
+                    tool_block(
+                        "tool_1", "read_file", {"file_path": str(tmp_path / "parallel_1.py")}
+                    ),
+                    tool_block(
+                        "tool_2",
+                        "write_file",
+                        {
+                            "file_path": str(tmp_path / "written.py"),
+                            "content": (
+                                "import os\n\n\n"
+                                "def describe_platform():\n"
+                                '    """Return the running platform name."""\n'
+                                "    return os.name\n"
+                            ),
+                        },
+                    ),
+                    stop_reason="tool_use",
+                ),
+                make_response(text_block("done")),
+            ]
+        )
+
+        agent.process_message("read then write")
+
+        results = self._tool_results(agent)
+        assert [block["tool_use_id"] for block in results] == ["tool_0", "tool_1", "tool_2"]
+        assert "describe_platform" in (tmp_path / "written.py").read_text()
+
+    def test_a_registered_tool_hook_disables_parallel_execution(
+        self, agent_factory, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("RADSIM_PARALLEL_TOOLS", "1")
+        agent = agent_factory([self._read_round(tmp_path, 3), make_response(text_block("done"))])
+        monkeypatch.setattr(agent, "_order_sensitive_hooks_present", lambda: True)
+        dispatched = []
+        original = agent._execute_tool_guarded
+
+        def recording(tool_name, tool_input):
+            dispatched.append(threading.current_thread().name)
+            return original(tool_name, tool_input)
+
+        monkeypatch.setattr(agent, "_execute_tool_guarded", recording)
+
+        agent.process_message("read them")
+
+        assert dispatched
+        assert all(name.startswith("MainThread") for name in dispatched)

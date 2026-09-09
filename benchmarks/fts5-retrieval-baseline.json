@@ -1,0 +1,33 @@
+{
+  "candidate_limit": 20,
+  "environment": {
+    "machine": "x86_64",
+    "os": "Darwin",
+    "python": "3.14.2",
+    "release": "23.6.0",
+    "sqlite_fts5": true
+  },
+  "labelled_agreement": 10,
+  "labelled_agreement_rate": 1.0,
+  "labelled_corpus_size": 5,
+  "labelled_queries": 10,
+  "method": "measured locally; retrieval plus ranking wall-clock over 20 rounds",
+  "results": [
+    {
+      "fts5_ms_mean": 2.56,
+      "fts5_ms_median": 1.933,
+      "python_scan_ms_mean": 102.679,
+      "python_scan_ms_median": 97.057,
+      "records": 500,
+      "speedup": 40.1
+    },
+    {
+      "fts5_ms_mean": 3.147,
+      "fts5_ms_median": 1.926,
+      "python_scan_ms_mean": 438.584,
+      "python_scan_ms_median": 445.531,
+      "records": 2000,
+      "speedup": 139.4
+    }
+  ]
+}

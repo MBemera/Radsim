@@ -1,0 +1,39 @@
+{
+  "bounds": {
+    "project_detection_entries": 32,
+    "prompt_fragment_entries": 32,
+    "tool_schema_entries": 32,
+    "user_hooks_entries": 4
+  },
+  "environment": {
+    "machine": "x86_64",
+    "os": "Darwin",
+    "python": "3.14.2",
+    "release": "23.6.0"
+  },
+  "method": "measured locally; cold is the median of 30 single calls each preceded by a cache clear outside the timer, warm is the mean of 300 cached calls",
+  "note": "the machine was running a concurrent mutation sweep; ratios are like-for-like, absolute values are not a clean baseline",
+  "results": [
+    {
+      "cache": "tool_schema",
+      "case": "all_72_tools",
+      "cold_ms": 1.7829,
+      "speedup": 39.7,
+      "warm_ms": 0.0449
+    },
+    {
+      "cache": "tool_schema",
+      "case": "routed_15_tools",
+      "cold_ms": 0.2837,
+      "speedup": 15.5,
+      "warm_ms": 0.0183
+    },
+    {
+      "cache": "user_hooks",
+      "case": "10_hooks",
+      "cold_ms": 11.418,
+      "speedup": 71.1,
+      "warm_ms": 0.1605
+    }
+  ]
+}

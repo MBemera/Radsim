@@ -15,6 +15,7 @@ from typing import Any
 SCHEMA_VERSION = 1
 MAX_SUMMARY_CHARS = 500
 MAX_ERROR_CHARS = 500
+MAX_TRACKED_TOOL_RESULTS = 200
 VERIFICATION_TOOLS = {"run_tests", "lint_code", "type_check"}
 _SECRET_TEXT_PATTERNS = (
     re.compile(
@@ -216,6 +217,10 @@ class TaskOutcomeTracker:
         self.provider = bounded_text(provider, 80)
         self.model = bounded_text(model, 160)
         self.tool_results: list[dict[str, Any]] = []
+        self.dropped_tool_results = 0
+        self._had_success = False
+        self._had_failure = False
+        self._had_failed_verification = False
         self.cancelled = False
         self.user_rejected = False
         self.reverted = False
@@ -229,15 +234,22 @@ class TaskOutcomeTracker:
     ) -> None:
         """Record only bounded outcome evidence, never raw tool inputs."""
         stopped = "STOPPED" in str(error)
-        self.tool_results.append(
-            {
-                "tool_name": bounded_text(tool_name, 100),
-                "success": bool(success),
-                "duration_ms": max(0.0, float(duration_ms or 0)),
-                "error": bounded_text(error, MAX_ERROR_CHARS),
-                "verification": tool_name in VERIFICATION_TOOLS,
-            }
+        record = {
+            "tool_name": bounded_text(tool_name, 100),
+            "success": bool(success),
+            "duration_ms": max(0.0, float(duration_ms or 0)),
+            "error": bounded_text(error, MAX_ERROR_CHARS),
+            "verification": tool_name in VERIFICATION_TOOLS,
+        }
+        self._had_success = self._had_success or record["success"]
+        self._had_failure = self._had_failure or not record["success"]
+        self._had_failed_verification = self._had_failed_verification or (
+            record["verification"] and not record["success"]
         )
+        if len(self.tool_results) >= MAX_TRACKED_TOOL_RESULTS:
+            self.tool_results.pop(0)
+            self.dropped_tool_results += 1
+        self.tool_results.append(record)
         if stopped:
             self.user_rejected = True
 
@@ -260,16 +272,10 @@ class TaskOutcomeTracker:
         if not self.tool_results:
             return TaskOutcome.UNKNOWN
 
-        successes = [result for result in self.tool_results if result["success"]]
-        failures = [result for result in self.tool_results if not result["success"]]
-        failed_verification = any(
-            result["verification"] and not result["success"] for result in self.tool_results
-        )
-
-        if failed_verification:
-            return TaskOutcome.PARTIALLY_SUCCESSFUL if successes else TaskOutcome.FAILED
-        if failures:
-            return TaskOutcome.PARTIALLY_SUCCESSFUL if successes else TaskOutcome.FAILED
+        if self._had_failed_verification:
+            return TaskOutcome.PARTIALLY_SUCCESSFUL if self._had_success else TaskOutcome.FAILED
+        if self._had_failure:
+            return TaskOutcome.PARTIALLY_SUCCESSFUL if self._had_success else TaskOutcome.FAILED
         return TaskOutcome.SUCCESSFUL
 
     def build_event(
@@ -312,6 +318,7 @@ class TaskOutcomeTracker:
                 "verification_tools": [
                     item["tool_name"] for item in self.tool_results if item["verification"]
                 ],
+                "tool_results_dropped": self.dropped_tool_results,
             },
         )
 

@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 # conversation, so it is bounded and escaped at the point it is stored.
 MAX_STORED_RESULT_CHARS = 20_000
 MAX_STORED_ERROR_CHARS = 2_000
+DEFAULT_MAX_FINISHED_JOBS = 100
 
 
 class JobStatus(str, Enum):
@@ -69,11 +70,13 @@ class BackgroundJob:
 class BackgroundJobManager:
     """Manages background sub-agent jobs."""
 
-    def __init__(self):
+    def __init__(self, max_finished_jobs=DEFAULT_MAX_FINISHED_JOBS):
         self._jobs: dict[int, BackgroundJob] = {}
         self._next_id: int = 1
         self._lock = threading.Lock()
         self._completion_callback = None
+        self.max_finished_jobs = max(1, int(max_finished_jobs))
+        self.finished_job_evictions = 0
 
     def start_job(
         self,
@@ -163,6 +166,7 @@ class BackgroundJobManager:
             job.output_tokens = getattr(result, "output_tokens", 0) if result else 0
             job.tool_calls = getattr(result, "tool_calls", 0) if result else 0
             job.finished_at = time.time()
+            self._prune_finished_jobs_locked()
 
     def _record_failure(self, job, error):
         """Store a failed job's bounded, terminal-safe error."""
@@ -174,29 +178,32 @@ class BackgroundJobManager:
             job.status = JobStatus.FAILED
             job.error = escape_terminal_controls(str(error))[:MAX_STORED_ERROR_CHARS]
             job.finished_at = time.time()
+            self._prune_finished_jobs_locked()
         logger.error("Background job #%d failed: %s", job.job_id, error)
 
     def get_job(self, job_id):
         """Get a job by ID. Returns None if not found."""
-        return self._jobs.get(job_id)
+        with self._lock:
+            return self._jobs.get(job_id)
 
     def list_jobs(self):
         """List all jobs, newest first."""
-        return sorted(self._jobs.values(), key=lambda j: j.job_id, reverse=True)
+        with self._lock:
+            return sorted(self._jobs.values(), key=lambda job: job.job_id, reverse=True)
 
     def cancel_job(self, job_id):
         """Cancel a running job. Returns True if cancelled, False if not found/not running."""
-        job = self._jobs.get(job_id)
-        if not job:
-            return False
-
         with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return False
             if job.status != JobStatus.RUNNING:
                 return False
             job.status = JobStatus.CANCELLED
             job.finished_at = time.time()
             if job._cancel_event:
                 job._cancel_event.set()
+            self._prune_finished_jobs_locked()
 
         return True
 
@@ -218,6 +225,29 @@ class BackgroundJobManager:
             callback: Function that takes a BackgroundJob argument
         """
         self._completion_callback = callback
+
+    def stats(self):
+        """Return bounded job-retention counts for soak tests and telemetry."""
+        with self._lock:
+            running = sum(job.status == JobStatus.RUNNING for job in self._jobs.values())
+            return {
+                "jobs": len(self._jobs),
+                "running": running,
+                "finished": len(self._jobs) - running,
+                "max_finished": self.max_finished_jobs,
+                "finished_evictions": self.finished_job_evictions,
+            }
+
+    def _prune_finished_jobs_locked(self):
+        """Evict the earliest completed jobs while retaining every running job."""
+        finished = [job for job in self._jobs.values() if job.status != JobStatus.RUNNING]
+        overflow = len(finished) - self.max_finished_jobs
+        if overflow <= 0:
+            return
+        finished.sort(key=lambda job: (job.finished_at, job.job_id))
+        for job in finished[:overflow]:
+            self._jobs.pop(job.job_id, None)
+            self.finished_job_evictions += 1
 
 
 def _call_with_optional_cancel(run_function, cancel_event):

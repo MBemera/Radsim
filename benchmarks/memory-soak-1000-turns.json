@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-28",
+  "environment": {
+    "os": "Darwin",
+    "release": "23.6.0",
+    "machine": "x86_64",
+    "python": "3.14.2"
+  },
+  "method": "1,000 mocked warm-up turns followed by 1,000 measured mocked turns",
+  "turns_after_warmup": 1000,
+  "warmup_turns": 1000,
+  "growth": {
+    "rss_percent_after_warmup": 1.0755,
+    "tracemalloc_current_percent_after_warmup": -6.0753,
+    "file_descriptors_after_warmup": 0
+  },
+  "warm_snapshot": {
+    "rss_bytes": 38084608,
+    "tracemalloc_current_bytes": 4601664,
+    "tracemalloc_peak_bytes": 5149841,
+    "file_descriptors": 4,
+    "threads": 1,
+    "subprocesses": 0,
+    "sqlite_connections": 0,
+    "retained_messages": 400,
+    "injected_job_ids": 100,
+    "finished_background_jobs": 100,
+    "cache_entries": {
+      "project_detection": 32,
+      "prompt_fragment": 32,
+      "repository_symbols": 512,
+      "skill_docs": 8,
+      "tool_schema": 32,
+      "user_hooks": 0
+    }
+  },
+  "end_snapshot": {
+    "rss_bytes": 38494208,
+    "tracemalloc_current_bytes": 4322098,
+    "tracemalloc_peak_bytes": 5161398,
+    "file_descriptors": 4,
+    "threads": 1,
+    "subprocesses": 0,
+    "sqlite_connections": 0,
+    "retained_messages": 400,
+    "injected_job_ids": 100,
+    "finished_background_jobs": 100,
+    "finished_background_job_evictions": 300,
+    "cache_entries": {
+      "project_detection": 32,
+      "prompt_fragment": 32,
+      "repository_symbols": 512,
+      "skill_docs": 8,
+      "tool_schema": 32,
+      "user_hooks": 0
+    },
+    "cache_evictions": {
+      "project_detection": 1968,
+      "prompt_fragment": 1968,
+      "repository_symbols": 1488,
+      "skill_docs": 0,
+      "tool_schema": 1968,
+      "user_hooks": 0
+    }
+  },
+  "checks": {
+    "rss_growth_under_10_percent": true,
+    "tracemalloc_growth_under_10_percent": true,
+    "message_bound_held": true,
+    "background_bound_held": true,
+    "injected_identifier_bound_held": true,
+    "thread_count_stable": true,
+    "file_descriptors_stable": true,
+    "subprocess_count_stable": true,
+    "sqlite_connections_stable": true
+  },
+  "passed": true
+}

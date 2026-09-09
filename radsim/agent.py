@@ -18,6 +18,7 @@ from .agent_policy import AgentPolicyMixin
 from .agent_subagents import AgentSubAgentMixin
 from .agent_tool_handlers import AgentToolHandlersMixin
 from .api_client import create_client
+from .performance import PerformanceTelemetry
 from .prompts import get_system_prompt
 from .rate_limiter import (
     ProtectionManager,
@@ -52,6 +53,11 @@ class RadSimAgent(
         self.messages = []
         self.system_prompt = get_system_prompt()
         self.usage_stats = empty_usage_totals()
+        self.performance_telemetry = PerformanceTelemetry.from_environment()
+        self._performance_request_index = 0
+
+        # Tool-schema routing: None means every registered schema is sent.
+        self._routed_tool_names = None
 
         # Learning system attributes
         self._last_response = ""  # For feedback commands (/good, /improve)
@@ -80,6 +86,8 @@ class RadSimAgent(
         # state, so they survive /clear, restarts, and primary model switches.
         self._session_approve_shell = False
         self._pending_user_context = []
+        self._memory_evicted_messages = 0
+        self._memory_released_media_blocks = 0
 
         # Background job manager — completion notifications and result tracking
         self._injected_job_ids = set()

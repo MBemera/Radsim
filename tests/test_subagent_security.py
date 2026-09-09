@@ -260,6 +260,17 @@ class TestBackgroundResultInjection:
 
         assert 'status="cancelled"' in rendered
 
+    def test_injected_job_ids_drop_evicted_jobs(self):
+        agent = FakeAgent()
+        agent._injected_job_ids = {1, 2, 3}
+        visible_job = self._job(job_id=3)
+
+        with patch("radsim.background.get_job_manager") as mock_manager:
+            mock_manager.return_value.list_jobs.return_value = [visible_job]
+            agent._collect_finished_background_results()
+
+        assert agent._injected_job_ids == {3}
+
 
 class TestTerminalControlInjection:
     """Terminal-control payloads are escaped before display or storage."""
