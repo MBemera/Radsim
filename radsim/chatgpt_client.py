@@ -7,7 +7,7 @@ No API key is read or sent; billing follows the ChatGPT plan.
 """
 
 import json
-import logging
+import math
 import time
 import uuid
 from typing import Any
@@ -25,8 +25,7 @@ CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex"
 # The endpoint accepts Codex-issued credentials, so requests identify as the
 # Codex client that produced them, exactly like other subscription clients.
 CODEX_ORIGINATOR = "codex_cli_rs"
-
-logger = logging.getLogger(__name__)
+MAX_OUTPUT_ITEMS = 4096
 
 
 def describe_http_failure(error: Exception) -> str:
@@ -52,7 +51,7 @@ def quota_reset_hint(error: Exception) -> str:
     # The SDK reports either the whole payload or just its error object.
     detail = body.get("error") if isinstance(body.get("error"), dict) else body
     seconds = detail.get("resets_in_seconds")
-    if not isinstance(seconds, (int, float)) or seconds <= 0:
+    if not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds <= 0:
         return ""
     minutes = int(seconds // 60)
     if minutes >= 60:
@@ -83,10 +82,12 @@ class ChatGPTClient(BaseAPIClient):
         self.model = model
         self.reasoning_effort = reasoning_effort
         self.session_id = str(uuid.uuid4())
+        self.account_id = account_id
         self.client = openai.OpenAI(
             api_key=access_token,
             base_url=CHATGPT_BASE_URL,
             timeout=timeout,
+            max_retries=0,
             default_headers={
                 "chatgpt-account-id": account_id,
                 "originator": CODEX_ORIGINATOR,
@@ -94,6 +95,15 @@ class ChatGPTClient(BaseAPIClient):
                 "User-Agent": f"{CODEX_ORIGINATOR} (RadSim {get_radsim_version()})",
             },
         )
+
+    def _refresh_credentials(self) -> None:
+        """Honor expiry and logout during a long-running RadSim session."""
+        from .chatgpt_tokens import load_subscription_credentials
+
+        access_token, account_id = load_subscription_credentials()
+        if account_id != self.account_id:
+            raise CodexError("ChatGPT account changed. Select it again through /switch.")
+        self.client.api_key = access_token
 
     def _build_request_kwargs(
         self,
@@ -151,35 +161,54 @@ class ChatGPTClient(BaseAPIClient):
         request_options=None,
     ):
         """Stream one turn, yielding text deltas then the final response."""
-        kwargs = self._build_request_kwargs(
-            messages, system_prompt, tools, max_tokens=max_tokens
-        )
+        self._refresh_credentials()
+        kwargs = self._build_request_kwargs(messages, system_prompt, tools, max_tokens=max_tokens)
         started_at = time.perf_counter()
+        events = None
         try:
             events = self.client.responses.create(**kwargs)
             completed = None
+            output_items = {}
             for event in events:
                 event_type = getattr(event, "type", "")
                 if event_type == "response.output_text.delta":
                     yield {"type": "text_delta", "text": getattr(event, "delta", "")}
-                elif event_type in (
-                    "response.completed",
-                    "response.failed",
-                    "response.incomplete",
-                ):
+                elif event_type == "response.output_item.done":
+                    _remember_output_item(output_items, event)
+                elif event_type in ("response.failed", "error"):
+                    raise CodexError("The ChatGPT backend could not complete this request.")
+                elif event_type == "response.incomplete":
+                    raise CodexError("The ChatGPT backend returned an incomplete response.")
+                elif event_type == "response.completed":
                     completed = getattr(event, "response", None) or completed
         except CodexError:
             raise
         except Exception as error:
             raise CodexError(describe_http_failure(error)) from None
+        finally:
+            if events is not None and callable(getattr(events, "close", None)):
+                events.close()
 
         if completed is None:
             raise CodexError("The ChatGPT backend ended the response early.")
         latency_ms = (time.perf_counter() - started_at) * 1000
         yield {
             "type": "final_response",
-            "response": parse_response(completed, latency_ms=latency_ms),
+            "response": parse_response(
+                completed,
+                latency_ms=latency_ms,
+                output_items=[output_items[index] for index in sorted(output_items)],
+            ),
         }
+
+
+def _remember_output_item(items, event) -> None:
+    """Keep completed stream items when the terminal response omits output."""
+    index = getattr(event, "output_index", None)
+    item = getattr(event, "item", None)
+    if type(index) is not int or not 0 <= index < MAX_OUTPUT_ITEMS or item is None:
+        raise CodexError("The ChatGPT backend returned an invalid output item.")
+    items[index] = item
 
 
 def convert_tools(tools) -> list[dict[str, Any]]:
@@ -270,10 +299,10 @@ def _result_text(content) -> str:
     return json.dumps(content)
 
 
-def parse_response(response, latency_ms=None) -> dict[str, Any]:
+def parse_response(response, latency_ms=None, output_items=None) -> dict[str, Any]:
     """Convert a Responses result into RadSim's normal response shape."""
     content = []
-    for item in getattr(response, "output", None) or []:
+    for item in _read(response, "output") or output_items or []:
         item_type = _read(item, "type")
         if item_type == "message":
             text = "".join(

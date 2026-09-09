@@ -258,4 +258,5 @@ def test_levels_constant_matches_documented_set():
         "high",
         "xhigh",
         "max",
+        "ultra",
     )

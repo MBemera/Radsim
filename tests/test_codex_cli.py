@@ -264,7 +264,6 @@ class AgentStub:
         ("login", ("login", False), True),
         ("login-device", ("login", True), True),
         ("status", ("status", False), False),
-        ("models", ("models", False), False),
         ("logout", ("logout", False), False),
     ],
 )
@@ -301,6 +300,31 @@ def test_account_menu_switches_the_live_session(monkeypatch):
     handler._chatgpt_account_menu(agent)
 
     assert agent.switched == [("chatgpt", None, "gpt-6-astra")]
+
+
+def test_account_menu_opens_model_selection(monkeypatch):
+    from radsim import chatgpt_models, menu
+
+    agent = AgentStub()
+    selected = []
+    monkeypatch.setattr(chatgpt_models, "select_model", selected.append)
+    monkeypatch.setattr(menu, "interactive_menu_loop", lambda _t, _o, run: run("models"))
+    _switch_handler()._chatgpt_account_menu(agent)
+    assert selected == [agent]
+
+
+def test_switch_to_subscription_ignores_saved_api_model(monkeypatch):
+    from radsim import config
+
+    config.save_config("synthetic-api-key", "openrouter", "custom-provider/model")
+    monkeypatch.setenv("RADSIM_MODEL", "custom-provider/model")
+    monkeypatch.setenv("RADSIM_API_KEY", "synthetic-api-key")
+    agent = AgentStub()
+
+    _switch_handler()._switch_to_subscription(agent)
+
+    assert agent.switched == [("chatgpt", None, config.DEFAULT_SUBSCRIPTION_MODEL)]
+    assert config.load_config(provider_override="chatgpt").api_key is None
 
 
 def test_account_menu_covers_every_subscription_command():

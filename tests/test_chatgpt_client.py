@@ -119,6 +119,7 @@ def test_session_uses_the_subscription_endpoint_and_account(monkeypatch):
     assert kwargs["default_headers"]["chatgpt-account-id"] == "acct-marker"
     assert kwargs["default_headers"]["originator"] == chatgpt_client.CODEX_ORIGINATOR
     assert client.model == "gpt-6-astra"
+    assert kwargs["max_retries"] == 0
 
 
 def stream_of(response):
@@ -320,3 +321,91 @@ def test_chat_failure_is_reported_as_a_codex_error(monkeypatch):
     monkeypatch.setattr(client.client.responses, "create", fail)
     with pytest.raises(CodexError, match="usage limit"):
         client.chat([{"role": "user", "content": "hi"}])
+
+
+@pytest.mark.parametrize("kind", ["response.failed", "response.incomplete", "error"])
+def test_failed_stream_never_returns_tool_calls(monkeypatch, kind):
+    response = completed_response(
+        [
+            SimpleNamespace(
+                type="function_call",
+                name="write_file",
+                call_id="call-1",
+                arguments='{"file_path":"unapproved.txt","content":"data"}',
+            )
+        ]
+    )
+    client = build_client(monkeypatch, [SimpleNamespace(type=kind, response=response)])
+    with pytest.raises(CodexError):
+        client.chat([{"role": "user", "content": "hi"}])
+
+
+def test_stream_is_closed_on_interrupt(monkeypatch):
+    closed = []
+
+    def events():
+        try:
+            yield SimpleNamespace(type="response.output_text.delta", delta="hello")
+            yield from stream_of(completed_response([]))
+        finally:
+            closed.append(True)
+
+    client = build_client(monkeypatch, events())
+    stream = client.stream_chat([{"role": "user", "content": "hi"}])
+    next(stream)
+    stream.close()
+    assert closed == [True]
+
+
+def test_running_client_reloads_credentials_before_each_request(monkeypatch):
+    client = build_client(monkeypatch, stream_of(completed_response([])))
+    monkeypatch.setattr(
+        chatgpt_tokens, "load_subscription_credentials", lambda: ("refreshed-marker", "acct-marker")
+    )
+    client.chat([{"role": "user", "content": "hi"}])
+    assert client.client.api_key == "refreshed-marker"
+
+    def signed_out():
+        raise CodexError("ChatGPT sign-in is required")
+
+    monkeypatch.setattr(chatgpt_tokens, "load_subscription_credentials", signed_out)
+    with pytest.raises(CodexError, match="sign-in is required"):
+        client.chat([{"role": "user", "content": "hi again"}])
+    assert len(client.client.responses.requests) == 1
+
+
+def test_running_client_refuses_an_account_change(monkeypatch):
+    client = build_client(monkeypatch, [])
+    monkeypatch.setattr(
+        chatgpt_tokens,
+        "load_subscription_credentials",
+        lambda: ("different-marker", "other-account"),
+    )
+    with pytest.raises(CodexError, match="account changed"):
+        client.chat([{"role": "user", "content": "hi"}])
+    assert client.client.responses.requests == []
+
+
+@pytest.mark.parametrize("index", [-1, 4096, "0", True, None])
+def test_stream_rejects_invalid_output_indices(monkeypatch, index):
+    event = SimpleNamespace(
+        type="response.output_item.done",
+        output_index=index,
+        item=SimpleNamespace(type="message", content=[]),
+    )
+    client = build_client(monkeypatch, [event])
+    with pytest.raises(CodexError, match="invalid output item"):
+        client.chat([{"role": "user", "content": "hi"}])
+
+
+def test_completed_stream_items_are_not_duplicated(monkeypatch):
+    item = SimpleNamespace(
+        type="function_call",
+        name="read_file",
+        call_id="call-1",
+        arguments='{"file_path":"fixture.txt"}',
+    )
+    event = SimpleNamespace(type="response.output_item.done", output_index=0, item=item)
+    client = build_client(monkeypatch, [event, event, *stream_of(completed_response([item]))])
+    response = client.chat([{"role": "user", "content": "hi"}])
+    assert len(response["content"]) == 1
