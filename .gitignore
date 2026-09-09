@@ -74,3 +74,6 @@ logs/
 # RadSim feature data
 plans/
 panning_sessions/
+
+# Local agent handoff, not shared
+uptodate.md
