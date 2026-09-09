@@ -122,7 +122,7 @@ Examples:
   radsim  (starts interactive mode)
 
 Environment variables:
-  RADSIM_PROVIDER   API provider (openrouter, openai, claude)
+  RADSIM_PROVIDER   Provider (openrouter, openai, claude, chatgpt)
   RADSIM_API_KEY    Your API key
         """,
     )
@@ -136,8 +136,8 @@ Environment variables:
     parser.add_argument(
         "--provider",
         "-p",
-        choices=["openrouter", "openai", "claude"],
-        help="API provider (default: openrouter)",
+        choices=["openrouter", "openai", "claude", "chatgpt"],
+        help="Provider; chatgpt uses your subscription through Codex (default: openrouter)",
     )
 
     parser.add_argument(
@@ -238,21 +238,63 @@ def _handle_login_subcommand() -> int | None:
     Returns an exit code if the subcommand was handled, or None to let the
     normal argparse flow proceed.
     """
-    if len(sys.argv) < 2 or sys.argv[1] not in ("login", "logout"):
+    if len(sys.argv) < 2:
+        return None
+    action = sys.argv[1]
+    if action in ("status", "models") and sys.argv[2:3] == ["chatgpt"]:
+        from .codex_cli import run_account_command
+
+        if len(sys.argv) != 3:
+            raise SystemExit(f"Usage: radsim {action} chatgpt")
+        return run_account_command(action)
+    if action not in ("login", "logout"):
         return None
 
     sub_parser = argparse.ArgumentParser(prog=f"radsim {sys.argv[1]}")
     sub_parser.add_argument(
         "provider",
-        choices=["openrouter", "openai", "claude"],
+        choices=["openrouter", "openai", "claude", "chatgpt"],
+    )
+    sub_parser.add_argument(
+        "--device-code",
+        action="store_true",
+        help="ChatGPT login without a local browser callback",
     )
 
     sub_args = sub_parser.parse_args(sys.argv[2:])
+    if sub_args.device_code and (sub_args.provider != "chatgpt" or action != "login"):
+        sub_parser.error("--device-code is only valid for login chatgpt")
+    if sub_args.provider == "chatgpt":
+        from .codex_cli import run_account_command
+
+        return run_account_command(action, device_code=sub_args.device_code)
     from . import login as login_module
 
     if sys.argv[1] == "login":
         return login_module.run_login(sub_args.provider)
     return login_module.run_logout(sub_args.provider)
+
+
+def _complete_onboarding(args) -> None:
+    """Run the setup wizard and apply its choices to the parsed arguments."""
+    from .config import SUBSCRIPTION_PROVIDER
+    from .onboarding import run_onboarding
+
+    api_key, provider, _model = run_onboarding()
+
+    if provider == SUBSCRIPTION_PROVIDER:
+        from .codex_cli import run_account_command
+
+        if run_account_command("login") != 0:
+            sys.exit(1)
+        args.provider = provider
+        args.api_key = None
+        return
+    if not api_key:
+        sys.exit(0)
+
+    args.provider = provider
+    args.api_key = api_key
 
 
 def main():
@@ -272,18 +314,14 @@ def main():
     from .access_control import check_access_on_startup
     from .config import load_config
     from .health import check_health, check_secret_expirations
-    from .onboarding import run_onboarding, should_run_onboarding
+    from .onboarding import should_run_onboarding
     from .output import print_error
 
     # T&C is shown only during onboarding (first-time setup), not every login
 
     # Force re-run setup if --setup flag is passed
     if args.setup:
-        api_key, provider, model = run_onboarding()
-        if not api_key:
-            sys.exit(0)
-        args.provider = provider
-        args.api_key = api_key
+        _complete_onboarding(args)
     # Normal first-run onboarding (unless skipped)
     elif (
         should_run_onboarding()
@@ -291,13 +329,7 @@ def main():
         and not args.api_key
         and not args.provider
     ):
-        api_key, provider, model = run_onboarding()
-        if not api_key:
-            # User didn't complete onboarding
-            sys.exit(0)
-        # Override args with onboarding results
-        args.provider = provider
-        args.api_key = api_key
+        _complete_onboarding(args)
 
     # Check access control first (if enabled)
     if not check_access_on_startup():

@@ -97,6 +97,24 @@ def get_available_models(provider):
     return list(PROVIDER_MODELS.get(provider, []))
 
 
+SUBSCRIPTION_LOCKOUT_MESSAGE = (
+    "Sub-agents are locked while the ChatGPT subscription is active. They run on "
+    "API credentials and would be billed separately. Run '/switch' and pick an API "
+    "provider to use them."
+)
+
+
+def subagents_locked(provider):
+    """Report whether the active provider forbids delegation.
+
+    Sub-agents always run on a separate API provider and key, so the ChatGPT
+    subscription locks them out rather than silently spending API credit.
+    """
+    from .config import SUBSCRIPTION_PROVIDER
+
+    return provider == SUBSCRIPTION_PROVIDER
+
+
 def resolve_subagent_model(provider, model):
     """Validate a subagent provider/model pair and resolve its credential.
 

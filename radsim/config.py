@@ -28,6 +28,7 @@ REASONING_EFFORT_LEVELS = (
     "high",
     "xhigh",
     "max",
+    "ultra",
 )
 DEFAULT_REASONING_EFFORT_OPTIONS = ("low", "medium", "high")
 DEFAULT_REASONING_EFFORT = "medium"
@@ -120,6 +121,12 @@ DEFAULT_MODELS = {
     "openai": "gpt-5.4",
     "claude": "claude-opus-4-8",
 }
+
+# Runs on a ChatGPT plan through the Codex sign-in: no API key, and the model
+# catalogue comes from the account, so this default is only a starting point.
+SUBSCRIPTION_PROVIDER = "chatgpt"
+DEFAULT_SUBSCRIPTION_MODEL = "gpt-6-astra"
+DEFAULT_MODELS[SUBSCRIPTION_PROVIDER] = DEFAULT_SUBSCRIPTION_MODEL
 
 PROVIDER_URLS = {
     "openrouter": "https://openrouter.ai/keys",
@@ -838,7 +845,9 @@ def save_config(api_key, provider, model):
 
     if not model:
         model = load_last_model_selection(provider)
-    if not model:
+    if not model and existing_config.get("provider") != SUBSCRIPTION_PROVIDER:
+        # A model saved under the subscription came from the ChatGPT account
+        # catalogue, so it must not leak into an API provider's config.
         existing_model = existing_config.get("model")
         if existing_model and model_belongs_to_provider(existing_model, provider):
             model = existing_model
@@ -848,19 +857,26 @@ def save_config(api_key, provider, model):
     # Update with the new key
     existing_keys[env_var] = api_key
 
-    # Build content preserving all API keys
+    _write_env_file(provider, model, existing_keys)
+    save_last_model_selection(provider, model)
+
+
+def _write_env_file(provider: str, model: str, keys: dict) -> None:
+    """Rewrite ~/.radsim/.env with the selection and the preserved API keys."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
     lines = [
         "# RadSim Configuration",
         "# This file is chmod 600 (secure)",
         "",
-        f'RADSIM_PROVIDER="{provider}"',
-        f'RADSIM_MODEL="{model}"',
-        "",
-        "# API Keys (preserved across provider switches)",
     ]
+    if provider:
+        lines.append(f'RADSIM_PROVIDER="{provider}"')
+    if model:
+        lines.append(f'RADSIM_MODEL="{model}"')
+    lines += ["", "# API Keys (preserved across provider switches)"]
 
-    # Add all API keys
-    for key_name, key_value in existing_keys.items():
+    for key_name, key_value in keys.items():
         if key_value and not key_value.lower().startswith("paste_your"):
             lines.append(f'{key_name}="{key_value}"')
 
@@ -868,7 +884,47 @@ def save_config(api_key, provider, model):
 
     ENV_FILE.write_text("\n".join(lines))
     ENV_FILE.chmod(0o600)  # Secure: owner read/write only
-    save_last_model_selection(provider, model)
+
+
+def save_subscription_selection(model: str = "") -> None:
+    """Make the ChatGPT subscription the default provider.
+
+    No API key is involved, so this cannot reuse save_config(). API keys are
+    preserved for a later switch back, the account's model replaces the API
+    provider's model, and the last API selection is dropped because it
+    outranks the .env provider.
+    """
+    existing_config = load_env_file()
+    _write_env_file(
+        SUBSCRIPTION_PROVIDER,
+        model if isinstance(model, str) else "",
+        existing_config.get("keys", {}),
+    )
+    _forget_last_model_selection()
+
+
+def clear_subscription_selection() -> None:
+    """Stop defaulting to the ChatGPT subscription, keeping the API keys.
+
+    The saved model goes too: it came from the ChatGPT account catalogue and
+    no API provider can serve it.
+    """
+    existing_config = load_env_file()
+    if existing_config.get("provider") != SUBSCRIPTION_PROVIDER:
+        return
+
+    _write_env_file("", "", existing_config.get("keys", {}))
+
+
+def _forget_last_model_selection() -> None:
+    """Drop the remembered API provider/model so it cannot shadow a new choice."""
+    settings = load_settings_file()
+    if "last_provider" not in settings and "last_model" not in settings:
+        return
+
+    settings.pop("last_provider", None)
+    settings.pop("last_model", None)
+    atomic_write_json(SETTINGS_FILE, settings, secure=True)
 
 
 def save_last_model_selection(provider: str, model: str) -> None:
@@ -1136,6 +1192,10 @@ def _search_openrouter_models(full: list[tuple[str, str]]) -> str | None:
 
 def get_reasoning_effort_options(provider: str, model: str) -> tuple[str, ...]:
     """Return the effort levels accepted by the selected model."""
+    if provider == SUBSCRIPTION_PROVIDER:
+        from .chatgpt_models import model_capabilities
+
+        return model_capabilities(model).get("efforts", ())
     capabilities = MODEL_CAPABILITIES.get(model, {})
     if provider == "openrouter":
         from .openrouter_models import (
@@ -1160,6 +1220,10 @@ def resolve_reasoning_effort(provider: str, model: str, effort: str) -> str:
         return effort
     capabilities = MODEL_CAPABILITIES.get(model, {})
     default_effort = capabilities.get("default_reasoning_effort")
+    if provider == SUBSCRIPTION_PROVIDER:
+        from .chatgpt_models import model_capabilities
+
+        default_effort = model_capabilities(model).get("default_effort")
     if provider == "openrouter":
         from .openrouter_models import get_model_default_reasoning_effort
 
@@ -1195,6 +1259,30 @@ def _maybe_prompt_reasoning_effort(provider: str, model: str) -> None:
     print(f"  ok Reasoning effort set to '{effort}'.")
 
 
+def _select_subscription():
+    """Select the ChatGPT subscription, signing in first when it is needed.
+
+    Returns:
+        (api_key, provider, model) with no API key, matching setup_config's
+        contract. The subscription authenticates with its sign-in instead.
+    """
+    from .chatgpt_tokens import read_tokens
+    from .codex_cli import run_account_command
+    from .codex_transport import CodexError
+
+    try:
+        read_tokens()
+    except CodexError:
+        if run_account_command("login") != 0:
+            print("\n  Setup cancelled.")
+            return None, None, None
+
+    model = load_last_model_selection(SUBSCRIPTION_PROVIDER) or DEFAULT_SUBSCRIPTION_MODEL
+    save_subscription_selection(model)
+    print(f"  ok Using your ChatGPT subscription ({model}).")
+    return None, SUBSCRIPTION_PROVIDER, model
+
+
 def setup_config(first_time=True):
     """Prompt user to configure RadSim via .env file.
 
@@ -1228,10 +1316,11 @@ def setup_config(first_time=True):
     print("    1. OpenRouter (recommended — free models available)")
     print("    2. OpenAI (GPT-5)")
     print("    3. Claude (Anthropic)")
+    print("    4. ChatGPT subscription (sign in, no API key)")
     print()
 
     try:
-        choice = input("  Enter 1-3: ").strip()
+        choice = input("  Enter 1-4: ").strip()
     except (KeyboardInterrupt, EOFError):
         print("\n  Setup cancelled.")
         return None, None, None
@@ -1240,12 +1329,16 @@ def setup_config(first_time=True):
         "1": "openrouter",
         "2": "openai",
         "3": "claude",
+        "4": SUBSCRIPTION_PROVIDER,
     }
     provider = provider_map.get(choice)
 
     if not provider:
         print("  Invalid choice.")
         return None, None, None
+
+    if provider == SUBSCRIPTION_PROVIDER:
+        return _select_subscription()
 
     # Select model — OpenRouter uses a two-level dynamic picker, others a static list
     if provider == "openrouter":
@@ -1335,20 +1428,16 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
     return model not in other_provider_models
 
 
-def load_config(
-    provider_override=None,
-    api_key_override=None,
-    model_override=None,
-    auto_confirm=False,
-    verbose=False,
-    stream=True,
-):
-    """Load configuration from environment or overrides."""
-    # Load from env files and settings.json
-    env_config = load_env_file()
-    settings_config = load_settings_file()
+def resolve_provider(provider_override=None, env_config=None, settings_config=None):
+    """Return the selected provider name from overrides, env files and settings.
 
-    agent_config = settings_config.get("agent_config", {})
+    Callers that already read the env/settings files pass them in; the CLI
+    calls this before loading a full config to learn which runtime to start.
+    """
+    if env_config is None:
+        env_config = load_env_file()
+    if settings_config is None:
+        settings_config = load_settings_file()
 
     project_provider = (
         env_config["provider"]
@@ -1365,7 +1454,7 @@ def load_config(
         last_provider = None
 
     # Explicit project/process choices win. Otherwise reuse the last selection.
-    provider = (
+    return (
         provider_override
         or os.getenv("RADSIM_PROVIDER")
         or project_provider
@@ -1374,6 +1463,24 @@ def load_config(
         or settings_config.get("default_provider")
         or "openrouter"
     )
+
+
+def load_config(
+    provider_override=None,
+    api_key_override=None,
+    model_override=None,
+    auto_confirm=False,
+    verbose=False,
+    stream=True,
+):
+    """Load configuration from environment or overrides."""
+    # Load from env files and settings.json
+    env_config = load_env_file()
+    settings_config = load_settings_file()
+
+    agent_config = settings_config.get("agent_config", {})
+
+    provider = resolve_provider(provider_override, env_config, settings_config)
 
     # Determine API key
     # Priority: 1) CLI override, 2) env files (provider-specific), 3) env files (RADSIM_API_KEY),
@@ -1444,6 +1551,15 @@ def load_config(
         )
         model = None
 
+    if provider == SUBSCRIPTION_PROVIDER:
+        api_key = None
+        saved_model = (
+            env_config.get("model")
+            if env_config.get("provider") == SUBSCRIPTION_PROVIDER
+            else None
+        )
+        model = model_override or last_model or saved_model or DEFAULT_SUBSCRIPTION_MODEL
+
     # Global flags
     final_verbose = verbose or settings_config.get("verbose", False)
 
@@ -1452,7 +1568,8 @@ def load_config(
     if stream and "stream" in settings_config:
         final_stream = settings_config["stream"]
 
-    if not api_key:
+    # The ChatGPT subscription authenticates with its sign-in, not a key.
+    if not api_key and provider != SUBSCRIPTION_PROVIDER:
         # Prompt user for setup
         api_key, selected_provider, selected_model = setup_config()
         if not api_key:
