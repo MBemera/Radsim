@@ -305,18 +305,83 @@ def print_header(provider, model):
     print_boot_sequence(provider, model, animated=True)
 
 
-def print_status_bar(model, input_tokens, output_tokens, *, usage=None, provider=None):
-    """Print model and token counts; costs are available through /usage."""
+def describe_usage_window(minutes):
+    """Name a plan window the way ChatGPT plans describe them."""
+    if minutes == 10080:
+        return "weekly"
+    if minutes % 1440 == 0:
+        return f"{minutes // 1440}d"
+    if minutes % 60 == 0:
+        return f"{minutes // 60}h"
+    return f"{minutes}m"
+
+
+def describe_reset_countdown(seconds):
+    """Say how long until a window resets, in the largest two units."""
+    if seconds >= 86400:
+        return f"{seconds // 86400}d{seconds % 86400 // 3600}h"
+    if seconds >= 3600:
+        return f"{seconds // 3600}h{seconds % 3600 // 60:02d}m"
+    return f"{max(seconds // 60, 1)}m"
+
+
+def format_usage_limits(usage_limits):
+    """Describe each plan window as percentage used and time left."""
+    segments = []
+    for window in usage_limits:
+        window_name = describe_usage_window(window["window_minutes"])
+        segment = f" | {window_name}: {window['used_percent']:.0f}% used"
+        resets_in_seconds = window.get("resets_in_seconds")
+        if resets_in_seconds is not None:
+            segment += f" ({describe_reset_countdown(resets_in_seconds)} left)"
+        segments.append(segment)
+    return "".join(segments)
+
+
+def print_status_bar(model, input_tokens, output_tokens, usage_limits=None):
+    """Print a status bar with model info, token usage, and spend or plan limits."""
     if not supports_color():
         return
 
     import shutil
 
+    from .config import get_model_pricing
+    from .pricing import estimate_usage_cost
+
     columns, _ = shutil.get_terminal_size()
     total_tokens = input_tokens + output_tokens
-    status = f" {model} | Tokens: {total_tokens:,} (In: {input_tokens:,} / Out: {output_tokens:,}) "
 
-    # Right align
+    # Plan windows replace cost: subscription turns are never billed per token.
+    if usage_limits:
+        cost_str = format_usage_limits(usage_limits)
+        status = (
+            f" {model} | Tokens: {total_tokens:,} "
+            f"(In: {input_tokens:,} / Out: {output_tokens:,}){cost_str} "
+        )
+        _print_right_aligned(status, columns)
+        return
+
+    # Unknown pricing must show as unknown — never as "Free"
+    pricing = get_model_pricing(model)
+    if pricing is None:
+        cost_str = " | cost n/a"
+    else:
+        estimate = estimate_usage_cost(
+            {"input_tokens": input_tokens, "output_tokens": output_tokens},
+            pricing,
+        )
+        total_cost = estimate.total_usd
+        if total_cost is None:
+            cost_str = " | cost n/a"
+        else:
+            cost_str = f" | ~${total_cost:.4f}" if total_cost > 0 else " | Free"
+
+    status = f" {model} | Tokens: {total_tokens:,} (In: {input_tokens:,} / Out: {output_tokens:,}){cost_str} "
+    _print_right_aligned(status, columns)
+
+
+def _print_right_aligned(status, columns):
+    """Print one dim status line pushed to the right edge of the terminal."""
     padding = columns - len(status) - 2
     if padding < 0:
         padding = 0

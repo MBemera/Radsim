@@ -220,9 +220,13 @@ IMPORTANT:
 """
 
 
-def get_system_prompt():
-    """Get the RadSim system prompt with provenance-wrapped context layers."""
-    return "".join(_render_layer(layer) for layer in _build_prompt_layers())
+def get_system_prompt(provider=None, model=None):
+    """Get the RadSim system prompt with provenance-wrapped context layers.
+
+    ``provider`` and ``model`` name the session actually answering, so the
+    agent can say which one it is instead of guessing.
+    """
+    return "".join(_render_layer(layer) for layer in _build_prompt_layers(provider, model))
 
 
 def get_static_prompt():
@@ -275,7 +279,7 @@ def _render_layer(layer):
     return f"{header}{content.strip()}"
 
 
-def _build_prompt_layers():
+def _build_prompt_layers(provider=None, model=None):
     """Build prompt layers in runtime order.
 
     Trusted policy comes first, so the model reads the authority order before
@@ -285,6 +289,7 @@ def _build_prompt_layers():
     runtime_context = get_runtime_context()
     layers = [{"name": "base", "content": RADSIM_SYSTEM_PROMPT}]
 
+    _add_session_layer(layers, provider, model)
     _add_harness_prompt_layers(layers, runtime_context)
     _add_sandbox_layer(layers)
     _add_mode_layer(layers)
@@ -294,6 +299,32 @@ def _build_prompt_layers():
     _add_memory_layer(layers, runtime_context)
 
     return layers
+
+
+def _add_session_layer(layers, provider, model):
+    """Tell the agent which model and provider are answering this session."""
+    if not provider or not model:
+        return
+
+    from .config import SUBSCRIPTION_PROVIDER
+
+    billing = (
+        "a ChatGPT subscription plan, not API billing"
+        if provider == SUBSCRIPTION_PROVIDER
+        else f"the {provider} API"
+    )
+    layers.append(
+        {
+            "name": "session",
+            "content": (
+                "\n\n## This session\n\n"
+                f"You are the model `{model}`, running inside RadSim through its "
+                f"`{provider}` provider and billed to {billing}. "
+                "When the user asks which model or provider they are using, answer "
+                "with these values instead of saying you cannot tell."
+            ),
+        }
+    )
 
 
 def _add_harness_prompt_layers(layers, runtime_context):

@@ -90,6 +90,15 @@ def extract_image_block(result):
     }
 
 
+def _without_locked_subagent_tools(tools, provider):
+    """Hide delegation from the model when the provider locks sub-agents out."""
+    from .sub_agent import subagents_locked
+
+    if not subagents_locked(provider):
+        return tools
+    return [tool for tool in tools if tool.get("name") != "delegate_task"]
+
+
 class AgentApiMixin:
     """API call and response handling methods for the main agent."""
 
@@ -100,7 +109,7 @@ class AgentApiMixin:
             mcp_tools = self._mcp_manager.get_all_tools()
             if mcp_tools:
                 tools.extend(mcp_tools)
-        return tools
+        return _without_locked_subagent_tools(tools, getattr(self.config, "provider", None))
 
     def _get_request_tools(self):
         """Return the schemas for this request, honouring the turn's routing."""
@@ -172,7 +181,9 @@ class AgentApiMixin:
         from .context_budget import DEFAULT_CONTEXT_OUTPUT_RESERVE_TOKENS
 
         prompt_started_at = time.perf_counter()
-        self.system_prompt = get_system_prompt()
+        self.system_prompt = get_system_prompt(
+            getattr(self.config, "provider", None), getattr(self.config, "model", None)
+        )
         prompt_construction_ms = (time.perf_counter() - prompt_started_at) * 1000
         self.check_and_prune()
         output_reserve_tokens = getattr(

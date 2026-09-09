@@ -246,9 +246,11 @@ python3 -m pip install --user radsimcli
 Run `radsim` with no arguments. The setup wizard asks for:
 
 - Terms acceptance.
-- A provider (`openrouter`, `openai`, or `claude`).
-- A model from that provider's list.
-- An API key, which is written to `~/.radsim/.env` with `chmod 600`.
+- A provider (`openrouter`, `openai`, `claude`, or your ChatGPT subscription).
+- A model from that provider's list. Subscription models come from your account
+  after sign-in, so the wizard skips this step.
+- An API key, which is written to `~/.radsim/.env` with `chmod 600`. The
+  subscription signs in instead and stores no key.
 
 You can re-enter the wizard at any time with `radsim --setup`. Once configured:
 
@@ -263,6 +265,44 @@ radsim "Add input validation to the API handler"
 # Skip confirmation prompts (use deliberately)
 radsim --yes "Format the project and fix lint errors"
 ```
+
+## Using a ChatGPT subscription instead of an API key
+
+RadSim can run a session on your ChatGPT plan through the Codex app server, so
+the work counts against your subscription instead of a Platform API key.
+
+```bash
+radsim login chatgpt        # browser sign-in (--device-code for headless hosts)
+radsim status chatgpt       # plan and remaining quota
+radsim models chatgpt       # models your account can use
+radsim --provider chatgpt "Explain the failing test"
+radsim logout chatgpt
+```
+
+All of those are also in one menu: `/switch` (or `/model`) → **ChatGPT
+subscription**, which can switch the running session over without a restart.
+
+`radsim login chatgpt` makes the subscription your default provider, the same
+way the API-key logins do, so plain `radsim` uses it afterwards. `radsim logout
+chatgpt` switches back; your API keys and saved model are left untouched.
+
+Sessions are ordinary RadSim sessions: same banner, same 72 tools, same slash
+commands, same memory and confirmations. Only the model call changes — it goes
+to your ChatGPT plan instead of an API key.
+
+What is different from the API providers:
+
+- The Codex CLI must be installed and on your `PATH`. It handles sign-in and
+  token refresh; RadSim pins the tested version and never runs the OAuth flow
+  itself.
+- Sign-in is stored under `~/.radsim/chatgpt/`, separate from Codex's own login
+  and from your API keys. No API key is read or needed.
+- There is no API fallback. When the subscription quota runs out, the turn stops
+  and says when the quota resets.
+- Models come from your account catalogue (`--model`, `/model`, or
+  `radsim models chatgpt`), not from RadSim's static provider lists.
+- The endpoint streams every response and rejects an output-token ceiling, so
+  `--no-stream` and output caps do not apply to subscription turns.
 
 ## Where RadSim looks for `.env`
 
@@ -558,8 +598,7 @@ MIT. See [LICENSE](LICENSE).
 ### OpenRouter spend
 
 `/usage` shows session tokens and provider-reported cost. Missing cost stays
-unknown; partial coverage is labelled. The status bar shows model and token counts only; spend is displayed on request
-through `/usage`.
+unknown; partial coverage is labelled.
 `/usage browser` opens https://openrouter.ai/activity in your default browser for
 account-wide spend. It passes no API key or session content to the browser; use
 your normal browser sign-in. This command is available locally, not via Telegram.
