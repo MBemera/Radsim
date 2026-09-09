@@ -508,6 +508,35 @@ DEFAULT_COMMAND_SPECS = [
         examples=["/telegram setup", "/tg test", "/telegram send Task done!"],
         related=["/settings"],
     ),
+    _command(["/auto"], "_cmd_auto", "Turn auto mode on or off", "configuration",
+        accepts_args=True, telegram_safe=False,
+        title="Auto Mode",
+        summary="Run routine commands without approval prompts for the rest of the session.",
+        usage=["/auto", "/auto on", "/auto off"],
+        details="Auto mode is what --yes sets at launch:\n\n"
+            "  • (no args) — Interactive on/off menu\n"
+            "  • on        — Routine commands run unprompted; unsafe ones are refused\n"
+            "  • off       — Every shell command asks again\n\n"
+            "Turning auto mode on also activates the sandbox, when it is enabled\n"
+            "in settings and available on this platform.",
+        examples=["/auto", "/auto on", "/auto off"],
+        related=["/sandbox", "/settings"],
+    ),
+    _command(["/sandbox"], "_cmd_sandbox", "Turn the auto-mode sandbox on or off", "configuration",
+        accepts_args=True, telegram_safe=False,
+        title="Sandbox",
+        summary="Confine auto-mode shell commands with the macOS seatbelt sandbox.",
+        usage=["/sandbox", "/sandbox on", "/sandbox off"],
+        details="Confines filesystem writes for shell and test commands:\n\n"
+            "  • (no args) — Interactive on/off menu\n"
+            "  • on        — Writes limited to the working directory, temp and caches\n"
+            "  • off       — Auto-mode commands can write anywhere you can\n\n"
+            "Only applies in auto mode, and only on macOS. Reads, network access\n"
+            "and running programs are never restricted. Persists in settings as\n"
+            "sandbox.auto_mode.",
+        examples=["/sandbox", "/sandbox off"],
+        related=["/auto", "/settings"],
+    ),
     _command(["/settings", "/set"], "_cmd_settings", "View/change agent settings", "configuration",
         accepts_args=True, telegram_safe=False,
         title="Agent Settings",

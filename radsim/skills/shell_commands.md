@@ -51,7 +51,9 @@ auto-confirm mode. Destructive classification adds a stronger warning for:
 ### Path Traversal Protection
 Commands with `..` path components are blocked. Absolute and home-relative
 paths remain possible after explicit confirmation; this lexical check is not
-an operating-system sandbox.
+itself an operating-system sandbox. In auto mode on macOS, a real sandbox
+confines writes as well — see "Sandbox active" in the system prompt when it
+applies.
 
 ## Common Use Cases
 

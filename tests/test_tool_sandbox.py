@@ -208,3 +208,35 @@ def test_writable_directories_include_the_working_directory(project):
 
     assert os.path.realpath(project) in directories
     assert Path(directories[0]).is_absolute()
+
+
+def test_prompt_stays_quiet_when_not_sandboxed(monkeypatch):
+    from radsim.prompts import get_system_prompt
+
+    monkeypatch.setattr(sandbox, "_auto_mode_enabled", False)
+
+    assert "Sandbox active" not in get_system_prompt()
+
+
+def test_prompt_tells_the_model_when_it_is_sandboxed(auto_mode):
+    from radsim.prompts import get_system_prompt
+
+    prompt = get_system_prompt()
+
+    assert "Sandbox active" in prompt
+    assert "Operation not permitted" in prompt
+
+
+def test_answering_all_turns_on_the_sandbox_too(monkeypatch):
+    """Auto mode reached at a prompt must confine commands like --yes does."""
+    from types import SimpleNamespace
+
+    from radsim.safety import _enable_auto_confirm
+
+    monkeypatch.setattr(sandbox, "_auto_mode_enabled", False)
+    config = SimpleNamespace(auto_confirm=False)
+
+    _enable_auto_confirm(config)
+
+    assert config.auto_confirm is True
+    assert sandbox.auto_mode_enabled() is True

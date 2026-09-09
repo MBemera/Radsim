@@ -1,0 +1,31 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /auto                                      │
+  │  Auto Mode                                  │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Run routine commands without approval prompts for the rest of the session.
+
+  Usage:
+    /auto
+    /auto on
+    /auto off
+
+  Details:
+    Auto mode is what --yes sets at launch:
+    
+      • (no args) — Interactive on/off menu
+      • on        — Routine commands run unprompted; unsafe ones are refused
+      • off       — Every shell command asks again
+    
+    Turning auto mode on also activates the sandbox, when it is enabled
+    in settings and available on this platform.
+
+  Examples:
+    $ /auto
+    $ /auto on
+    $ /auto off
+
+  Related: /sandbox  /settings
+

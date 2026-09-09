@@ -384,6 +384,94 @@ class LearningCommandHandlersMixin:
                 print_error(f"  {line}")
         print()
 
+    def _read_switch_argument(self, args):
+        """Turn on/off style arguments into a bool, or None when not given."""
+        if not args:
+            return None
+        value = str(args[0]).strip().lower()
+        if value in ("on", "true", "yes", "enable", "enabled"):
+            return True
+        if value in ("off", "false", "no", "disable", "disabled"):
+            return False
+        return None
+
+    def _choose_switch_state(self, title, current):
+        """Ask for a new on/off state, showing which one is active now."""
+        from .menu import interactive_menu
+
+        marker = " (current)"
+        choice = interactive_menu(
+            title,
+            [
+                ("on", f"On{marker if current else ''}"),
+                ("off", f"Off{marker if not current else ''}"),
+            ],
+        )
+        if choice is None:
+            return None
+        return choice == "on"
+
+    def _cmd_auto(self, agent, args=None):
+        """Turn auto mode on or off for the rest of this session."""
+        from .tools.sandbox import set_auto_mode
+
+        current = bool(agent.config.auto_confirm)
+        wanted = self._read_switch_argument(args)
+        if wanted is None:
+            title = f"AUTO MODE (current: {'ON' if current else 'OFF'})"
+            wanted = self._choose_switch_state(title, current)
+        if wanted is None:
+            print_info("Auto mode unchanged.")
+            return
+
+        agent.config.auto_confirm = wanted
+        set_auto_mode(wanted)
+        lines = [f"  Auto mode: {'ON' if wanted else 'OFF'}"]
+        if wanted:
+            lines.append("  Routine commands run without prompting; unsafe ones are refused.")
+        else:
+            lines.append("  Every shell command asks for confirmation again.")
+        lines.append(f"  Sandbox: {self._sandbox_state_label(agent)}")
+        print_block(lines)
+
+    def _sandbox_state_label(self, agent):
+        """Describe whether the sandbox is actually confining commands right now."""
+        from .agent_config import get_agent_config_manager
+        from .tools.sandbox import sandbox_available
+
+        if not get_agent_config_manager().get("sandbox.auto_mode", True):
+            return "off (disabled in settings)"
+        if not sandbox_available():
+            return "off (needs macOS sandbox-exec)"
+        if not agent.config.auto_confirm:
+            return "idle (applies in auto mode)"
+        return "active"
+
+    def _cmd_sandbox(self, agent, args=None):
+        """Turn the auto-mode sandbox on or off."""
+        from .agent_config import get_agent_config_manager
+
+        config_mgr = get_agent_config_manager()
+        current = bool(config_mgr.get("sandbox.auto_mode", True))
+        wanted = self._read_switch_argument(args)
+        if wanted is None:
+            title = f"SANDBOX (current: {'ON' if current else 'OFF'})"
+            wanted = self._choose_switch_state(title, current)
+        if wanted is None:
+            print_info("Sandbox unchanged.")
+            return
+
+        config_mgr.set("sandbox.auto_mode", wanted)
+        lines = [
+            f"  Sandbox setting: {'ON' if wanted else 'OFF'}",
+            f"  Right now: {self._sandbox_state_label(agent)}",
+        ]
+        if wanted:
+            lines.append("  Auto-mode writes are confined to the project, temp and caches.")
+        else:
+            lines.append("  Auto-mode commands can write anywhere you can.")
+        print_block(lines)
+
     def _cmd_settings(self, agent, args=None):
         """View or change agent settings."""
         from .agent_config import get_agent_config_manager
