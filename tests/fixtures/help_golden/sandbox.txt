@@ -1,0 +1,31 @@
+
+  ╭─────────────────────────────────────────────╮
+  │  /sandbox                                   │
+  │  Sandbox                                    │
+  ╰─────────────────────────────────────────────╯
+
+  Summary:
+    Confine auto-mode shell commands with the macOS seatbelt sandbox.
+
+  Usage:
+    /sandbox
+    /sandbox on
+    /sandbox off
+
+  Details:
+    Confines filesystem writes for shell and test commands:
+    
+      • (no args) — Interactive on/off menu
+      • on        — Writes limited to the working directory, temp and caches
+      • off       — Auto-mode commands can write anywhere you can
+    
+    Only applies in auto mode, and only on macOS. Reads, network access
+    and running programs are never restricted. Persists in settings as
+    sandbox.auto_mode.
+
+  Examples:
+    $ /sandbox
+    $ /sandbox off
+
+  Related: /auto  /settings
+

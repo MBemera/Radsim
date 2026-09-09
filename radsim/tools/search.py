@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from .constants import MAX_SEARCH_RESULTS
-from .validation import validate_path
+from .validation import is_secret_read_path, validate_path
 
 SKIP_EXTENSIONS = frozenset(
     {
@@ -108,7 +108,13 @@ def glob_files(pattern, directory_path="."):
             except ValueError:
                 relative_path = match
 
-            if _is_hidden_path(relative_path):
+            explicit_hidden = {
+                part
+                for part in Path(pattern).parts
+                if part.startswith(".") and part not in {".", ".."}
+            }
+            hidden_parts = {part for part in relative_path.parts if part.startswith(".")}
+            if hidden_parts - explicit_hidden or is_secret_read_path(match, match.resolve())[0]:
                 continue
 
             matches.append(str(relative_path))

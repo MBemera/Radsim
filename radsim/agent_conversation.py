@@ -402,6 +402,8 @@ class AgentConversationMixin:
             reset_performance_context,
         )
 
+        self._auto_staged_files = set()
+        self._blocked_tool_count = 0
         self._interrupted.clear()
         self._is_processing.set()
         config = getattr(self, "config", None)

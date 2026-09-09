@@ -41,6 +41,16 @@ COMMAND_FLAGS = {
         "--no-textconv",
     },
     "git log": {"--oneline", "--stat", "--no-decorate"},
+    "git show": {
+        "--stat",
+        "--summary",
+        "--name-only",
+        "--name-status",
+        "--raw",
+        "--no-patch",
+        "--format=",
+    },
+    "git rev-parse": {"--show-toplevel", "--show-prefix", "--is-inside-work-tree", "--short"},
     "npm test": set(),
     "jest": {"--runInBand", "--ci", "--verbose"},
     "vitest run": {"--silent"},
@@ -129,12 +139,28 @@ def _routine_segment(segment, directory, piped_input=False):
         name = arguments.pop(0) if arguments else ""
         if name not in {"pytest", "ruff"}:
             return False
+    if name == "git" and arguments[:1] == ["-C"]:
+        if len(arguments) < 3 or not _project_argument(arguments[1], directory):
+            return False
+        directory = (directory / arguments[1]).resolve()
+        if not directory.is_dir():
+            return False
+        arguments = arguments[2:]
     if name in {"git", "ruff", "npm", "vitest", "go", "cargo"}:
         name += " " + (arguments.pop(0) if arguments else "")
     if name not in COMMAND_FLAGS:
         return False
     options = _arguments_before_separator(arguments)
     if name == "ruff format" and not {"--check", "--diff"}.intersection(options):
+        return False
+    if name == "git show" and not {
+        "--stat",
+        "--summary",
+        "--name-only",
+        "--name-status",
+        "--raw",
+        "--no-patch",
+    }.intersection(options):
         return False
     if name == "git diff" and not {"--stat", "--name-only", "--name-status"}.intersection(options):
         return False

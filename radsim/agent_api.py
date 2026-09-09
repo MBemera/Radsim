@@ -533,6 +533,21 @@ class AgentApiMixin:
                 if self._task_outcome_tracker is not None:
                     self._task_outcome_tracker.mark_cancelled()
 
+            if getattr(self, "_blocked_tool_count", 0) >= 3:
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_use["id"],
+                        "content": serialize_tool_result(
+                            {
+                                "success": False,
+                                "error": "BLOCKED: Permission refusal limit reached; call skipped.",
+                            }
+                        ),
+                    }
+                )
+                continue
+
             if user_rejected:
                 tool_results.append(
                     {
@@ -596,7 +611,9 @@ class AgentApiMixin:
                 result = self._execute_tool_guarded(tool_name, tool_input)
                 duration_ms = (time.perf_counter() - tool_start_time) * 1000
             tool_success = result.get("success", False)
-            tool_error = result.get("error", "") if not tool_success else ""
+            tool_error = str(result.get("error") or "") if not tool_success else ""
+            if result.get("blocked") or tool_error.startswith("BLOCKED:"):
+                self._blocked_tool_count = getattr(self, "_blocked_tool_count", 0) + 1
 
             if not tool_success and "STOPPED" in tool_error:
                 user_rejected = True
@@ -672,6 +689,9 @@ class AgentApiMixin:
 
         # tool_result blocks must precede other content in the user message.
         self.messages.append({"role": "user", "content": tool_results + image_blocks})
+
+        if getattr(self, "_blocked_tool_count", 0) >= 3:
+            return "Stopped after three permission refusals this turn. Blocked actions were not executed. Review the refusals before continuing; earlier successful actions may have changed files."
 
         if user_rejected:
             if self._task_outcome_tracker is not None:

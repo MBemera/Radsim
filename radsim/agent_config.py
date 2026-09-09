@@ -63,6 +63,14 @@ DEFAULT_CONFIG = {
         "shell_commands": True,
         "file_deletion": True,
     },
+    # Auto mode approves routine commands without asking, but an approved
+    # test runner still executes arbitrary project code. The macOS seatbelt
+    # sandbox confines that code's filesystem writes to the working directory
+    # and known build caches. Manual mode is unaffected: you approve each
+    # command yourself there.
+    "sandbox": {
+        "auto_mode": True,
+    },
 }
 
 # Maps tool names to config keys in "tools" section
@@ -222,6 +230,7 @@ SECURITY_SWITCHES = (
     ("tools.self_extension", "Self-extension and add_tool"),
     ("confirmations.shell_commands", "Confirm shell commands"),
     ("confirmations.file_deletion", "Confirm file deletion"),
+    ("sandbox.auto_mode", "Sandbox shell commands in auto mode (macOS)"),
 )
 
 SECURITY_OFF_WARNING_LINES = (

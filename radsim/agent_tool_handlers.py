@@ -80,10 +80,10 @@ def _auto_test_request(tool_input):
     return {**tool_input, "test_command": command}
 
 
-def _auto_request_denied():
+def _auto_request_denied(reason=None):
     """Refuse the operation without cancelling the agent's remaining work."""
     message = (
-        "BLOCKED: Auto mode could not establish that this operation is permitted. "
+        f"BLOCKED: {reason or 'Auto mode could not establish that this operation is permitted.'} "
         "Do not retry it through another tool or wrapper. Continue independent work "
         "or choose a supported non-destructive alternative."
     )
@@ -678,7 +678,19 @@ class AgentToolHandlersMixin:
     def _handle_git_add(self, tool_input):
         """Handle git add with light confirmation."""
         file_paths = tool_input.get("file_paths", [])
+        if isinstance(file_paths, str):
+            file_paths = [file_paths]
         all_files = tool_input.get("all_files", False)
+
+        from .tools.git import validate_stage_paths
+
+        if self.config.auto_confirm:
+            if not tool_input.get("working_dir"):
+                return _auto_request_denied("Automatic Git staging requires an explicit working_dir.")
+            if all_files or not file_paths or not validate_stage_paths(
+                file_paths, tool_input.get("working_dir")
+            ):
+                return _auto_request_denied()
 
         desc = "all files" if all_files else ", ".join(file_paths[:3])
         if len(file_paths) > 3:
@@ -692,6 +704,13 @@ class AgentToolHandlersMixin:
         if confirmed:
             result = execute_tool("git_add", tool_input)
             if result["success"]:
+                if self.config.auto_confirm:
+                    from pathlib import Path
+
+                    directory = Path(tool_input["working_dir"]).resolve()
+                    allowed = getattr(self, "_auto_staged_files", set())
+                    allowed.update(str((directory / name).resolve()) for name in file_paths)
+                    self._auto_staged_files = allowed
                 staged = result.get("staged_files", [])
                 print_success(f"Staged {len(staged)} file(s)")
             else:
@@ -705,6 +724,14 @@ class AgentToolHandlersMixin:
         """Handle git commit with confirmation."""
         if self.config.auto_confirm and tool_input.get("amend", False):
             return _auto_request_denied()
+        if self.config.auto_confirm:
+            from .tools.git import validate_commit_index
+
+            directory = tool_input.get("working_dir")
+            if not directory or not validate_commit_index(
+                directory, getattr(self, "_auto_staged_files", set())
+            ):
+                return _auto_request_denied("Automatic commit requires a working_dir and only safe files staged this turn.")
         message = tool_input.get("message", "")
         amend = tool_input.get("amend", False)
 
@@ -764,7 +791,7 @@ class AgentToolHandlersMixin:
     def _handle_git_stash(self, tool_input):
         """Handle git stash with confirmation."""
         action = tool_input.get("action", "push")
-        if self.config.auto_confirm and action == "drop":
+        if self.config.auto_confirm and action != "list":
             return _auto_request_denied()
 
         return self._run_tool_with_confirmation(

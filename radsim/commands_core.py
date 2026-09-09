@@ -7,6 +7,7 @@ from typing import Any
 from .config import setup_config
 from .output import (
     print_block,
+    print_error,
     print_help,
     print_info,
     print_labeled_values,
@@ -742,8 +743,22 @@ class CoreCommandHandlersMixin:
         )
         print()
 
-    def _cmd_usage(self, agent):
+    def _cmd_usage(self, agent, args=None):
         """Show session token usage and estimated cost."""
+        provider = getattr(agent.config, "provider", None)
+        if args:
+            if args != ["browser"] or provider != "openrouter":
+                print_error("Use /usage, or /usage browser with OpenRouter.")
+                return
+            import webbrowser
+
+            url = "https://openrouter.ai/activity"
+            try:
+                opened = webbrowser.open_new_tab(url)
+            except (webbrowser.Error, OSError):
+                opened = False
+            print_info("Opened OpenRouter Activity." if opened else f"Open {url}")
+            return
         usage = agent.usage_stats
         input_tokens = usage.get("input_tokens", 0)
         output_tokens = usage.get("output_tokens", 0)
@@ -759,12 +774,13 @@ class CoreCommandHandlersMixin:
             ]
         )
         _append_reported_cost(rows, usage)
-        _append_estimated_cost(
-            rows,
-            usage,
-            model,
-            getattr(agent.config, "provider", None),
-        )
+        if provider == "openrouter":
+            if not usage.get("reported_cost_requests"):
+                rows.append(("Session cost:", "Not reported by OpenRouter"))
+            rows.append(("Scope:", "This RadSim session; not account-wide spend"))
+            rows.append(("Account spend:", "/usage browser — OpenRouter Activity"))
+        else:
+            _append_estimated_cost(rows, usage, model, provider)
         print_labeled_values(rows, label_width=16)
 
     def _cmd_copy(self, agent, args=None):

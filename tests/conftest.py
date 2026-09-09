@@ -35,6 +35,9 @@ _SINGLETON_RESETS = [
     ("radsim.extension_loader", "_extension_loader", None),
     ("radsim.todo", "_tracker", None),
     ("radsim.safety", "_telegram_confirm_fn", None),
+    # Auto mode is a startup property, so a test that turns it on would
+    # otherwise sandbox every later test's shell command.
+    ("radsim.tools.sandbox", "_auto_mode_enabled", False),
 ]
 
 

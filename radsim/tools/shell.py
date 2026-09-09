@@ -17,6 +17,7 @@ from .constants import (
     MAX_SHELL_TIMEOUT,
 )
 from .environment import build_child_environment
+from .sandbox import wrap_shell_arguments
 from .validation import validate_shell_command
 
 
@@ -291,7 +292,7 @@ def run_process(arguments, timeout=120, working_dir=None):
     return _run_arguments(arguments, timeout, working_dir)
 
 
-def _run_arguments(arguments, timeout, working_dir):
+def _run_arguments(arguments, timeout, working_dir, sandbox=False):
     """Execute validated argv and return the public result shape."""
     timeout, error = _validate_timeout(timeout)
     if error:
@@ -300,6 +301,8 @@ def _run_arguments(arguments, timeout, working_dir):
     if error:
         return {"success": False, "error": error}
     try:
+        if sandbox:
+            arguments = wrap_shell_arguments(arguments, cwd)
         result = _execute(
             arguments,
             timeout=timeout,
@@ -332,4 +335,4 @@ def run_shell_command(command, timeout=120, working_dir=None):
         arguments = ["powershell", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command]
     else:
         arguments = ["bash", "--noprofile", "--norc", "-c", command]
-    return _run_arguments(arguments, timeout, working_dir)
+    return _run_arguments(arguments, timeout, working_dir, sandbox=True)

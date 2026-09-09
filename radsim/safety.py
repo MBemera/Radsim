@@ -248,6 +248,20 @@ def _should_auto_confirm_write(file_path, config):
         return False, "trust_unavailable"
 
 
+def _enable_auto_confirm(config):
+    """Turn on auto mode mid-session, keeping the sandbox in step with it.
+
+    Answering "all" reaches the same state as starting with --yes, so the
+    sandbox has to follow; otherwise auto mode would run unconfined purely
+    because it was enabled at a prompt instead of on the command line.
+    """
+    from .tools.sandbox import set_auto_mode
+
+    config.auto_confirm = True
+    set_auto_mode(True)
+    print("  ok Auto-confirm enabled (dangerous actions will still prompt)")
+
+
 def _record_write_decision(file_path, accepted, config):
     """Record a write prompt decision if trust learning is enabled."""
     try:
@@ -374,8 +388,7 @@ def confirm_write(file_path, content, config=None):
 
             if response_lower in ["a", "all", "always"]:
                 if config:
-                    config.auto_confirm = True
-                    print("  ok Auto-confirm enabled (dangerous actions will still prompt)")
+                    _enable_auto_confirm(config)
                 _record_write_decision(file_path, True, config)
                 return True
 
@@ -439,7 +452,6 @@ def confirm_action(message, config=None):
     answer = ask_confirmation(message, offer_all=bool(config))
 
     if answer == "all":
-        config.auto_confirm = True
-        print("  ok Auto-confirm enabled (dangerous actions will still prompt)")
+        _enable_auto_confirm(config)
 
     return answer in ("yes", "all")

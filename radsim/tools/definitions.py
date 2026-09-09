@@ -11,6 +11,12 @@ def _tool(
     required: list[str] | None = None,
 ) -> dict:
     """Build one provider-facing tool schema entry."""
+    if name.startswith("git_"):
+        properties = dict(properties or {})
+        properties["working_dir"] = {
+            "type": "string",
+            "description": "Repository directory. Always set for nested repositories; paths are relative to it.",
+        }
     return {
         "name": name,
         "description": description,

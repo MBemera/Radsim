@@ -349,7 +349,6 @@ def print_status_bar(model, input_tokens, output_tokens, usage_limits=None):
     from .pricing import estimate_usage_cost
 
     columns, _ = shutil.get_terminal_size()
-
     total_tokens = input_tokens + output_tokens
 
     # Plan windows replace cost: subscription turns are never billed per token.

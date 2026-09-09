@@ -227,3 +227,18 @@ These require explicit confirmation:
 - `git rebase`
 
 Use `run_shell_command` for these operations.
+
+## Repository scope and recovery
+
+Set `working_dir` on every Git tool when working in a nested repository. A shell
+`cd` does not change the directory used by later tools. Verify the root with
+`git -C nested rev-parse --show-toplevel`, then use paths relative to that directory.
+Automatic staging requires explicit literal file paths in one repository; broad
+staging, directories, secret paths and nested repository pointers are refused.
+Stash push/pop/drop require manual approval because they alter or remove work.
+A clean index does not prove that a stash or earlier commit contains no documents.
+Use metadata evidence (`git show --raw --no-patch` is not a content inspection);
+name-only output cannot establish Git object types. Never recommend `reset --hard`
+for cleanup without checking local work and obtaining explicit destructive approval.
+Permission refusals are boundaries. Three refusals end the turn; do not retry via
+another wrapper or tool. Report earlier successful actions and unresolved state.
