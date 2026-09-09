@@ -395,3 +395,34 @@ class TestSubagentIsNotTelegramSafe:
         from radsim.commands_metadata import TELEGRAM_SAFE_COMMANDS
 
         assert "/subagent" not in TELEGRAM_SAFE_COMMANDS
+
+
+class TestSubscriptionLockout:
+    """/subagent says so plainly instead of configuring an unusable delegate."""
+
+    def make_agent(self, provider):
+        return SimpleNamespace(
+            config=SimpleNamespace(auto_confirm=True, provider=provider),
+            _telegram_mode=False,
+        )
+
+    def test_the_command_is_closed_on_the_subscription(self, registry):
+        agent = self.make_agent("chatgpt")
+
+        with patch("radsim.commands_workflow.print_info") as mock_info, patch(
+            "radsim.commands_workflow.WorkflowCommandHandlersMixin._subagent_status"
+        ) as mock_status:
+            _run(registry, agent, "/subagent status")
+
+        mock_status.assert_not_called()
+        assert "locked" in mock_info.call_args[0][0]
+
+    def test_the_command_stays_open_on_an_api_provider(self, registry):
+        agent = self.make_agent(VALID_PROVIDER)
+
+        with patch(
+            "radsim.commands_workflow.WorkflowCommandHandlersMixin._subagent_status"
+        ) as mock_status:
+            _run(registry, agent, "/subagent status")
+
+        mock_status.assert_called_once()

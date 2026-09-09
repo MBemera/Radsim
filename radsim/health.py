@@ -40,6 +40,11 @@ class HealthChecker:
 
     def check_api_key_present(self) -> tuple[bool, str]:
         """Verify API key is configured."""
+        from .config import SUBSCRIPTION_PROVIDER
+
+        if self.config and getattr(self.config, "provider", None) == SUBSCRIPTION_PROVIDER:
+            return self.check_subscription_sign_in()
+
         if self.config and self.config.api_key:
             # Mask the key for display
             masked = self.config.api_key[:8] + "..." if len(self.config.api_key) > 8 else "***"
@@ -58,6 +63,17 @@ class HealthChecker:
                 return True, f"{var} found in environment"
 
         return False, "No API key configured"
+
+    def check_subscription_sign_in(self) -> tuple[bool, str]:
+        """Verify the ChatGPT sign-in exists without reading its secrets."""
+        from .chatgpt_tokens import read_tokens
+        from .codex_transport import CodexError
+
+        try:
+            read_tokens()
+        except CodexError:
+            return False, "ChatGPT sign-in is required (run: radsim login chatgpt)"
+        return True, "ChatGPT subscription sign-in found"
 
     def check_log_directory(self) -> tuple[bool, str]:
         """Verify log directory is writable."""

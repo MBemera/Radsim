@@ -959,6 +959,17 @@ def create_client(
     timeout=DEFAULT_TIMEOUT_SECONDS,
 ):
     """Create an API client for the specified provider."""
+    if provider == "chatgpt":
+        # Imported here because the subscription client builds on this module.
+        from .chatgpt_client import ChatGPTClient
+
+        subscription_kwargs = {"timeout": timeout}
+        if model:
+            subscription_kwargs["model"] = model
+        if reasoning_effort:
+            subscription_kwargs["reasoning_effort"] = reasoning_effort
+        return ChatGPTClient(**subscription_kwargs)
+
     clients = {
         "claude": ClaudeClient,
         "openai": OpenAIClient,

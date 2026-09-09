@@ -876,3 +876,39 @@ class TestCancellationStopsWork:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSubscriptionLockout:
+    """The ChatGPT subscription has no API credential, so delegation is closed."""
+
+    def make_agent(self, provider):
+        agent = FakeAgent()
+        agent.config.provider = provider
+        return agent
+
+    def test_delegation_is_refused_on_the_subscription(self, saved_selection):
+        agent = self.make_agent("chatgpt")
+
+        with patch("radsim.sub_agent.execute_subagent_task") as mock_execute:
+            result = agent._handle_delegate_task({"task_description": "do it"})
+
+        mock_execute.assert_not_called()
+        assert result["success"] is False
+        assert "locked" in result["error"]
+
+    def test_delegation_still_runs_on_an_api_provider(self, saved_selection):
+        agent = self.make_agent(VALID_PROVIDER)
+
+        with patch.object(FakeAgent, "_run_single_delegation", return_value={"success": True}):
+            result = agent._handle_delegate_task({"task_description": "do it"})
+
+        assert result == {"success": True}
+
+    def test_the_model_never_sees_the_delegation_tool_on_the_subscription(self):
+        from radsim.agent_api import _without_locked_subagent_tools
+
+        tools = [{"name": "delegate_task"}, {"name": "read_file"}]
+
+        assert _without_locked_subagent_tools(tools, "chatgpt") == [{"name": "read_file"}]
+        assert _without_locked_subagent_tools(tools, VALID_PROVIDER) == tools
+        assert _without_locked_subagent_tools(tools, None) == tools
