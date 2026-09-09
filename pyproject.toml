@@ -30,7 +30,7 @@ classifiers = [
 # providers need them.
 dependencies = [
     "anthropic>=0.40.0,<1.0",
-    "openai>=1.50.0,<2.0",
+    "openai>=2.29.0,<3.0",
     "rich>=13.0.0",
     "prompt_toolkit>=3.0.36",
 ]

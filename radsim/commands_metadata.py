@@ -112,8 +112,10 @@ DEFAULT_COMMAND_SPECS = [
         summary="Interactively switch your AI provider and model.",
         usage=["/switch"],
         details="Opens an interactive menu to select a new provider (Claude, GPT-5,\n"
-            "Gemini, Vertex AI, OpenRouter) and then pick a model. Requires an\n"
-            "API key already configured in your .env file.",
+            "OpenRouter) and then pick a model. Requires an API key already\n"
+            "configured in your .env file. The ChatGPT subscription entry opens\n"
+            "its own menu for sign in, sign out, plan and quota, models, and\n"
+            "switching this session onto your ChatGPT plan.",
         examples=["/switch", "/model"],
         related=["/config", "/free"],
         tips=["Use /free to instantly switch to the cheapest model."],

@@ -98,7 +98,11 @@ class AgentConversationMixin:
         if not model:
             from .config import DEFAULT_MODELS
 
-            model = self.config.model or DEFAULT_MODELS.get(provider)
+            model = (
+                self.config.model
+                if provider == self.config.provider
+                else DEFAULT_MODELS.get(provider)
+            )
 
         from .config import load_reasoning_effort, resolve_reasoning_effort
 
@@ -107,21 +111,25 @@ class AgentConversationMixin:
             model,
             load_reasoning_effort(),
         )
-        self.config.provider = provider
-        self.config.api_key = api_key
-        self.config.model = model
-        self.config.reasoning_effort = reasoning_effort
-        self.client = create_client(
+        client = create_client(
             provider,
             api_key,
             model,
             reasoning_effort=reasoning_effort,
         )
+        self.config.provider = provider
+        self.config.api_key = api_key
+        self.config.model = model
+        self.config.reasoning_effort = reasoning_effort
+        self.client = client
 
         try:
-            from .config import save_config
+            from .config import SUBSCRIPTION_PROVIDER, save_config, save_subscription_selection
 
-            save_config(api_key, provider, model)
+            if provider == SUBSCRIPTION_PROVIDER:
+                save_subscription_selection(model)
+            else:
+                save_config(api_key, provider, model)
         except Exception as error:
             logger.debug("Failed to persist provider/model: %s", error)
             print_warning(f"Switched in this session, but could not save preference: {error}")
