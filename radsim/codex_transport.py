@@ -15,6 +15,8 @@ from .version import get_radsim_version
 MAX_FRAME_BYTES = 1024 * 1024
 MAX_PENDING_MESSAGES = 32
 REQUEST_TIMEOUT = 30.0
+# Windows has no SIGKILL; _signal_process ignores the signal there and kills directly.
+FORCE_KILL = getattr(signal, "SIGKILL", signal.SIGTERM)
 
 
 class CodexError(RuntimeError):
@@ -204,9 +206,9 @@ class CodexTransport:
         try:
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
-            self._signal_process(process, signal.SIGKILL)
+            self._signal_process(process, FORCE_KILL)
             process.wait(timeout=2)
-        self._signal_process(process, signal.SIGKILL)
+        self._signal_process(process, FORCE_KILL)
         for stream in (process.stdin, process.stdout):
             stream.close()
         if self.reader is not None:

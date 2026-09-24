@@ -87,10 +87,11 @@ See [the current handoff](../uptodate.md) for final check/install/commit status.
   are tested at relevant boundaries; no new server, database or listener is added.
 - The subscription endpoint is not a documented public API. Its contract can
   change; it requires streaming and rejects `max_output_tokens`, so a model-side
-  output-token ceiling is unavailable. The Codex CLI pin only checks account
-  protocol compatibility, not future backend behavior.
+  output-token ceiling is unavailable. Any installed Codex CLI version is
+  accepted; account protocol changes in a new release surface as Codex errors.
 - Primary-provider support does not add subscription support to RadSim's
-  independently configured subagents. Codex account operations require 0.153.4.
+  independently configured subagents. Codex is only looked up in absolute PATH
+  directories, so a workspace cannot substitute its own `codex` executable.
 
 These checks map to NIST SSDF/CSF verification, OWASP input/access controls,
 CIS least privilege and SLSA/OpenSSF dependency provenance. This is a scoped
