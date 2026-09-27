@@ -2,13 +2,13 @@
 
 import json
 import os
-import shutil
+import re
 import subprocess
 from pathlib import Path
 
 from .codex_transport import CodexError, CodexTransport
 
-SUPPORTED_CODEX_VERSION = "0.153.4"
+CODEX_VERSION_OUTPUT = re.compile(r"codex-cli \d+\.\d+\.\d+\S*")
 PERMISSION_PROFILE = "radsim-subscription"
 SAFE_ENVIRONMENT = (
     "PATH",
@@ -82,15 +82,35 @@ def _toml_value(value) -> str:
     return json.dumps(value)
 
 
+def codex_candidates(path: str) -> list[Path]:
+    """List possible Codex executables on PATH, skipping workspace-relative entries.
+
+    Only absolute PATH directories are searched, so a repository cannot supply
+    its own `codex` through `.` or a relative entry. Unlike `shutil.which`, the
+    current directory is never searched implicitly on Windows.
+    """
+    names = ["codex"]
+    if os.name == "nt":
+        extensions = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";")
+        names = [f"codex{extension.lower()}" for extension in extensions if extension]
+    candidates = []
+    for directory in path.split(os.pathsep):
+        if not directory or not os.path.isabs(directory):
+            continue
+        for name in names:
+            candidate = Path(directory) / name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                candidates.append(candidate)
+    return candidates
+
+
 def find_codex(home: Path, environment: dict[str, str]) -> str:
-    executable = shutil.which("codex", path=environment.get("PATH", ""))
-    if not executable:
+    candidates = codex_candidates(environment.get("PATH", ""))
+    if not candidates:
         raise CodexError(
             "Codex CLI is missing. Install it using https://learn.chatgpt.com/docs/cli"
         )
-    executable = str(Path(executable).resolve())
-    if Path(executable).is_relative_to(Path.cwd().resolve()):
-        raise CodexError("Refusing to run a Codex executable from the current workspace.")
+    executable = str(candidates[0].resolve())
     try:
         result = subprocess.run(
             [executable, "--version"],
@@ -102,11 +122,8 @@ def find_codex(home: Path, environment: dict[str, str]) -> str:
         )
     except (OSError, subprocess.SubprocessError):
         raise CodexError("Could not check the installed Codex CLI version.") from None
-    if (
-        result.stdout.decode("utf-8", errors="replace").strip()
-        != f"codex-cli {SUPPORTED_CODEX_VERSION}"
-    ):
-        raise CodexError(f"This integration requires tested Codex CLI {SUPPORTED_CODEX_VERSION}.")
+    if not CODEX_VERSION_OUTPUT.fullmatch(result.stdout.decode("utf-8", errors="replace").strip()):
+        raise CodexError("The `codex` found on PATH did not report a Codex CLI version.")
     return executable
 
 

@@ -53,28 +53,63 @@ def test_private_directory_rejects_symlink(tmp_path):
         codex_connection.private_directory(link)
 
 
-def test_missing_codex_has_actionable_error(monkeypatch, tmp_path):
-    monkeypatch.setattr(codex_connection.shutil, "which", lambda *_, **__: None)
+def fake_codex(directory):
+    directory.mkdir(parents=True, exist_ok=True)
+    name = "codex.cmd" if codex_connection.os.name == "nt" else "codex"
+    executable = directory / name
+    executable.write_text("")
+    executable.chmod(0o755)
+    return executable
+
+
+def test_missing_codex_has_actionable_error(tmp_path):
     with pytest.raises(CodexError, match="CLI is missing"):
-        codex_connection.find_codex(tmp_path, {})
+        codex_connection.find_codex(tmp_path, {"PATH": str(tmp_path / "empty")})
 
 
-def test_unverified_cli_version_is_rejected(monkeypatch, tmp_path):
-    monkeypatch.setattr(codex_connection.shutil, "which", lambda *_, **__: "/trusted/codex")
+@pytest.mark.parametrize("version", ["codex-cli 0.153.4", "codex-cli 0.155.1", "codex-cli 1.0.0-beta"])
+def test_any_codex_cli_version_is_accepted(monkeypatch, tmp_path, version):
+    executable = fake_codex(tmp_path / "bin")
     monkeypatch.setattr(
         codex_connection.subprocess,
         "run",
-        lambda *_, **__: SimpleNamespace(stdout=b"codex-cli 0.1.0"),
+        lambda *_, **__: SimpleNamespace(stdout=version.encode()),
     )
-    with pytest.raises(CodexError, match="requires tested"):
-        codex_connection.find_codex(tmp_path, {})
+    assert codex_connection.find_codex(tmp_path, {"PATH": str(tmp_path / "bin")}) == str(
+        executable.resolve()
+    )
 
 
-def test_workspace_codex_binary_is_rejected(monkeypatch, tmp_path):
+def test_non_codex_version_output_is_rejected(monkeypatch, tmp_path):
+    fake_codex(tmp_path / "bin")
+    monkeypatch.setattr(
+        codex_connection.subprocess,
+        "run",
+        lambda *_, **__: SimpleNamespace(stdout=b"something else 1.2.3"),
+    )
+    with pytest.raises(CodexError, match="did not report"):
+        codex_connection.find_codex(tmp_path, {"PATH": str(tmp_path / "bin")})
+
+
+def test_workspace_relative_path_entries_are_ignored(monkeypatch, tmp_path):
+    fake_codex(tmp_path)
+    fake_codex(tmp_path / "tools")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(codex_connection.shutil, "which", lambda *_, **__: str(tmp_path / "codex"))
-    with pytest.raises(CodexError, match="current workspace"):
-        codex_connection.find_codex(tmp_path, {})
+    path = codex_connection.os.pathsep.join([".", "tools"])
+    with pytest.raises(CodexError, match="CLI is missing"):
+        codex_connection.find_codex(tmp_path, {"PATH": path})
+
+
+def test_absolute_install_under_current_directory_is_allowed(monkeypatch, tmp_path):
+    executable = fake_codex(tmp_path / "AppData" / "npm")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        codex_connection.subprocess,
+        "run",
+        lambda *_, **__: SimpleNamespace(stdout=b"codex-cli 0.155.1"),
+    )
+    found = codex_connection.find_codex(tmp_path, {"PATH": str(tmp_path / "AppData" / "npm")})
+    assert found == str(executable.resolve())
 
 
 @pytest.mark.parametrize("action", ["login", "logout", "status", "models"])
