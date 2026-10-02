@@ -1,5 +1,7 @@
 """Security regression tests for shell command policy boundaries."""
 
+import pytest
+
 from radsim.tools.command_policy import CommandPolicy
 
 
@@ -58,6 +60,7 @@ class TestWhitelistSegments:
         assert allowed is False
 
 
+@pytest.mark.usefixtures("posix_shell_policy")
 class TestFailClosedPolicy:
     """Invalid configuration and obfuscated catastrophe must never widen access."""
 

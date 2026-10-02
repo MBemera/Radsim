@@ -25,15 +25,17 @@ def _run_user_shell_command(command, agent):
 
     from .output import print_error, print_info
     from .tools.command_policy import get_command_policy
+    from .tools.shell import user_shell_invocation
 
     allowed, reason = get_command_policy().is_command_allowed(command)
     if not allowed:
         print_error(reason)
         return
 
+    invocation, use_shell = user_shell_invocation(command)
     try:
         completed = subprocess.run(
-            command, shell=True, capture_output=True, text=True, timeout=120
+            invocation, shell=use_shell, capture_output=True, text=True, timeout=120
         )
     except subprocess.TimeoutExpired:
         print_error("Command timed out after 120s")

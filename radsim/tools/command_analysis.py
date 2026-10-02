@@ -9,6 +9,7 @@ agent's destructive/privilege classification, so a single, well-tested
 source of truth decides safety.
 """
 
+import os
 import re
 import shlex
 from pathlib import PurePosixPath
@@ -428,7 +429,7 @@ def has_brace_expansion(token):
     return bool(re.search(r"\{[^{}]*(?:,|\.\.)[^{}]*\}", visible_text))
 
 
-def _has_inline_code_flag(head_names, tokens):
+def has_inline_code_flag(head_names, tokens):
     """Return True for interpreter flags that execute an inline string."""
     lowered = [token.lower() for token in tokens]
     if any(_PYTHON_PROGRAM.match(name) for name in head_names):
@@ -517,7 +518,7 @@ def has_unanalyzable_execution(segment):
         return True
     if _privilege_opens_shell(effective):
         return True
-    if _has_inline_code_flag(head_names, effective[1:]):
+    if has_inline_code_flag(head_names, effective[1:]):
         return True
 
     privileged = _privileged_command_tokens(effective)
@@ -559,7 +560,7 @@ def _segment_is_destructive(segment, destructive_commands):
         return True
     if head_names & POWERSHELL_DESTRUCTIVE_COMMANDS:
         return True
-    if head_names & NESTED_SHELL_PROGRAMS or _has_inline_code_flag(head_names, effective[1:]):
+    if head_names & NESTED_SHELL_PROGRAMS or has_inline_code_flag(head_names, effective[1:]):
         return True
 
     # Two-word destructive forms: "git push", "docker rm", "crontab -r",
@@ -792,3 +793,28 @@ def is_destructive_command(command, destructive_commands):
         _segment_is_destructive(segment, normalized)
         for segment in split_into_segments(tokens)
     )
+
+
+def shell_is_powershell():
+    """True when agent shell commands run in Windows PowerShell (see tools/shell.py)."""
+    return os.name == "nt"
+
+
+def catastrophic_shell_reason(command):
+    """Return why a command is catastrophic in this platform's shell, or None."""
+    if shell_is_powershell():
+        from .powershell_analysis import catastrophic_reason
+
+        return catastrophic_reason(command)
+    if is_catastrophic_command(command):
+        return "Command is a catastrophic operation"
+    return None
+
+
+def is_destructive_shell_command(command, destructive_commands):
+    """Classify a command in the syntax of the shell that will run it."""
+    if shell_is_powershell():
+        from .powershell_analysis import is_destructive
+
+        return is_destructive(command, destructive_commands)
+    return is_destructive_command(command, destructive_commands)

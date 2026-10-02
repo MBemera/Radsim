@@ -97,6 +97,7 @@ def test_tool_schema_canonicalisation_is_deterministic(names):
 
 @PROPERTY_TEST_SETTINGS
 @given(marker=st.sampled_from(["`", "$", "\x00", "\n", "\r", "<(", ">("]))
+@pytest.mark.usefixtures("posix_shell_policy")
 def test_dangerous_shell_syntax_always_fails_closed(marker):
     valid, reason = validate_shell_command(f"echo safe{marker}payload")
 

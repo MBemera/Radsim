@@ -27,7 +27,7 @@ from .output import (
 from .request_classifier import classify_request
 from .safety import ask_confirmation, confirm_action, confirm_write, is_path_safe
 from .tools import DESTRUCTIVE_COMMANDS, execute_tool
-from .tools.command_analysis import is_destructive_command
+from .tools.command_analysis import is_destructive_shell_command
 from .tools.validation import has_terminal_control_character, validate_shell_command
 
 logger = logging.getLogger(__name__)
@@ -585,7 +585,7 @@ class AgentToolHandlersMixin:
         # Check for destructive commands. Uses structural analysis so wrapped
         # or absolute-path forms ("env sudo", "/usr/bin/sudo") and destructive
         # commands in any pipeline segment cannot bypass confirmation.
-        is_destructive = is_destructive_command(command, DESTRUCTIVE_COMMANDS)
+        is_destructive = is_destructive_shell_command(command, DESTRUCTIVE_COMMANDS)
         confirmed = self._confirm_shell_command(command, is_destructive, tool_input)
 
         if confirmed:

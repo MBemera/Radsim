@@ -12,6 +12,7 @@ from radsim.tools.constants import DESTRUCTIVE_COMMANDS
 from radsim.tools.validation import validate_shell_command
 
 tools_validate_shell_command = validate_shell_command
+pytestmark = pytest.mark.usefixtures("posix_shell_policy")
 
 # =============================================================================
 # Shell Command Injection Tests

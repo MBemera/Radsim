@@ -117,6 +117,10 @@ SECURITY_PRESETS = {
                 "git status", "git log", "git diff", "git branch",
                 "python --version", "node --version", "npm --version",
                 "pip list", "pip show",
+                # Windows PowerShell equivalents of the commands above
+                "get-location", "write-output", "get-childitem", "get-content",
+                "select-object", "measure-object", "select-string", "get-date",
+                "get-command",
             ],
             "blocklist": [],
             "custom_destructive": [],

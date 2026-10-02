@@ -5,6 +5,8 @@ wrapped privilege escalation, cd-based traversal, process substitution,
 and environment-secret isolation.
 """
 
+import pytest
+
 from radsim.tools import command_analysis
 from radsim.tools.constants import DESTRUCTIVE_COMMANDS
 from radsim.tools.environment import build_child_environment, is_secret_variable
@@ -224,6 +226,7 @@ class TestPathTraversal:
         assert command_analysis.is_path_traversal("--dir=..") is True
 
 
+@pytest.mark.usefixtures("posix_shell_policy")
 class TestValidatorAbuseCases:
     """End-to-end validator behavior on abuse inputs."""
 

@@ -207,7 +207,7 @@ TOOL_DEFINITIONS = [
         },
         ["pattern"]),
     # Shell Execution
-    _tool("run_shell_command", "Execute a shell command (bash on Unix, PowerShell on Windows).",
+    _tool("run_shell_command", "Execute a shell command (bash on Unix; Windows PowerShell 5.1 on Windows, where commands chain with ';' not '&&').",
         {
             "_intent": {
                 "type": "string",

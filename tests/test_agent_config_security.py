@@ -1,5 +1,7 @@
 """Security-level preset tests: persistence, the "off" level, and its limits."""
 
+import pytest
+
 from radsim.agent_config import SECURITY_PRESETS, AgentConfigManager
 from radsim.tools.command_policy import CommandPolicy
 
@@ -174,6 +176,7 @@ class TestOffLevelStillBlocksCatastrophic:
         assert reason is None
 
 
+@pytest.mark.usefixtures("posix_shell_policy")
 class TestRestrictiveWhitelistWithRedirection:
     """Restrictive mode must accept whitelisted commands that discard output."""
 

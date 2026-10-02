@@ -240,6 +240,10 @@ def validate_shell_command(command):
     - path traversal ( ``../`` ) in any token
     - catastrophic commands, enforced per pipeline segment by the policy
 
+    On Windows the command runs in PowerShell, where ``$``, backticks, ``&``
+    and parentheses are ordinary syntax, so it is checked against
+    PowerShell's own parse tree instead (see powershell_analysis).
+
     Args:
         command: Command string to validate
 
@@ -257,6 +261,9 @@ def validate_shell_command(command):
 
     if len(command) > MAX_COMMAND_SIZE:
         return False, f"Command exceeds the {MAX_COMMAND_SIZE}-character limit"
+
+    if command_analysis.shell_is_powershell():
+        return _validate_powershell_command(command)
 
     # Phase 1: reject dangerous syntax on the raw string (catches
     # substitution even inside quotes, before we parse).
@@ -293,8 +300,26 @@ def has_terminal_control_character(value):
     return any(is_unsafe_terminal_character(character) for character in value)
 
 
-def _check_for_dangerous_characters(command):
-    """Reject raw-string constructs that hide or inject commands.
+def _validate_powershell_command(command):
+    """Validate a command that will run in Windows PowerShell."""
+    is_safe, rejection_reason = _check_for_hidden_text(command)
+    if not is_safe:
+        return False, rejection_reason
+
+    from .powershell_analysis import unanalyzable_reason
+
+    rejection_reason = unanalyzable_reason(command)
+    if rejection_reason:
+        return False, rejection_reason
+
+    is_allowed, reason = _check_command_policy(command)
+    if not is_allowed:
+        return False, reason
+    return True, None
+
+
+def _check_for_hidden_text(command):
+    """Reject characters that hide part of a command from the person approving it.
 
     Returns:
         Tuple of (is_safe, rejection_reason). is_safe is True when clean.
@@ -307,6 +332,19 @@ def _check_for_dangerous_characters(command):
 
     if has_terminal_control_character(command):
         return False, "Terminal control characters are forbidden in commands"
+
+    return True, None
+
+
+def _check_for_dangerous_characters(command):
+    """Reject raw-string constructs that hide or inject bash commands.
+
+    Returns:
+        Tuple of (is_safe, rejection_reason). is_safe is True when clean.
+    """
+    is_safe, rejection_reason = _check_for_hidden_text(command)
+    if not is_safe:
+        return False, rejection_reason
 
     if "`" in command:
         return False, "Backticks are forbidden in commands (command substitution)"
