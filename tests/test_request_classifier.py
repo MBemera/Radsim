@@ -198,10 +198,15 @@ def test_protected_classifier_cannot_rewrite_itself():
     assert is_core_policy_path(radsim.request_classifier.__file__)[0]
 
 
-def test_windows_shell_falls_back_to_confirmation(tmp_path, monkeypatch):
+def test_windows_parser_failure_refuses_automatic_execution(tmp_path, monkeypatch):
+    from radsim.tools.powershell_parser import PowerShellParserError
+
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("radsim.request_classifier.os", SimpleNamespace(name="nt"))
-    assert classify_request("run_shell_command", {"command": "git status"}).decision == "ask"
+    monkeypatch.setattr("radsim.tools.command_analysis.shell_is_powershell", lambda: True)
+    failed_parser = Mock(side_effect=PowerShellParserError("parser unavailable"))
+    monkeypatch.setattr("radsim.tools.powershell_analysis.parse_powershell", failed_parser)
+    monkeypatch.setattr("radsim.request_classifier.parse_powershell", failed_parser)
+    assert classify_request("run_shell_command", {"command": "git status"}).decision != "allow"
 
 
 @pytest.fixture

@@ -83,8 +83,9 @@ class CommandPolicy:
         Returns:
             Tuple of (is_blocked, reason). is_blocked=True means command is forbidden.
         """
-        if command_analysis.is_catastrophic_command(command):
-            return True, "BLOCKED: Command is a catastrophic operation"
+        catastrophic_reason = command_analysis.catastrophic_shell_reason(command)
+        if catastrophic_reason:
+            return True, f"BLOCKED: {catastrophic_reason}"
 
         normalized_forms = self._normalized_command_forms(command)
 
@@ -107,6 +108,9 @@ class CommandPolicy:
         """
         if not whitelist:
             return False, "Whitelist mode active but no commands are whitelisted. Use /settings to configure."
+
+        if command_analysis.shell_is_powershell():
+            return self._check_powershell_whitelist(command, whitelist)
 
         try:
             segments = command_analysis.split_into_segments(command_analysis.tokenize(command))
@@ -133,6 +137,42 @@ class CommandPolicy:
 
         normalized = [token.lower() for token in segment]
         return any(normalized[: len(allowed)] == allowed for allowed in allowed_entries)
+
+    def _check_powershell_whitelist(self, command, whitelist):
+        """Match every PowerShell command against an allowed prefix.
+
+        Only plain commands qualify: literal arguments, no variables, script
+        blocks, call operators or redirection into a file. The name may
+        match as typed or as the command its alias stands for.
+        """
+        from .powershell_analysis import command_names, redirection_writes_file
+        from .powershell_parser import PowerShellParserError, parse_powershell
+
+        allowed_entries = self._parse_policy_entries(whitelist)
+        if allowed_entries is None:
+            return False, "Whitelist configuration is invalid; blocked for safety"
+        try:
+            parsed = parse_powershell(command)
+        except PowerShellParserError:
+            return False, "BLOCKED: Command could not be parsed for whitelist evaluation"
+        if not parsed.plain or any(redirection_writes_file(item) for item in parsed.redirections):
+            first_name = parsed.commands[0].name if parsed.commands else None
+            return False, self._whitelist_rejection(first_name or "command")
+
+        for parsed_command in parsed.commands:
+            arguments = [
+                argument.text if argument.kind == "parameter" else argument.value
+                for argument in parsed_command.arguments
+            ]
+            candidates = [[name, *arguments] for name in command_names(parsed_command)]
+            normalized = [[token.lower() for token in candidate] for candidate in candidates]
+            if not any(
+                candidate[: len(allowed)] == allowed
+                for candidate in normalized
+                for allowed in allowed_entries
+            ):
+                return False, self._whitelist_rejection(parsed_command.name)
+        return True, None
 
     @staticmethod
     def _whitelist_rejection(base_cmd):

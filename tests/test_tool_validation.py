@@ -5,6 +5,8 @@ One test, one thing. Clear names, obvious assertions.
 
 import threading
 
+import pytest
+
 from radsim.tools.validation import (
     clear_path_validation_cache,
     is_protected_path,
@@ -197,6 +199,7 @@ class TestIsProtectedPath:
 # =============================================================================
 
 
+@pytest.mark.usefixtures("posix_shell_policy")
 class TestValidateShellCommand:
     """Tests for validate_shell_command function."""
 
