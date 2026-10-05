@@ -119,12 +119,12 @@ def classify_request(tool_name, tool_input):
     if key is None or not isinstance(tool_input, dict):
         return RequestClassification("ask", "No automatic rule for this request")
     command = tool_input.get(key, "")
-    valid, reason = validate_shell_command(command)
+    working_dir = tool_input.get("working_dir") if tool_name == "run_shell_command" else None
+    valid, reason = validate_shell_command(command, working_dir=working_dir)
     if not valid:
         return RequestClassification("block", reason)
     try:
         root = Path.cwd().resolve()
-        working_dir = tool_input.get("working_dir") if tool_name == "run_shell_command" else None
         directory = Path(working_dir or root).resolve()
         if not directory.is_dir() or not directory.is_relative_to(root):
             return RequestClassification(

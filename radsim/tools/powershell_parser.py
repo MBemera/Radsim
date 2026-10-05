@@ -139,6 +139,18 @@ $typeNames = @(
     }
 )
 
+$contextMutations = $false
+foreach ($assignment in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true)) {
+    $target = $assignment.Left
+    $members = $target.FindAll({ param($node) $node -is [System.Management.Automation.Language.MemberExpressionAst] }, $true)
+    if ($members.Count -gt 0) { $contextMutations = $true }
+    foreach ($variable in $target.FindAll({ param($node) $node -is [System.Management.Automation.Language.VariableExpressionAst] }, $true)) {
+        if ($variable.VariablePath.UserPath -match '^(env:|(?:(global|script|local|private):)?(home|pwd)$)') {
+            $contextMutations = $true
+        }
+    }
+}
+
 $plain = ($errors.Count -eq 0) -and ($null -eq $ast.ParamBlock) -and ($null -eq $ast.BeginBlock) -and ($null -eq $ast.ProcessBlock) -and ($null -eq $ast.DynamicParamBlock) -and ($null -ne $ast.EndBlock) -and ($null -eq $ast.EndBlock.Traps)
 if ($plain) {
     foreach ($statement in $ast.EndBlock.Statements) {
@@ -155,6 +167,7 @@ $result = [ordered]@{
     redirections = $redirections
     methodCalls = $methodCalls
     typeNames = $typeNames
+    contextMutations = $contextMutations
     plain = $plain
 }
 $json = ConvertTo-Json -InputObject $result -Depth 8 -Compress
@@ -217,6 +230,7 @@ class PowerShellParse:
     method_calls: tuple[str, ...]
     type_names: tuple[str, ...]
     plain: bool
+    context_mutations: bool = False
 
 
 def windows_powershell_executable() -> str:
@@ -287,6 +301,7 @@ def _build_parse(document: dict) -> PowerShellParse:
         method_calls=tuple(str(name) for name in document["methodCalls"]),
         type_names=tuple(str(name) for name in document["typeNames"]),
         plain=document["plain"] is True,
+        context_mutations=document["contextMutations"] is True,
     )
 
 

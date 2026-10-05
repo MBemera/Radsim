@@ -16,6 +16,7 @@ Three outcomes, matching the bash rules:
 import ntpath
 import os
 import re
+import shlex
 from dataclasses import dataclass
 
 from .command_analysis import NESTED_SHELL_PROGRAMS, has_inline_code_flag, is_path_traversal
@@ -94,6 +95,10 @@ ICACLS_CHANGE_SWITCHES = (
     "/t",
 )
 PRIVILEGE_WRAPPERS = {"sudo", "gsudo"}
+LOCATION_COMMANDS = {"set-location", "push-location", "pop-location", "new-psdrive", "remove-psdrive"}
+PROVIDER_MUTATION_COMMANDS = DELETION_COMMANDS | MOVE_COMMANDS | {
+    "set-item", "new-item", "set-content", "add-content", "rename-item", "copy-item",
+}
 CMD_DELETE_SWITCHES = {"/s", "/q", "/f", "/p", "/a"}
 
 # Parameters of the item cmdlets above that take a value; any other parameter
@@ -130,6 +135,15 @@ VALUE_PARAMETERS = {
     "ov",
     "ob",
     "pv",
+    "filepath",
+    "argumentlist",
+    "args",
+    "verb",
+    "workingdirectory",
+    "windowstyle",
+    "redirectstandardinput",
+    "redirectstandardoutput",
+    "redirectstandarderror",
 }
 PATH_PARAMETERS = {"path", "literalpath", "pspath", "lp"}
 
@@ -402,6 +416,17 @@ def _command_unanalyzable_reason(command: PowerShellCommand) -> str | None:
         return "Nested shells and inline interpreter code are forbidden"
     if has_inline_code_flag(names, [argument.text for argument in command.arguments]):
         return "Nested shells and inline interpreter code are forbidden"
+    if "start-process" in names:
+        reason = _launch_unanalyzable_reason(command)
+        if reason:
+            return reason
+    if names & PRIVILEGE_WRAPPERS:
+        wrapped = _wrapped_command(command)
+        if wrapped is None:
+            return "Wrapped program names must be literal; blocked for safety"
+        reason = _command_unanalyzable_reason(wrapped)
+        if reason:
+            return reason
     if names & UNANALYZABLE_COMMANDS:
         return "Invoke-Expression, Add-Type and alias changes are forbidden (they hide what runs)"
     if any(value.lower().startswith(COMMAND_REDEFINITION_PREFIXES) for value in literal_values(command)):
@@ -409,6 +434,39 @@ def _command_unanalyzable_reason(command: PowerShellCommand) -> str | None:
     for text in [command.name_text] + [argument.text for argument in command.arguments]:
         if is_path_traversal(text):
             return "Path traversal ('..') is forbidden in command"
+    return None
+
+
+def _launch_unanalyzable_reason(command: PowerShellCommand) -> str | None:
+    """Check the actual Start-Process target and its flattened argument list."""
+    pairs = bound_arguments(command)
+    targets = [argument for name, argument in pairs if name is None or "filepath".startswith(name)]
+    if not targets or targets[0].value is None:
+        return "Start-Process needs a literal program name; blocked for safety"
+    target_argument = targets[0]
+    target = target_argument.value
+    base_name = re.split(r"[\\/]", target)[-1].lower()
+    stem, extension = ntpath.splitext(base_name)
+    names = {base_name, stem} if extension in EXECUTABLE_EXTENSIONS else {base_name}
+    if names & WINDOWS_NESTED_PROGRAMS:
+        return "Nested shells and inline interpreter code are forbidden"
+    arguments = [
+        argument for name, argument in pairs
+        if argument is not target_argument and (name is None or name == "args" or "argumentlist".startswith(name))
+    ]
+    return _launch_arguments_reason(names, arguments)
+
+
+def _launch_arguments_reason(names: set[str], arguments: list[PowerShellArgument]) -> str | None:
+    """Refuse computed or inline-code arguments passed through Start-Process."""
+    if any(argument.items is None for argument in arguments):
+        return "Start-Process arguments must be literal; blocked for safety"
+    try:
+        tokens = shlex.split(" ".join(item for argument in arguments for item in argument.items), posix=False)
+    except ValueError:
+        return "Start-Process arguments could not be checked; blocked for safety"
+    if has_inline_code_flag(names, [token.strip("'\"") for token in tokens]):
+        return "Nested shells and inline interpreter code are forbidden"
     return None
 
 
@@ -429,7 +487,41 @@ def find_catastrophic_reason(parsed: PowerShellParse, context: WindowsPathContex
         reason = _command_catastrophic_reason(command, parsed, context)
         if reason:
             return reason
+    protected_operations = DELETION_COMMANDS | MOVE_COMMANDS | PERMISSION_COMMANDS | PRIVILEGE_WRAPPERS
+    if any(command_names(command) & protected_operations for command in parsed.commands):
+        if _changes_path_context(parsed, context):
+            return "Command is catastrophic: location or environment changes invalidate protected path checks"
     return None
+
+
+def _changes_path_context(parsed: PowerShellParse, context: WindowsPathContext) -> bool:
+    """Reject a changed or unknown path context when checking protected operations."""
+    if parsed.context_mutations:
+        return True
+    if any(name.strip("'\"").lower() in {"setenvironmentvariable", "setcurrentdirectory"} for name in parsed.method_calls):
+        return True
+    check_computed_paths = len(parsed.commands) > 1
+    return any(_command_changes_path_context(command, context, check_computed_paths) for command in parsed.commands)
+
+
+def _command_changes_path_context(
+    command: PowerShellCommand, context: WindowsPathContext, check_computed_paths: bool
+) -> bool:
+    """Detect location, drive, environment-provider and automatic-variable changes."""
+    names = command_names(command)
+    if names & LOCATION_COMMANDS:
+        return True
+    if names & {"set-variable", "new-variable", "remove-variable", "clear-variable"}:
+        return any(value.lower() in {"home", "pwd"} or value.lower().startswith("env:") for value in literal_values(command))
+    if not names & PROVIDER_MUTATION_COMMANDS:
+        return False
+    for argument in path_arguments(command):
+        values = literal_paths(argument, context)
+        if values is None and check_computed_paths:
+            return True
+        if any(re.match(r"^(?:[\w.]+\\)?(?:environment::|env:)", value, re.IGNORECASE) for value in values or []):
+            return True
+    return False
 
 
 def _command_catastrophic_reason(

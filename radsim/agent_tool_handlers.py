@@ -577,7 +577,7 @@ class AgentToolHandlersMixin:
         """Handle shell command with confirmation."""
         command = tool_input.get("command", "")
 
-        is_valid, error = validate_shell_command(command)
+        is_valid, error = validate_shell_command(command, working_dir=tool_input.get("working_dir"))
         if not is_valid:
             print_warning(error)
             return {"success": False, "error": error}

@@ -6,6 +6,7 @@ and machine-wrecking commands must still be refused.
 
 import os
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -109,6 +110,104 @@ def test_dangerous_or_hidden_commands_are_refused(project, command, expected):
     valid, reason = validate_shell_command(command)
     assert valid is False
     assert expected.lower() in reason.lower()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        r"Set-Location C:\Windows; Remove-Item System32 -Recurse -Force",
+        r"cd C:\Windows; Remove-Item System32 -Recurse -Force",
+        r"Push-Location C:\Windows; Move-Item System32 build",
+        r"Pop-Location; Remove-Item build -Recurse",
+        r'$env:TEMP = "C:\Windows"; Remove-Item "$env:TEMP\System32" -Recurse',
+        r'${env:TEMP} = "C:\Windows"; Remove-Item "$env:TEMP\System32" -Recurse',
+        r'$env:TEMP, $other = "C:\Windows", "x"; Remove-Item "$env:TEMP\System32" -Recurse',
+        r"Set-Item Env:TEMP C:\Windows; Remove-Item System32 -Recurse",
+        r"$provider_path = 'Env:TEMP'; Set-Item $provider_path C:\Windows; Remove-Item System32 -Recurse",
+        r"[Environment]::SetEnvironmentVariable('TEMP', 'C:\Windows'); Remove-Item System32 -Recurse",
+        r"[Environment]::CurrentDirectory = 'C:\Windows'; Remove-Item System32 -Recurse",
+        r"New-PSDrive -Name X -PSProvider FileSystem -Root C:\Windows; Remove-Item X:\System32 -Recurse",
+    ],
+)
+def test_context_changes_cannot_hide_protected_operations(project, command):
+    policy = CommandPolicy(FakeConfigManager())
+    assert validate_shell_command(command)[0] is False
+    assert policy.is_command_allowed(command)[0] is False
+    assert classify_request("run_shell_command", {"command": command}).decision == "block"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        r'Start-Process powershell -ArgumentList "-Command Remove-Item C:\Windows -Recurse"',
+        r'start cmd -ArgumentList "/c echo safe"',
+        r'Start-Process -ArgumentList "/c echo safe" -FilePath:cmd',
+        r'Start-Process -FilePath C:\Windows\System32\cmd.exe -Args "/c echo safe"',
+        r'Start-Process python -ArgumentList "-c print(1)"',
+        r'Start-Process python "-c print(1)"',
+        r'Start-Process node -ArgumentList "--eval=1"',
+        r'Start-Process node -Args "--eval=1"',
+        r'Start-Process $program -ArgumentList status',
+        r'Start-Process git -ArgumentList $arguments',
+        r'gsudo powershell -Command "Get-Date"',
+    ],
+)
+def test_process_launch_cannot_hide_nested_execution(project, command):
+    assert validate_shell_command(command)[0] is False
+    assert CommandPolicy(FakeConfigManager()).is_command_allowed(command)[0] is False
+
+
+def test_literal_process_launch_remains_available(project):
+    assert validate_shell_command("Start-Process git -ArgumentList status") == (True, None)
+    assert validate_shell_command("Set-Location tests; Get-ChildItem") == (True, None)
+
+
+def test_protected_execution_directory_blocks_before_running(project, monkeypatch):
+    execute = Mock(side_effect=AssertionError("Command must not execute"))
+    monkeypatch.setattr("radsim.tools.shell._execute", execute)
+    command = "Remove-Item System32 -Recurse -Force"
+    working_dir = os.environ["SystemRoot"]
+    result = run_shell_command(command, working_dir=working_dir)
+    assert result["success"] is False
+    assert "catastrophic" in result["error"]
+    assert classify_request("run_shell_command", {"command": command, "working_dir": working_dir}).decision == "block"
+    execute.assert_not_called()
+
+
+def test_shell_handler_blocks_protected_directory_before_confirmation(project, monkeypatch):
+    from radsim.agent_tool_handlers import AgentToolHandlersMixin
+
+    confirm = Mock(side_effect=AssertionError("Command must not prompt"))
+    execute = Mock(side_effect=AssertionError("Command must not execute"))
+    monkeypatch.setattr("radsim.agent_tool_handlers.ask_confirmation", confirm)
+    monkeypatch.setattr("radsim.agent_tool_handlers.execute_tool", execute)
+    result = AgentToolHandlersMixin()._handle_shell_command({
+        "command": "Remove-Item System32 -Recurse -Force",
+        "working_dir": os.environ["SystemRoot"],
+    })
+    assert result["success"] is False
+    assert "catastrophic" in result["error"]
+    confirm.assert_not_called()
+    execute.assert_not_called()
+
+
+def test_safe_execution_directory_overrides_parent_directory(project, monkeypatch):
+    monkeypatch.chdir(os.environ["SystemRoot"])
+    execute = Mock(return_value=SimpleNamespace(returncode=0, stdout="", stderr=""))
+    monkeypatch.setattr("radsim.tools.shell._execute", execute)
+    result = run_shell_command("Remove-Item build -Recurse", working_dir=project)
+    assert result["success"] is True
+    assert execute.call_args.kwargs["cwd"] == str(project)
+
+
+def test_child_environment_is_used_for_path_checks(project, monkeypatch):
+    monkeypatch.setenv("REVIEW_SECRET_PATH", str(project))
+    execute = Mock(side_effect=AssertionError("Command must not execute"))
+    monkeypatch.setattr("radsim.tools.shell._execute", execute)
+    result = run_shell_command(r'Remove-Item "$env:REVIEW_SECRET_PATH\*" -Recurse')
+    assert result["success"] is False
+    assert "catastrophic" in result["error"]
+    execute.assert_not_called()
 
 
 @pytest.mark.parametrize(

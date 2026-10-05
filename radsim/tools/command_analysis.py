@@ -800,12 +800,12 @@ def shell_is_powershell():
     return os.name == "nt"
 
 
-def catastrophic_shell_reason(command):
+def catastrophic_shell_reason(command, powershell_context=None):
     """Return why a command is catastrophic in this platform's shell, or None."""
     if shell_is_powershell():
         from .powershell_analysis import catastrophic_reason
 
-        return catastrophic_reason(command)
+        return catastrophic_reason(command, powershell_context)
     if is_catastrophic_command(command):
         return "Command is a catastrophic operation"
     return None

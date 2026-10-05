@@ -67,7 +67,7 @@ def command(name, *arguments, alias_of=None, invocation="Unknown", pipeline_id=0
     )
 
 
-def parse(*commands, redirections=(), method_calls=(), type_names=(), errors=(), plain=True):
+def parse(*commands, redirections=(), method_calls=(), type_names=(), errors=(), plain=True, context_mutations=False):
     return PowerShellParse(
         errors=tuple(errors),
         commands=tuple(commands),
@@ -75,6 +75,7 @@ def parse(*commands, redirections=(), method_calls=(), type_names=(), errors=(),
         method_calls=tuple(method_calls),
         type_names=tuple(type_names),
         plain=plain,
+        context_mutations=context_mutations,
     )
 
 
@@ -127,6 +128,49 @@ class TestUnanalyzable:
             command("Where-Object", computed("{ $_.Length -gt 0 }"), pipeline_index=1),
         )
         assert find_unanalyzable_reason(parsed) is None
+
+
+    @pytest.mark.parametrize("target", ["cmd", "powershell.exe", "wsl", r"C:\Windows\System32\cmd.exe"])
+    def test_launch_targets_cannot_hide_shells(self, target):
+        launch = command("Start-Process", parameter("FilePath", target), parameter("ArgumentList"), literal("/c echo safe"))
+        assert "Nested shells" in find_unanalyzable_reason(parse(launch))
+
+    def test_launch_arguments_cannot_hide_inline_code(self):
+        launch = command("Start-Process", literal("python"), literal("-c print(1)"))
+        assert "inline interpreter" in find_unanalyzable_reason(parse(launch))
+
+    def test_launch_target_must_be_literal(self):
+        assert find_unanalyzable_reason(parse(command("Start-Process", computed("$target"))))
+
+    def test_literal_native_launch_is_analysable(self):
+        launch = command("Start-Process", parameter("ArgumentList"), literal("status"), parameter("FilePath"), literal("git"))
+        assert find_unanalyzable_reason(parse(launch)) is None
+
+
+class TestExecutionContext:
+    def test_actual_directory_is_used_for_relative_deletion(self):
+        deletion = parse(command("Remove-Item", literal("System32"), parameter("Recurse")))
+        assert find_catastrophic_reason(deletion, CONTEXT) is None
+        system_context = WindowsPathContext(r"C:\Windows", CONTEXT.environment)
+        assert "catastrophic" in find_catastrophic_reason(deletion, system_context)
+
+    def test_environment_assignment_invalidates_protected_path_checks(self):
+        deletion = command("Remove-Item", template(r"$env:TEMP\System32"), parameter("Recurse"))
+        assert catastrophic(deletion) is None
+        assert "environment changes" in catastrophic(deletion, context_mutations=True)
+
+    def test_location_change_invalidates_relative_deletion(self):
+        location = command("cd", literal(r"C:\Windows"), alias_of="Set-Location")
+        deletion = command("Remove-Item", literal("System32"), parameter("Recurse"))
+        assert "location" in catastrophic(location, deletion)
+
+    def test_read_only_location_change_is_allowed(self):
+        assert catastrophic(command("Set-Location", literal("tests")), command("Get-ChildItem")) is None
+
+    def test_computed_provider_write_invalidates_later_deletion(self):
+        mutation = command("Set-Item", computed("$provider_path"), literal(r"C:\Windows"))
+        deletion = command("Remove-Item", template(r"$env:TEMP\System32"), parameter("Recurse"))
+        assert "environment changes" in catastrophic(mutation, deletion)
 
 
 class TestDiskAndBootCommands:

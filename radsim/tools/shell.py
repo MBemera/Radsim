@@ -293,7 +293,7 @@ def run_process(arguments, timeout=120, working_dir=None):
     return _run_arguments(arguments, timeout, working_dir)
 
 
-def _run_arguments(arguments, timeout, working_dir, sandbox=False):
+def _run_arguments(arguments, timeout, working_dir, sandbox=False, environment=None):
     """Execute validated argv and return the public result shape."""
     timeout, error = _validate_timeout(timeout)
     if error:
@@ -308,7 +308,7 @@ def _run_arguments(arguments, timeout, working_dir, sandbox=False):
             arguments,
             timeout=timeout,
             cwd=cwd,
-            env=build_child_environment(),
+            env=build_child_environment() if environment is None else environment,
         )
         return _format_result(result)
     except subprocess.TimeoutExpired:
@@ -328,11 +328,17 @@ def run_shell_command(command, timeout=120, working_dir=None):
     Returns:
         dict with success, stdout, stderr, returncode
     """
-    is_valid, error = validate_shell_command(command)
+    cwd, error = _resolve_working_dir(working_dir)
+    if error:
+        return {"success": False, "error": error}
+    environment = build_child_environment()
+    is_valid, error = validate_shell_command(command, working_dir=cwd, environment=environment)
     if not is_valid:
         return {"success": False, "error": error}
 
-    return _run_arguments(shell_arguments(command), timeout, working_dir, sandbox=True)
+    return _run_arguments(
+        shell_arguments(command), timeout, cwd, sandbox=True, environment=environment
+    )
 
 
 def shell_arguments(command):

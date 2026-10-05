@@ -50,7 +50,7 @@ class CommandPolicy:
             "custom_destructive": self._config_manager.get("shell_commands.custom_destructive", []),
         }
 
-    def is_command_allowed(self, command: str) -> tuple[bool, str | None]:
+    def is_command_allowed(self, command: str, powershell_context=None) -> tuple[bool, str | None]:
         """Check if a command is allowed by current policy.
 
         Args:
@@ -64,7 +64,7 @@ class CommandPolicy:
             return False, "Empty command"
 
         # Always block catastrophic commands regardless of security level
-        is_catastrophic, reason = self._check_always_blocked(command)
+        is_catastrophic, reason = self._check_always_blocked(command, powershell_context)
         if is_catastrophic:
             return False, reason
 
@@ -77,13 +77,13 @@ class CommandPolicy:
             return self._check_blocklist(command, config["blocklist"], config["custom_destructive"])
         return False, f"Invalid shell command policy mode: {mode!r}"
 
-    def _check_always_blocked(self, command: str) -> tuple[bool, str | None]:
+    def _check_always_blocked(self, command: str, powershell_context=None) -> tuple[bool, str | None]:
         """Check against always-blocked commands and patterns.
 
         Returns:
             Tuple of (is_blocked, reason). is_blocked=True means command is forbidden.
         """
-        catastrophic_reason = command_analysis.catastrophic_shell_reason(command)
+        catastrophic_reason = command_analysis.catastrophic_shell_reason(command, powershell_context)
         if catastrophic_reason:
             return True, f"BLOCKED: {catastrophic_reason}"
 

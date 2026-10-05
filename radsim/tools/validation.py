@@ -226,7 +226,7 @@ def contains_symlink(file_path):
         return False, None
 
 
-def validate_shell_command(command):
+def validate_shell_command(command, working_dir=None, environment=None):
     """Validate a shell command using structure-aware rules.
 
     Legitimate shell structure is allowed so the agent can run real
@@ -246,6 +246,8 @@ def validate_shell_command(command):
 
     Args:
         command: Command string to validate
+        working_dir: Directory where the command will execute
+        environment: Child environment used for PowerShell path expansion
 
     Returns:
         Tuple of (is_valid, error_message)
@@ -263,7 +265,7 @@ def validate_shell_command(command):
         return False, f"Command exceeds the {MAX_COMMAND_SIZE}-character limit"
 
     if command_analysis.shell_is_powershell():
-        return _validate_powershell_command(command)
+        return _validate_powershell_command(command, working_dir, environment)
 
     # Phase 1: reject dangerous syntax on the raw string (catches
     # substitution even inside quotes, before we parse).
@@ -300,19 +302,27 @@ def has_terminal_control_character(value):
     return any(is_unsafe_terminal_character(character) for character in value)
 
 
-def _validate_powershell_command(command):
+def _validate_powershell_command(command, working_dir, environment):
     """Validate a command that will run in Windows PowerShell."""
     is_safe, rejection_reason = _check_for_hidden_text(command)
     if not is_safe:
         return False, rejection_reason
 
-    from .powershell_analysis import unanalyzable_reason
+    from .environment import build_child_environment
+    from .powershell_analysis import WindowsPathContext, unanalyzable_reason
 
     rejection_reason = unanalyzable_reason(command)
     if rejection_reason:
         return False, rejection_reason
 
-    is_allowed, reason = _check_command_policy(command)
+    try:
+        context = WindowsPathContext(
+            os.path.abspath(working_dir if working_dir is not None else os.getcwd()),
+            build_child_environment() if environment is None else environment,
+        )
+    except (OSError, TypeError, ValueError):
+        return False, "Invalid PowerShell execution context; blocked for safety"
+    is_allowed, reason = _check_command_policy(command, context)
     if not is_allowed:
         return False, reason
     return True, None
@@ -386,7 +396,7 @@ def _check_tokens(tokens):
     return True, None
 
 
-def _check_command_policy(command):
+def _check_command_policy(command, powershell_context=None):
     """Apply the whitelist/blocklist policy, failing closed on any error.
 
     If the policy engine cannot render a decision the command is blocked:
@@ -398,6 +408,8 @@ def _check_command_policy(command):
     try:
         from .command_policy import get_command_policy
 
+        if powershell_context is not None:
+            return get_command_policy().is_command_allowed(command, powershell_context)
         return get_command_policy().is_command_allowed(command)
     except Exception:
         return False, "Command policy could not be evaluated; blocked for safety"
