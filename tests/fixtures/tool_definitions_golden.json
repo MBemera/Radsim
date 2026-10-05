@@ -392,7 +392,7 @@
     "name": "search_files"
   },
   {
-    "description": "Execute a shell command (bash on Unix, PowerShell on Windows).",
+    "description": "Execute a shell command (bash on Unix; Windows PowerShell 5.1 on Windows, where commands chain with ';' not '&&').",
     "input_schema": {
       "properties": {
         "_intent": {

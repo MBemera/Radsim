@@ -17,6 +17,7 @@ from .constants import (
     MAX_SHELL_TIMEOUT,
 )
 from .environment import build_child_environment
+from .powershell_parser import windows_powershell_executable
 from .sandbox import wrap_shell_arguments
 from .validation import validate_shell_command
 
@@ -292,7 +293,7 @@ def run_process(arguments, timeout=120, working_dir=None):
     return _run_arguments(arguments, timeout, working_dir)
 
 
-def _run_arguments(arguments, timeout, working_dir, sandbox=False):
+def _run_arguments(arguments, timeout, working_dir, sandbox=False, environment=None):
     """Execute validated argv and return the public result shape."""
     timeout, error = _validate_timeout(timeout)
     if error:
@@ -307,7 +308,7 @@ def _run_arguments(arguments, timeout, working_dir, sandbox=False):
             arguments,
             timeout=timeout,
             cwd=cwd,
-            env=build_child_environment(),
+            env=build_child_environment() if environment is None else environment,
         )
         return _format_result(result)
     except subprocess.TimeoutExpired:
@@ -327,12 +328,44 @@ def run_shell_command(command, timeout=120, working_dir=None):
     Returns:
         dict with success, stdout, stderr, returncode
     """
-    is_valid, error = validate_shell_command(command)
+    cwd, error = _resolve_working_dir(working_dir)
+    if error:
+        return {"success": False, "error": error}
+    environment = build_child_environment()
+    is_valid, error = validate_shell_command(command, working_dir=cwd, environment=environment)
     if not is_valid:
         return {"success": False, "error": error}
 
+    return _run_arguments(
+        shell_arguments(command), timeout, cwd, sandbox=True, environment=environment
+    )
+
+
+def shell_arguments(command):
+    """Return argv that runs command in the shell whose rules validated it.
+
+    Windows uses PowerShell by absolute path: a bare name would let Windows
+    pick up a same-named program from the current directory first.
+    """
     if os.name == "nt":
-        arguments = ["powershell", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command]
-    else:
-        arguments = ["bash", "--noprofile", "--norc", "-c", command]
-    return _run_arguments(arguments, timeout, working_dir, sandbox=True)
+        return [
+            windows_powershell_executable(),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+        ]
+    return ["bash", "--noprofile", "--norc", "-c", command]
+
+
+def user_shell_invocation(command):
+    """Return (args, use_shell) for a command the user typed or configured.
+
+    On Windows it runs in PowerShell, the shell the command policy analysed;
+    cmd.exe would expand %VARIABLES% the policy never saw. Elsewhere the
+    command goes to the system shell as before.
+    """
+    if os.name == "nt":
+        return shell_arguments(command), False
+    return command, True

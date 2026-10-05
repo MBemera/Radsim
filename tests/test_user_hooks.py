@@ -161,7 +161,9 @@ class TestFiring:
         assert proceed is False
         assert "timed out" in reason
 
-    def test_tampered_command_blocks_at_run_time(self, isolated_hooks_file, monkeypatch):
+    def test_tampered_command_blocks_at_run_time(
+        self, isolated_hooks_file, monkeypatch, posix_shell_policy
+    ):
         # Bypass save-time validation to simulate hand-editing hooks.json,
         # then also bypass load-time validation to prove the run-time check
         # alone still fails closed.

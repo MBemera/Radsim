@@ -132,6 +132,12 @@ def _redirect_imported_config_paths(monkeypatch, config_directory):
 
 
 @pytest.fixture
+def posix_shell_policy(monkeypatch):
+    """Use Bash grammar for cases that assert POSIX shell syntax."""
+    monkeypatch.setattr("radsim.tools.command_analysis.shell_is_powershell", lambda: False)
+
+
+@pytest.fixture
 def tmp_project(tmp_path):
     """Create a temporary project directory for testing."""
     return tmp_path

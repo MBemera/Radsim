@@ -265,6 +265,7 @@ def _run_hook_command(hook, payload):
         or "failed".
     """
     from .tools.environment import build_child_environment
+    from .tools.shell import user_shell_invocation
     from .tools.validation import validate_shell_command
 
     # Re-validate at run time: hooks.json is user-editable on disk.
@@ -272,10 +273,11 @@ def _run_hook_command(hook, payload):
     if not command_ok:
         return "failed", f"command failed validation: {command_error}"
 
+    invocation, use_shell = user_shell_invocation(hook.command)
     try:
         completed = subprocess.run(
-            hook.command,
-            shell=True,
+            invocation,
+            shell=use_shell,
             input=json.dumps(payload),
             capture_output=True,
             text=True,
