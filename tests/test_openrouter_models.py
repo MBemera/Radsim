@@ -143,7 +143,7 @@ def test_static_fallback_contains_requested_models(fake_home):
         "anthropic/claude-sonnet-5",
         "google/gemini-3.7-flash",
         "x-ai/grok-4.6",
-        "qwen/qwen3.8-max",
+        "qwen/qwen3.8-max-prime",
         "bytedance-seed/seed-2.0-code",
         "moonshotai/kimi-k3",
         "anthropic/claude-fable-5",
@@ -242,7 +242,7 @@ def test_static_glm_capabilities_cover_verified_sampling_parameters(fake_home):
 
 
 def test_static_catalogue_records_the_verified_snapshot_date():
-    assert radsim.config.OPENROUTER_CATALOGUE_SNAPSHOT_DATE == "2026-08-28"
+    assert radsim.config.OPENROUTER_CATALOGUE_SNAPSHOT_DATE == "2026-10-13"
 
 
 def _catalogue_entry(model_id, created, **overrides):
@@ -377,9 +377,121 @@ def test_curated_openrouter_list_offers_the_current_frontier_models():
     curated = {model_id for model_id, _label in radsim.config.PROVIDER_MODELS["openrouter"]}
 
     assert {
-        "anthropic/claude-opus-5",
-        "anthropic/claude-sonnet-5",
+        "anthropic/claude-opus-5.5",
+        "anthropic/claude-sonnet-5.5",
+        "anthropic/claude-haiku-5.5",
+        "openai/gpt-6.1-sol",
+        "openai/gpt-6-astra",
+        "meta/muse-wonder",
+        "stepfun/step-5-preview",
+        "mistralai/mistral-large-4-0",
         "z-ai/glm-5.3",
-        "x-ai/grok-4.6",
-        "google/gemini-3.7-flash",
+        "x-ai/grok-4.7",
+        "google/gemini-3.8-flash",
     } <= curated
+
+
+def test_offline_catalogue_contains_every_model_in_the_october_snapshot(fake_home):
+    models, status = openrouter_models.get_openrouter_catalogue(allow_network=False)
+    model_ids = {model["id"] for model in models}
+
+    assert len(models) == len(model_ids) == 459
+    assert "meta/muse-wonder" in model_ids
+    assert "anthropic/claude-haiku-5.5:batch" in model_ids
+    assert "google/gemini-nano-banana-2.1" in model_ids
+    assert status.source == "bundled-catalogue"
+    assert status.fetched_at.startswith("2026-10-13T")
+    assert status.stale is True
+
+
+def test_offline_picker_offers_all_compatible_bundled_models(fake_home):
+    models = openrouter_models.list_selectable_models(allow_network=False)
+    curated = {model_id for model_id, _label in radsim.config.PROVIDER_MODELS["openrouter"]}
+
+    assert len(models) == 315
+    assert models[0]["id"] == "meta/muse-wonder"
+    assert curated <= {model["id"] for model in models}
+    assert all(model["supports_tools"] and model["supports_text"] for model in models)
+    assert all(not model["id"].endswith(":batch") for model in models)
+
+
+def test_bundled_model_pricing_includes_current_cache_rates(fake_home):
+    pricing = radsim.config.get_model_pricing("openai/gpt-6.1-sol", "openrouter")
+
+    assert float(pricing.input_per_million_usd) == 2.0
+    assert float(pricing.output_per_million_usd) == 10.0
+    assert float(pricing.cache_read_per_million_usd) == 0.1
+    assert float(pricing.cache_write_per_million_usd) == 2.5
+    assert pricing.source == "bundled-catalogue"
+    assert pricing.stale is True
+
+
+def test_new_bundled_model_exposes_context_and_reasoning_metadata(fake_home):
+    model_id = "meta/muse-wonder"
+
+    assert radsim.config.get_context_limit(model_id) == 1048576
+    assert radsim.config.get_reasoning_effort_options("openrouter", model_id) == (
+        "minimal", "low", "medium", "high", "xhigh", "max"
+    )
+    assert radsim.config.resolve_reasoning_effort("openrouter", model_id, "none") == "medium"
+    assert openrouter_models.get_model_request_parameters(model_id) == ("temperature", "top_p")
+
+
+def test_cached_context_overrides_an_outdated_static_limit(fake_home):
+    fake_home.mkdir()
+    cached = {
+        "fetched_at": time.time(),
+        "models": [{"id": "z-ai/glm-5.3", "context_length": 262144}],
+    }
+    (fake_home / "models_cache.json").write_text(json.dumps(cached))
+
+    assert radsim.config.get_context_limit("z-ai/glm-5.3") == 262144
+
+
+def test_model_validation_accepts_models_outside_the_curated_shortcuts(fake_home):
+    curated = {model_id for model_id, _label in radsim.config.PROVIDER_MODELS["openrouter"]}
+    model_id = "inclusionai/ling-3.1-flash"
+
+    assert model_id not in curated
+    assert radsim.config.is_supported_provider_model("openrouter", model_id) == (True, "")
+    assert radsim.config.is_supported_provider_model("openrouter", "moonshotai/kimi-k2.5") == (True, "")
+
+
+@pytest.mark.parametrize("model_id", [
+    "anthropic/claude-haiku-5.5:batch", "qwen/qwen3.8-max", "unknown/model",
+])
+def test_model_validation_rejects_batch_and_unavailable_models(fake_home, model_id):
+    supported, reason = radsim.config.is_supported_provider_model("openrouter", model_id)
+
+    assert supported is False
+    assert "not available" in reason
+
+
+@pytest.mark.parametrize("body", ["{broken", '{"models": []}', '{"fetched_at": 0, "models": []}'])
+def test_invalid_bundled_catalogue_preserves_emergency_fallback(fake_home, monkeypatch, body):
+    snapshot_path = fake_home.parent / "invalid-catalogue.json"
+    snapshot_path.write_text(body)
+    monkeypatch.setattr(openrouter_models, "BUNDLED_CATALOGUE_PATH", snapshot_path)
+
+    models, status = openrouter_models.get_openrouter_catalogue(allow_network=False)
+
+    assert models
+    assert status.source == "static-fallback"
+    assert status.fetched_at is None
+
+
+def test_missing_bundled_catalogue_preserves_emergency_fallback(fake_home, monkeypatch):
+    monkeypatch.setattr(openrouter_models, "BUNDLED_CATALOGUE_PATH", fake_home / "missing.json")
+
+    models, status = openrouter_models.get_openrouter_catalogue(allow_network=False)
+
+    assert models
+    assert status.source == "static-fallback"
+
+
+def test_bundled_catalogue_read_is_bounded(fake_home, monkeypatch):
+    snapshot_path = fake_home.parent / "oversized-catalogue.json"
+    snapshot_path.write_bytes(b" " * 33)
+    monkeypatch.setattr(openrouter_models, "MAX_CACHE_BYTES", 32)
+
+    assert openrouter_models._load_bundled_catalogue(snapshot_path) is None

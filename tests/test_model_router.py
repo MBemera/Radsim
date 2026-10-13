@@ -1,5 +1,7 @@
 """Tests for the Model Router with fallback support."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from radsim.model_router import ModelRouter
@@ -87,18 +89,24 @@ class TestModelSelection:
         assert isinstance(provider, str)
         assert isinstance(model, str)
 
-    def test_select_respects_max_cost(self):
+    def test_select_respects_max_cost(self, monkeypatch):
         router = ModelRouter(primary_provider="claude")
-        provider, model = router.select_model(max_cost=0.5)
-        # Should skip expensive claude models and fall back
-        from radsim.config import get_model_pricing
-
-        pricing = get_model_pricing(model, provider)
-        if pricing is not None:
-            assert (
-                pricing.input_per_million_usd <= 0.5
-                or pricing.output_per_million_usd <= 0.5
+        prices = {
+            "expensive-input": (1.0, 0.1),
+            "expensive-output": (0.1, 1.0),
+            "affordable": (0.1, 0.2),
+        }
+        monkeypatch.setattr(router, "get_fallback_chain", lambda: [
+            ("openrouter", model) for model in prices
+        ])
+        monkeypatch.setattr("radsim.model_router.get_model_pricing", lambda model, provider:
+            SimpleNamespace(
+                input_per_million_usd=prices[model][0],
+                output_per_million_usd=prices[model][1],
             )
+        )
+
+        assert router.select_model(max_cost=0.5) == ("openrouter", "affordable")
 
     def test_select_skips_unhealthy_providers(self):
         router = ModelRouter(primary_provider="claude")

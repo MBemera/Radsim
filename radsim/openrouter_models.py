@@ -2,7 +2,7 @@
 
 Fetches the live model list from https://openrouter.ai/api/v1/models, caches
 it to ~/.radsim/models_cache.json with a 24-hour TTL, and falls back to the
-static catalogue in config.PROVIDER_MODELS on failure.
+bundled catalogue on failure, with config.PROVIDER_MODELS as a last resort.
 """
 
 import json
@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
 from .persistence import atomic_write_json
@@ -19,6 +20,7 @@ from .persistence import atomic_write_json
 logger = logging.getLogger(__name__)
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+BUNDLED_CATALOGUE_PATH = Path(__file__).with_name("openrouter_catalogue.json")
 CACHE_TTL_SECONDS = 24 * 60 * 60
 FETCH_TIMEOUT_SECONDS = 10
 MAX_CATALOGUE_MODELS = 5_000
@@ -351,7 +353,7 @@ def get_openrouter_catalogue(
     if not allow_network:
         if cache:
             return cache["models"], _cache_status(cache, stale=not _is_cache_fresh(cache))
-        return _static_fallback(), CatalogueStatus("static-fallback", None, True)
+        return _fallback_catalogue()
 
     models = _fetch_catalogue_safely()
     if models:
@@ -360,7 +362,7 @@ def get_openrouter_catalogue(
         return models, CatalogueStatus("live-catalogue", _iso_timestamp(fetched_at), False)
     if cache and cache.get("models"):
         return cache["models"], _cache_status(cache, stale=True)
-    return _static_fallback(), CatalogueStatus("static-fallback", None, True)
+    return _fallback_catalogue()
 
 
 def _fetch_catalogue_safely() -> list[dict] | None:
@@ -394,7 +396,7 @@ def get_openrouter_models(
     Order of preference:
     1. Live API fetch (when cache is stale or force_refresh is set)
     2. Cached copy on disk (even if stale, when the network call fails)
-    3. Static fallback derived from config.PROVIDER_MODELS
+    3. Bundled catalogue, then the curated config.PROVIDER_MODELS fallback
     """
     models, _status = get_openrouter_catalogue(force_refresh, allow_network)
     return models
@@ -425,6 +427,34 @@ def _is_selectable_model(model: dict) -> bool:
 def _newest_first_key(model: dict) -> tuple[int, str]:
     """Sort by release date descending, then by label so ties stay stable."""
     return (-(model.get("created") or 0), (model.get("name") or model["id"]).lower())
+
+
+@lru_cache(maxsize=1)
+def _load_bundled_catalogue(path: Path) -> dict | None:
+    """Read the complete, dated offline snapshot with the same cache bounds."""
+    try:
+        with path.open("rb") as snapshot_file:
+            snapshot_bytes = snapshot_file.read(MAX_CACHE_BYTES + 1)
+        if len(snapshot_bytes) > MAX_CACHE_BYTES:
+            return None
+        payload = json.loads(snapshot_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        logger.debug("bundled OpenRouter catalogue read failed: %s", error)
+        return None
+    if not _is_valid_cache(payload) or not payload["models"]:
+        logger.debug("bundled OpenRouter catalogue failed validation")
+        return None
+    return payload
+
+
+def _fallback_catalogue() -> tuple[list[dict], CatalogueStatus]:
+    snapshot = _load_bundled_catalogue(BUNDLED_CATALOGUE_PATH)
+    if snapshot:
+        status = CatalogueStatus(
+            "bundled-catalogue", _iso_timestamp(snapshot["fetched_at"]), True
+        )
+        return snapshot["models"], status
+    return _static_fallback(), CatalogueStatus("static-fallback", None, True)
 
 
 def _static_fallback() -> list[dict]:
@@ -484,9 +514,10 @@ def find_model_with_status(
     for model in models:
         if model["id"] == model_id:
             return model, status
-    for model in _static_fallback():
+    fallback_models, fallback_status = _fallback_catalogue()
+    for model in fallback_models:
         if model["id"] == model_id:
-            return model, CatalogueStatus("static-fallback", None, True)
+            return model, fallback_status
     return None, status
 
 

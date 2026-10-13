@@ -33,7 +33,7 @@ REASONING_EFFORT_LEVELS = (
 DEFAULT_REASONING_EFFORT_OPTIONS = ("low", "medium", "high")
 DEFAULT_REASONING_EFFORT = "medium"
 DEFAULT_OPENROUTER_MODEL = "z-ai/glm-5.3"
-OPENROUTER_CATALOGUE_SNAPSHOT_DATE = "2026-08-28"
+OPENROUTER_CATALOGUE_SNAPSHOT_DATE = "2026-10-13"
 
 
 @dataclass
@@ -72,7 +72,7 @@ RATE_LIMIT_TIERS = {
 DEFAULT_RATE_LIMIT_TIER = "standard"
 
 
-# Available models for each provider (OpenRouter choices verified 28 Aug 2026)
+# Available models for each provider (OpenRouter choices verified 13 Oct 2026)
 PROVIDER_MODELS = {
     "claude": [
         ("claude-opus-4-8", "Claude Opus 4.8 (Most capable — recommended)"),
@@ -87,31 +87,31 @@ PROVIDER_MODELS = {
         ("gpt-5-mini", "GPT-5 Mini (Fast & cheap)"),
     ],
     "openrouter": [
-        ("z-ai/glm-5.3", "GLM 5.3 (Recommended — coding and long-horizon agents)"),
-        ("z-ai/glm-5.3-flash", "GLM 5.3 Flash (Fastest value, 1M+ context)"),
-        ("anthropic/claude-opus-5", "Claude Opus 5 (Top coding capability)"),
-        ("anthropic/claude-sonnet-5", "Claude Sonnet 5 (Balanced Claude 5)"),
-        ("google/gemini-3.7-flash", "Gemini 3.7 Flash (Fast multimodal coding)"),
-        ("x-ai/grok-4.6", "Grok 4.6 (Strong coding and agentic work)"),
-        ("qwen/qwen3.8-max", "Qwen3.8 Max (Open-weight agentic reasoning)"),
-        ("bytedance-seed/seed-2.0-code", "Seed 2.0 Code (Agentic coding specialist)"),
-        ("z-ai/glm-5.2", "GLM 5.2 (Previous generation)"),
-        ("moonshotai/kimi-k3", "Kimi K3 (Coding and long-horizon agents)"),
-        ("anthropic/claude-fable-5", "Claude Fable 5 (Autonomous coding)"),
-        ("openai/gpt-5.6-sol-pro", "GPT-5.6 Sol Pro (Deepest reasoning)"),
-        ("openai/gpt-5.6-sol", "GPT-5.6 Sol (Flagship)"),
-        ("openai/gpt-5.6-terra-pro", "GPT-5.6 Terra Pro (Balanced pro)"),
-        ("openai/gpt-5.6-terra", "GPT-5.6 Terra (Balanced)"),
-        ("openai/gpt-5.6-luna-pro", "GPT-5.6 Luna Pro (Fast pro)"),
-        ("openai/gpt-5.6-luna", "GPT-5.6 Luna (Fast and cost-efficient)"),
-        ("minimax/minimax-m3", "MiniMax M3 (Recommended — top usage)"),
-        ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash (Fast & cheapest)"),
-        ("anthropic/claude-opus-4.8", "Claude Opus 4.8 via OpenRouter"),
-        ("anthropic/claude-sonnet-4.6", "Claude Sonnet 4.6 via OpenRouter"),
-        ("moonshotai/kimi-k2.5", "Kimi K2.5 (Capable & cheap)"),
-        ("openai/gpt-5.4", "GPT-5.4 via OpenRouter"),
-        ("openai/gpt-5.3-codex", "GPT-5.3 Codex via OpenRouter"),
-        ("z-ai/glm-4.7", "GLM 4.7 (Capable)"),
+        ("z-ai/glm-5.3", "Z.ai: GLM 5.3 (Default)"),
+        ("z-ai/glm-5.3-prime", "Z.ai: GLM 5.3 Prime"),
+        ("z-ai/glm-5.3-flashx", "Z.ai: GLM 5.3 FlashX"),
+        ("z-ai/glm-5.3-flash", "Z.ai: GLM 5.3 Flash"),
+        ("openai/gpt-6.1-sol", "OpenAI: GPT-6.1 Sol"),
+        ("openai/gpt-6.1-sol-pro", "OpenAI: GPT-6.1 Sol Pro"),
+        ("openai/gpt-6-astra", "OpenAI: GPT-6 Astra"),
+        ("openai/gpt-6-astra-pro", "OpenAI: GPT-6 Astra Pro"),
+        ("openai/gpt-6-luna", "OpenAI: GPT-6 Luna"),
+        ("openai/gpt-6-luna-pro", "OpenAI: GPT-6 Luna Pro"),
+        ("anthropic/claude-opus-5.5", "Anthropic: Claude Opus 5.5"),
+        ("anthropic/claude-sonnet-5.5", "Anthropic: Claude Sonnet 5.5"),
+        ("anthropic/claude-haiku-5.5", "Anthropic: Claude Haiku 5.5"),
+        ("anthropic/claude-fable-5.1", "Anthropic: Claude Fable 5.1"),
+        ("google/gemini-3.8-flash", "Google: Gemini 3.8 Flash"),
+        ("x-ai/grok-4.7", "SpaceXAI: Grok 4.7"),
+        ("qwen/qwen3.8-max-prime", "Qwen: Qwen3.8 Max Prime"),
+        ("moonshotai/kimi-k3", "MoonshotAI: Kimi K3"),
+        ("deepseek/deepseek-v4.1-flash", "DeepSeek: DeepSeek V4.1 Flash"),
+        ("deepseek/deepseek-v4-pro-0813", "DeepSeek: DeepSeek V4 Pro 0813"),
+        ("minimax/minimax-m3", "MiniMax: MiniMax M3"),
+        ("meta/muse-wonder", "Meta: Muse Wonder"),
+        ("stepfun/step-5-preview", "StepFun: Step 5 Preview"),
+        ("mistralai/mistral-large-4-0", "Mistral: Mistral Large 4"),
+        ("bytedance-seed/seed-2.0-code", "ByteDance Seed: Seed-2.0-Code"),
     ],
 }
 
@@ -164,7 +164,7 @@ FALLBACK_MODELS = {
         "moonshotai/kimi-k3",
         "google/gemini-3.7-flash",
         "anthropic/claude-sonnet-5",
-        "qwen/qwen3.8-max",
+        "qwen/qwen3.8-max-prime",
         "bytedance-seed/seed-2.0-code",
         "openai/gpt-5.6-luna",
         "minimax/minimax-m3",
@@ -381,20 +381,20 @@ CONTEXT_LIMITS = {
 def get_context_limit(model, default=100000):
     """Return the context window for a model in tokens.
 
-    Checks the static table first, then the OpenRouter catalogue cache,
-    then falls back to a conservative default.
+    Prefers the OpenRouter catalogue for routed models, then the static table
+    and a conservative default. This lookup never makes a network request.
     """
-    if model in CONTEXT_LIMITS:
+    if "/" not in model and model in CONTEXT_LIMITS:
         return CONTEXT_LIMITS[model]
     try:
         from .openrouter_models import find_model
 
         entry = find_model(model, allow_network=False)
     except Exception:
-        return default
+        return CONTEXT_LIMITS.get(model, default)
     if entry and entry.get("context_length"):
         return entry["context_length"]
-    return default
+    return CONTEXT_LIMITS.get(model, default)
 
 # Model-specific capabilities and settings per provider documentation
 # RadSim Principle: Explicit Configuration Over Implicit Defaults
@@ -783,7 +783,7 @@ def load_settings_file():
 
 
 def is_supported_provider_model(provider, model):
-    """Check a provider/model pair against the shipped catalogue.
+    """Check a provider/model pair against its available catalogue.
 
     Shared by the primary and subagent selection paths so both reject a
     model that was removed from the catalogue instead of quietly running
@@ -800,6 +800,14 @@ def is_supported_provider_model(provider, model):
     catalogue = PROVIDER_MODELS.get(provider)
     if catalogue is None:
         return False, f"Unknown provider '{provider}'"
+
+    if provider == "openrouter":
+        from .openrouter_models import list_selectable_models
+
+        catalogue = [
+            (entry["id"], entry["name"])
+            for entry in list_selectable_models(allow_network=False)
+        ]
 
     if model in {model_id for model_id, _description in catalogue}:
         return True, ""
