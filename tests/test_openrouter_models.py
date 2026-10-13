@@ -457,6 +457,21 @@ def test_model_validation_accepts_models_outside_the_curated_shortcuts(fake_home
     assert radsim.config.is_supported_provider_model("openrouter", "moonshotai/kimi-k2.5") == (True, "")
 
 
+def test_model_validation_uses_cached_capabilities_without_requiring_a_name(fake_home):
+    fake_home.mkdir()
+    cached = {
+        "fetched_at": time.time(),
+        "models": [
+            {"id": "vendor/new-model", "supports_tools": True},
+            {"id": "z-ai/glm-5.3", "supports_tools": False},
+        ],
+    }
+    (fake_home / "models_cache.json").write_text(json.dumps(cached))
+
+    assert radsim.config.is_supported_provider_model("openrouter", "vendor/new-model") == (True, "")
+    assert radsim.config.is_supported_provider_model("openrouter", "z-ai/glm-5.3")[0] is False
+
+
 @pytest.mark.parametrize("model_id", [
     "anthropic/claude-haiku-5.5:batch", "qwen/qwen3.8-max", "unknown/model",
 ])

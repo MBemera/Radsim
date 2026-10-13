@@ -783,15 +783,7 @@ def load_settings_file():
 
 
 def is_supported_provider_model(provider, model):
-    """Check a provider/model pair against its available catalogue.
-
-    Shared by the primary and subagent selection paths so both reject a
-    model that was removed from the catalogue instead of quietly running
-    something the user did not choose.
-
-    Returns:
-        (supported: bool, reason: str)
-    """
+    """Return support status and reason without making a network request."""
     if not provider or not isinstance(provider, str):
         return False, "No provider selected"
     if not model or not isinstance(model, str):
@@ -804,12 +796,14 @@ def is_supported_provider_model(provider, model):
     if provider == "openrouter":
         from .openrouter_models import list_selectable_models
 
-        catalogue = [
-            (entry["id"], entry["name"])
+        supported_models = {
+            entry["id"]
             for entry in list_selectable_models(allow_network=False)
-        ]
+        }
+    else:
+        supported_models = {model_id for model_id, _description in catalogue}
 
-    if model in {model_id for model_id, _description in catalogue}:
+    if model in supported_models:
         return True, ""
 
     return False, f"Model '{model}' is not available for provider '{provider}'"
