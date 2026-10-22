@@ -25,6 +25,7 @@ _last_interrupt = 0
 _active_agent = None
 _process_handlers_installed = False
 _runtime_warnings_configured = False
+_system_trust_store_enabled = False
 
 
 def set_active_agent(agent):
@@ -106,6 +107,22 @@ def install_process_handlers():
     signal.signal(signal.SIGINT, _emergency_stop_handler)
     atexit.register(_cleanup_on_exit)
     _process_handlers_installed = True
+
+
+def use_system_trust_store():
+    """Verify TLS with the OS trust store so OS distrust lists apply.
+
+    Python's ssl module copies Windows roots into OpenSSL but ignores the
+    Windows untrusted-certificate list, so distrusted CAs still verify.
+    """
+    global _system_trust_store_enabled
+    if _system_trust_store_enabled:
+        return
+
+    import truststore
+
+    truststore.inject_into_ssl()
+    _system_trust_store_enabled = True
 
 
 def parse_arguments():
@@ -301,6 +318,7 @@ def main():
     """Main entry point."""
     from .log_config import configure_logging
 
+    use_system_trust_store()
     configure_runtime_warnings()
     install_process_handlers()
     configure_logging()

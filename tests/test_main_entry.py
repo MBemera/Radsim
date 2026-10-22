@@ -5,6 +5,8 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 
 class TestMainModule:
     """Test python -m radsim works."""
@@ -126,6 +128,42 @@ class TestCLIImportSideEffects:
         assert len(signal_calls) == 1
         assert len(atexit_calls) == 1
         assert len(warning_calls) == 1
+
+    def test_system_trust_store_is_injected_once(self, monkeypatch):
+        import truststore
+
+        import radsim.cli
+
+        inject_calls = []
+        monkeypatch.setattr(truststore, "inject_into_ssl", lambda: inject_calls.append(True))
+
+        cli_module = importlib.reload(radsim.cli)
+
+        assert inject_calls == []
+
+        cli_module.use_system_trust_store()
+        cli_module.use_system_trust_store()
+
+        assert inject_calls == [True]
+
+    def test_main_enables_system_trust_store_before_other_startup(self, monkeypatch):
+        import radsim.cli as cli_module
+
+        startup_calls = []
+        monkeypatch.setattr(
+            cli_module, "use_system_trust_store", lambda: startup_calls.append("trust")
+        )
+        monkeypatch.setattr(
+            cli_module, "configure_runtime_warnings", lambda: startup_calls.append("warnings")
+        )
+        monkeypatch.setattr(cli_module, "install_process_handlers", lambda: None)
+        monkeypatch.setattr("radsim.log_config.configure_logging", lambda: None)
+        monkeypatch.setattr(cli_module, "_handle_login_subcommand", lambda: 0)
+
+        with pytest.raises(SystemExit):
+            cli_module.main()
+
+        assert startup_calls == ["trust", "warnings"]
 
 
 def test_explicit_cli_model_is_persisted(monkeypatch):
