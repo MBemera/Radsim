@@ -11,7 +11,7 @@ to import from anywhere (cli, output, __init__) without cycles.
 # The PyPI distribution is named "radsimcli"; the import package is "radsim".
 DIST_NAME = "radsimcli"
 
-__version__ = "1.7.0"
+__version__ = "1.7.1"
 
 
 def get_radsim_version() -> str:

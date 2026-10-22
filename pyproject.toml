@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "radsimcli"
-version = "1.7.0"
+version = "1.7.1"
 description = "RadSim - Radically Simple Code Generator"
 readme = "README.md"
 license = "MIT"
@@ -27,12 +27,14 @@ classifiers = [
 # packages were moved to extras (R-09): google-genai had no import or provider
 # implementation and was dropped; browser/documents/code-intelligence are
 # optional. rich, openai and anthropic stay because the CLI and default
-# providers need them.
+# providers need them. truststore makes TLS use the OS trust store, so OS
+# distrust lists (e.g. the 2026 eMudhra intermediates) apply.
 dependencies = [
     "anthropic>=0.40.0,<1.0",
     "openai>=2.29.0,<3.0",
     "rich>=13.0.0",
     "prompt_toolkit>=3.0.36",
+    "truststore>=0.10.5,<1.0",
 ]
 
 [project.optional-dependencies]
