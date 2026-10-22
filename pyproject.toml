@@ -42,7 +42,7 @@ browser = [
     "playwright>=1.40.0,<2.0",
 ]
 documents = [
-    "pypdf>=6.19.0,<7.0",
+    "pypdf>=6.21.1,<7.0",
 ]
 code-intel = [
     "tree-sitter>=0.21.0,<1.0",
@@ -51,7 +51,7 @@ code-intel = [
     "tree-sitter-typescript>=0.21.0",
 ]
 mcp = [
-    "mcp>=1.0.0",
+    "mcp>=1.30.0,<2.0",
 ]
 mutation = [
     "mutmut>=3.7.0,<4.0",
